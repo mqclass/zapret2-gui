@@ -192,3 +192,11 @@ pub async fn parse_args_string(raw: String) -> Result<Vec<String>, String> {
     let lists_dir = resolved.lists_dir.unwrap_or_else(|| resolved.bin_dir.join("../lists"));
     Ok(crate::win32::custom_profiles::parse_command_line_args(&raw, &resolved.bin_dir, &lists_dir))
 }
+
+/// Exits the application cleanly, stopping the background supervisor and WinDivert first.
+#[tauri::command]
+pub async fn exit_app(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+    let _ = state.supervisor.stop().await;
+    app.exit(0);
+    Ok(())
+}

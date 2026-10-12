@@ -37,6 +37,13 @@ async fn main() {
     // 3. Build Tauri v2 application
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Intercept close button and hide to system tray instead of terminating
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .manage(AppState {
             supervisor: supervisor_clone,
             diagnostics: diagnostics_clone,
@@ -46,11 +53,18 @@ async fn main() {
             let handle = app.handle().clone();
             supervisor.set_app_handle(handle.clone());
 
+            // If started via Windows autostart with --minimized, hide main window
+            if std::env::args().any(|a| a == "--minimized" || a == "--autostart") {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+
             // Build System Tray Menu
-            let toggle_item = MenuItem::with_id(app, "toggle", "Показать / Скрыть (Show/Hide)", true, None::<&str>)?;
-            let start_item = MenuItem::with_id(app, "start", "Включить обход (Start Bypass)", true, None::<&str>)?;
-            let stop_item = MenuItem::with_id(app, "stop", "Выключить обход (Stop Bypass)", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "Выход (Exit)", true, None::<&str>)?;
+            let toggle_item = MenuItem::with_id(app, "toggle", "Открыть окно zapret2", true, None::<&str>)?;
+            let start_item = MenuItem::with_id(app, "start", "Включить обход", true, None::<&str>)?;
+            let stop_item = MenuItem::with_id(app, "stop", "Выключить обход", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Выход из программы", true, None::<&str>)?;
 
             let tray_menu = Menu::with_items(
                 app,
@@ -64,15 +78,16 @@ async fn main() {
 
             let supervisor_tray = supervisor.clone();
 
-            let mut tray_builder = TrayIconBuilder::new()
+            let icon = match app.default_window_icon().cloned() {
+                Some(i) => i,
+                None => tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).expect("Failed to load embedded tray icon"),
+            };
+
+            let _tray = TrayIconBuilder::new()
                 .menu(&tray_menu)
-                .show_menu_on_left_click(false);
-
-            if let Some(icon) = app.default_window_icon().cloned() {
-                tray_builder = tray_builder.icon(icon);
-            }
-
-            let _tray = tray_builder
+                .icon(icon)
+                .tooltip("zapret2 — Обход блокировок активен")
+                .show_menu_on_left_click(false)
                 .on_menu_event(move |app_h, event| {
                     match event.id.as_ref() {
                         "toggle" => {
@@ -81,6 +96,7 @@ async fn main() {
                                     let _ = window.hide();
                                 } else {
                                     let _ = window.show();
+                                    let _ = window.unminimize();
                                     let _ = window.set_focus();
                                 }
                             }
@@ -109,21 +125,28 @@ async fn main() {
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            if window.is_visible().unwrap_or(false) {
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
+                    match event {
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                        | TrayIconEvent::DoubleClick {
+                            button: MouseButton::Left,
+                            ..
+                        } => {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.unminimize();
+                                    let _ = window.set_focus();
+                                }
                             }
                         }
+                        _ => {}
                     }
                 })
                 .build(app)?;
@@ -148,6 +171,7 @@ async fn main() {
             commands::parse_args_string,
             commands::get_autostart_status,
             commands::set_autostart_status,
+            commands::exit_app,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running zapret2 Tauri supervisor application");

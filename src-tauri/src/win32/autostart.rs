@@ -57,7 +57,7 @@ pub fn set_autostart(enable: bool) -> Result<bool, String> {
     if enable {
         let exe_path = resolve_autostart_exe_path()?;
         let exe_str = exe_path.to_string_lossy().to_string();
-        let task_run_arg = format!("\"{}\"", exe_str);
+        let task_run_arg = format!("\"{}\" --minimized", exe_str);
 
         let output = Command::new("schtasks.exe")
             .args([
