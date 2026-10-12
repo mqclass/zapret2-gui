@@ -1,7 +1,7 @@
 # zapret2 Desktop Supervisor & GUI
 
 <p align="center">
-  <img src="public/icon.ico" width="80" height="80" alt="zapret2 Logo" />
+  <img src="assets/logo.png" width="96" height="96" alt="zapret2 Logo" />
 </p>
 
 <p align="center">
