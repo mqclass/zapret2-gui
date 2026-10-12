@@ -42,6 +42,7 @@ err.txt
 # Workstation helper launcher scripts
 Запустить*.*
 update_zapret2.bat
+push_to_github.bat
 
 # Editor & OS Metadata
 .vscode/
