@@ -13,10 +13,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/mqclass/zapret2-gui/releases"><img src="https://img.shields.io/github/v/release/mqclass/zapret2-gui?color=brightgreen&label=Latest%20Release" alt="Latest Release" /></a>
+  <a href="https://github.com/mqclass/zapret2-gui/releases"><img src="https://img.shields.io/github/downloads/mqclass/zapret2-gui/total?color=blue&label=Downloads" alt="Downloads" /></a>
+  <a href="https://github.com/mqclass/zapret2-gui/stargazers"><img src="https://img.shields.io/github/stars/mqclass/zapret2-gui?style=flat&color=yellow" alt="Stars" /></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-blue.svg" alt="Platform" />
   <img src="https://img.shields.io/badge/Backend-Rust%20%2B%20Tauri%20v2-orange.svg" alt="Backend" />
   <img src="https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript%20%2B%20Tailwind-61dafb.svg" alt="Frontend" />
-  <img src="https://img.shields.io/badge/Engine-winws2%20%2B%20WinDivert-green.svg" alt="Engine" />
   <img src="https://img.shields.io/badge/License-MIT-purple.svg" alt="License" />
 </p>
 
@@ -140,3 +142,10 @@ We express our deepest gratitude to the creators of the original utilities and r
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## 🏷️ Topics & Search Keywords
+
+`zapret` · `zapret2` · `winws` · `winws2` · `WinDivert` · `dpi` · `dpi-bypass` · `youtube-unblock` · `discord-fix` · `bypass-censorship` · `anti-censorship` · `goodbyedpi` · `russia-dpi` · `tauri` · `rust` · `react` · `typescript` · `windows-11` · `windows-10` · `gui`
+
