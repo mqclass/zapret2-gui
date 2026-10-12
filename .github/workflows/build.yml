@@ -71,11 +71,7 @@ jobs:
           Copy-Item -Path ./LICENSE -Destination "$pkgDir/" -Force
 
           # Create launch bat
-          @"
-@echo off
-cd /d "%~dp0"
-start "" "zapret2.exe"
-"@ | Set-Content -Path "$pkgDir/Запустить zapret2.bat" -Encoding ASCII
+          "@echo off`r`ncd /d `"%~dp0`"`r`nstart `"`" `"zapret2.exe`"" | Set-Content -Path "$pkgDir/Запустить zapret2.bat" -Encoding ASCII
 
           Compress-Archive -Path "$pkgDir/*" -DestinationPath ./zapret2-v1.0.5.2-windows-x64.zip -CompressionLevel Optimal
 
