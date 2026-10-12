@@ -6,12 +6,14 @@ on:
       - 'v*'
     branches:
       - main
-      - master
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
-    name: Build Windows x86_64
+    name: Build & Release Windows x86_64
     runs-on: windows-latest
 
     steps:
@@ -35,6 +37,11 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Setup runtime binaries
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts/setup_binaries.ps1
+
       - name: Build Tauri supervisor release binary
         run: |
           cd src-tauri
@@ -43,14 +50,49 @@ jobs:
       - name: Package Release
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path ./release-pkg -Force
-          Copy-Item src-tauri/target/release/zapret2-supervisor.exe ./release-pkg/zapret2.exe
-          Copy-Item -Path ./bin -Destination ./release-pkg/bin -Recurse -Force
-          Copy-Item -Path ./lists -Destination ./release-pkg/lists -Recurse -Force
-          Compress-Archive -Path ./release-pkg/* -DestinationPath ./zapret2-windows-x86_64.zip
+          $pkgDir = "./release-pkg"
+          New-Item -ItemType Directory -Path $pkgDir -Force | Out-Null
+          
+          Copy-Item src-tauri/target/release/zapret2-supervisor.exe "$pkgDir/zapret2.exe" -Force
+          Copy-Item -Path ./bin -Destination "$pkgDir/bin" -Recurse -Force
+          Copy-Item -Path ./lists -Destination "$pkgDir/lists" -Recurse -Force
+          if (Test-Path "strategies") { Copy-Item -Path ./strategies -Destination "$pkgDir/strategies" -Recurse -Force }
+          if (Test-Path "configs") { Copy-Item -Path ./configs -Destination "$pkgDir/configs" -Recurse -Force }
+          
+          # Root helper binaries
+          if (Test-Path "bin/WinDivert.dll") { Copy-Item "bin/WinDivert.dll" "$pkgDir/" -Force }
+          if (Test-Path "bin/WinDivert64.sys") { Copy-Item "bin/WinDivert64.sys" "$pkgDir/" -Force }
+          if (Test-Path "bin/cygwin1.dll") { Copy-Item "bin/cygwin1.dll" "$pkgDir/" -Force }
+          if (Test-Path "bin/winws2.exe") { Copy-Item "bin/winws2.exe" "$pkgDir/" -Force }
+          
+          Copy-Item -Path ./README.md -Destination "$pkgDir/" -Force
+          Copy-Item -Path ./README_EN.md -Destination "$pkgDir/" -Force
+          Copy-Item -Path ./CONFIG_GUIDE.md -Destination "$pkgDir/" -Force
+          Copy-Item -Path ./LICENSE -Destination "$pkgDir/" -Force
+
+          # Create launch bat
+          @"
+@echo off
+cd /d "%~dp0"
+start "" "zapret2.exe"
+"@ | Set-Content -Path "$pkgDir/Запустить zapret2.bat" -Encoding ASCII
+
+          Compress-Archive -Path "$pkgDir/*" -DestinationPath ./zapret2-v1.0.5.2-windows-x64.zip -CompressionLevel Optimal
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: zapret2-windows-x86_64
-          path: ./zapret2-windows-x86_64.zip
+          name: zapret2-v1.0.5.2-windows-x64
+          path: ./zapret2-v1.0.5.2-windows-x64.zip
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: zapret2 Desktop Supervisor & GUI v1.0.5.2
+          files: ./zapret2-v1.0.5.2-windows-x64.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
