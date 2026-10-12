@@ -1,0 +1,56 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Windows x86_64
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Tauri supervisor release binary
+        run: |
+          cd src-tauri
+          cargo build --release
+
+      - name: Package Release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path ./release-pkg -Force
+          Copy-Item src-tauri/target/release/zapret2-supervisor.exe ./release-pkg/zapret2.exe
+          Copy-Item -Path ./bin -Destination ./release-pkg/bin -Recurse -Force
+          Copy-Item -Path ./lists -Destination ./release-pkg/lists -Recurse -Force
+          Compress-Archive -Path ./release-pkg/* -DestinationPath ./zapret2-windows-x86_64.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zapret2-windows-x86_64
+          path: ./zapret2-windows-x86_64.zip
