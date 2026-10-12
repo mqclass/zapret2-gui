@@ -16,6 +16,7 @@ import { DiagnosticsCard } from "./components/DiagnosticsCard";
 import { StrategySelector } from "./components/StrategySelector";
 import { Controls } from "./components/Controls";
 import { LogViewer } from "./components/LogViewer";
+import { DomainManagerModal } from "./components/DomainManagerModal";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
 
@@ -63,6 +64,7 @@ const AppContent: React.FC = () => {
   const [isRefreshingProbes, setIsRefreshingProbes] = useState<boolean>(false);
   const [isAutostart, setIsAutostart] = useState<boolean>(false);
   const [isTogglingAutostart, setIsTogglingAutostart] = useState<boolean>(false);
+  const [isDomainManagerOpen, setIsDomainManagerOpen] = useState<boolean>(false);
 
   const handleToggleAutostart = useCallback(async () => {
     setIsTogglingAutostart(true);
@@ -380,6 +382,7 @@ const AppContent: React.FC = () => {
         isAutostart={isAutostart}
         onToggleAutostart={handleToggleAutostart}
         isTogglingAutostart={isTogglingAutostart}
+        onOpenDomainManager={() => setIsDomainManagerOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -498,6 +501,12 @@ const AppContent: React.FC = () => {
         {/* Real-time Log Stream Viewer (Throttled & capped at 100 in DOM) */}
         <LogViewer logs={logs} onClearLogs={handleClearLogs} />
       </main>
+
+      {/* Domain and Hostlist Manager Modal */}
+      <DomainManagerModal
+        isOpen={isDomainManagerOpen}
+        onClose={() => setIsDomainManagerOpen(false)}
+      />
     </div>
   );
 };

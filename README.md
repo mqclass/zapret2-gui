@@ -10,12 +10,27 @@
 </p>
 
 <p align="center">
+  <strong><a href="README.md">🇷🇺 Русский</a></strong> | <strong><a href="README_EN.md">🇬🇧 English</a></strong>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-blue.svg" alt="Platform" />
   <img src="https://img.shields.io/badge/Backend-Rust%20%2B%20Tauri%20v2-orange.svg" alt="Backend" />
   <img src="https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript%20%2B%20Tailwind-61dafb.svg" alt="Frontend" />
   <img src="https://img.shields.io/badge/Engine-winws2%20%2B%20WinDivert-green.svg" alt="Engine" />
   <img src="https://img.shields.io/badge/License-MIT-purple.svg" alt="License" />
 </p>
+
+---
+
+> [!CAUTION]
+> ### ⚠️ ОСТОРОЖНО: ФЕЙКИ И МОШЕННИКИ
+>
+> - **Я не веду никакие другие страницы, группы в Telegram или каналы на YouTube.**
+> - Программа распространяется **ИСКЛЮЧИТЕЛЬНО на официальном [GitHub](https://github.com/mqclass/zapret2-gui)**.
+> - У меня **нет** YouTube-каналов, я **не** заливаю zapret2-gui на форумы, файлообменники или сторонние сайты.
+> - **Не скачивайте zapret2-gui с других ресурсов** — это могут быть вирусные и модифицированные вредоносные сборки.
+> - Если вы наткнулись на что-то вне этой страницы GitHub, что распространяется от моего лица — **это ФЕЙК**.
 
 ---
 
@@ -31,9 +46,13 @@
 
 - 🛡️ **Изоляция дерева процессов через Windows Job Objects:**
   Дочерний процесс `winws2.exe` привязан к `CreateJobObjectW` с лимитом `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Даже если интерфейс будет принудительно закрыт через Диспетчер задач или упадет, ядро Windows мгновенно завершит дочерний процесс, гарантируя отсутствие «зависших» драйверов и потери интернета.
-- ⚡ **Мгновенный отклик интерфейса (0ms):**
-  Устранены любые задержки при старте и переключении пресетов. Кнопка и индикаторы моментально реагируют на клики.
-- 🎯 **Флагманский пресет `zapret2 РФ Ultimate`:**
+- 📌 **Сворачивание в трей при закрытии (System Tray):**
+  При нажатии на крестик окно сворачивается в системный трей (область уведомлений Windows рядом с часами), а фоновый обход продолжает работать без прерываний. Левый клик разворачивает окно, а правый вызывает контекстное меню управления и полного выхода.
+- 🌐 **Менеджер сайтов и доменов (Hostlist Manager):**
+  Удобное визуальное окно для добавления своих доменов в обход (`list-general.txt`, `list-general-user.txt`, `list-exclude.txt`), быстрого поиска сайтов, их удаления и проверки открытия в браузере.
+- ⚡ **Мгновенный сброс кэша DNS в 1 клик:**
+  Встроенная быстрая очистка кэша DNS Windows (`ipconfig /flushdns`) сразу из интерфейса для моментального применения новых доменов и смены маршрутов.
+- 🎯 **Флагманский пресет «zapret2 РФ Ultimate»:**
   Специально оптимизированная конфигурация под актуальные фильтры ТСПУ РКН:
   - **YouTube 4K 60FPS:** HTTP/3 QUIC Initial обход (UDP 443) + TCP TLS Fake с повторами и смещением `seqovl=681`.
   - **Discord Voice & STUN:** Обход голосовых шлюзов на портах `50000-50100` и `19294-19344` через бинарный payload `ACTIVE_DISCORD_UDP.bin`.
@@ -45,35 +64,15 @@
 - ⚠️ **Детект и устранение конфликтов в 1 клик:**
   Автоматическое обнаружение конкурирующих процессов и служб (GoodbyeDPI, GoodCheck, сторонние инсталляции zapret, зависшие службы WinDivert) с возможностью автоматического решения конфликтов.
 - 🚀 **Бесшовный автозапуск с Windows (без UAC):**
-  Интеграция с Планировщиком заданий Windows (`schtasks`) с наивысшим уровнем привилегий (`RL HIGHEST`). zapret2 запускается автоматически при входе в систему с правами администратора без назойливых всплывающих окон подтверждения UAC.
+  Интеграция с Планировщиком заданий Windows (`schtasks`) с наивысшим уровнем привилегий (`RL HIGHEST`). zapret2 запускается автоматически при входе в систему в свернутом виде (`--minimized`) без назойливых всплывающих окон подтверждения UAC.
 - 🛠️ **Импорт собственных конфигов и готовые шаблоны:**
   Встроенный конструктор и готовые шаблоны (YouTube 4K, Discord Voice, Обход сайтов, Комбо). Парсер позволяет скопировать строку запуска прямо из любого `.bat` файла (с автоматическим распознаванием кавычек, переменных `%BIN%` и `%LISTS%`).
 - 📖 **Подробное руководство по конфигам:**
   В репозиторий включено полное практическое руководство [CONFIG_GUIDE.md](CONFIG_GUIDE.md) с разбором параметров и готовыми шаблонами.
-- 🌐 **Многоязычный интерфейс:**
+- 🌍 **Многоязычный интерфейс:**
   Полная локализация на **Русский**, **English** и **Українська** языки.
 - 📊 **Высокопроизводительный потоковый журнал логов:**
   Асинхронное чтение stdout/stderr с микро-батчингом каждые 50 мс через Ring Buffer. Никаких утечек памяти и зависаний WebView.
-
-
----
-
-## 📂 Структура репозитория / Repository Separation
-
-### Что входит в репозиторий GitHub:
-- `src/` — Исходный код React + TypeScript + Tailwind CSS UI.
-- `src-tauri/` — Высокопроизводительный системный бэкенд на Rust (Tauri v2).
-- `lists/` — Актуальные списки доменов и фильтров (`list-general.txt`, `list-google.txt`, `list-exclude.txt`).
-- `bin/` — Lua-скрипты ядра (`zapret-antidpi.lua`, `zapret-lib.lua`) и бинарные дампы пакетов (`.bin`).
-- `.github/workflows/` — Автоматический CI/CD пайплайн сборки релизов под Windows.
-- `package.json`, `tsconfig.json`, `tailwind.config.js`, `Cargo.toml`.
-
-### Что остается локально на рабочей станции (игнорируется git):
-- Скомпилированные исполняемые файлы (`zapret2.exe`, `zapret2-gui.exe`).
-- Системные бинарники ядра (`bin/winws2.exe`, `bin/WinDivert.dll`, `bin/WinDivert64.sys`, `bin/cygwin1.dll`) — загружаются через релизы или скрипт.
-- Пользовательские конфиги (`configs/custom_profiles.json`) и временные логи.
-- Тяжелые директории сборщика (`target/`, `node_modules/`, `dist/`).
-- Исходные архивы распаковки вендора (`zapret-master/`, `zapret2 releases/`).
 
 ---
 
@@ -98,7 +97,7 @@
 
 ```powershell
 # 1. Клонирование репозитория
-git clone https://github.com/your-username/zapret2-gui.git
+git clone https://github.com/mqclass/zapret2-gui.git
 cd zapret2-gui
 
 # 2. Установка зависимостей интерфейса
@@ -114,7 +113,7 @@ npm run build
 cd src-tauri
 cargo build --release
 
-# 6. Готовый исполняемый файл будет расположен в:
+# 6. Готовый исполняемый файл:
 # src-tauri/target/release/zapret2-supervisor.exe
 ```
 
@@ -129,8 +128,16 @@ cargo build --release
 
 ---
 
+## 🤝 Благодарности и оригинальные проекты / Credits
+
+Выражаем огромную благодарность авторам оригинальных инструментов и исследований, благодаря которым стал возможен этот проект:
+
+- 🛠️ [**bol-van/zapret2**](https://github.com/bol-van/zapret2) — оригинальное ядро zapret / zapret2 (`winws2.exe`, `winws.exe`), WinDivert фильтрация и алгоритмы десинхронизации TCP/UDP.
+- ⚡ [**Flowseal/zapret-discord-youtube**](https://github.com/Flowseal/zapret-discord-youtube) — наборы проверенных стратегий, списков доменов и конфигураций десинхронизации для YouTube и Discord.
+- 🎨 [**medvedeff-true/Zapret-Gui**](https://github.com/medvedeff-true/Zapret-Gui) — вдохновение графического интерфейса, UX-решений и идеи менеджера сайтов.
+
+---
+
 ## 📄 Лицензия / License
 
 Проект распространяется под открытой лицензией [MIT License](LICENSE).
-Утилиты `winws2` и `zapret` разработаны [@bol-van](https://github.com/bol-van/zapret).
-Пресеты обхода основаны на исследованиях сообщества и проекта `zapret-discord-youtube` от *Flowseal*.

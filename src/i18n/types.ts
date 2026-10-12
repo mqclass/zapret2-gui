@@ -17,6 +17,7 @@ export interface Translations {
     langRu: string;
     langEn: string;
     langUk: string;
+    sitesManager: string;
   };
   conflicts: {
     bannerTitle: string;
@@ -145,5 +146,24 @@ export interface Translations {
     conflictsResolved: string;
     configSaved: string;
     configDeleted: string;
+  };
+  domainManager: {
+    title: string;
+    subtitle: string;
+    selectList: string;
+    searchPlaceholder: string;
+    addDomainPlaceholder: string;
+    addBtn: string;
+    flushDnsBtn: string;
+    flushDnsSuccess: string;
+    openFolderBtn: string;
+    totalDomains: string;
+    noDomainsFound: string;
+    domainEmpty: string;
+    domainAdded: string;
+    domainRemoved: string;
+    openInBrowser: string;
+    deleteDomain: string;
+    tip: string;
   };
 }

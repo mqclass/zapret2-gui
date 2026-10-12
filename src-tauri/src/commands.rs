@@ -200,3 +200,39 @@ pub async fn exit_app(state: State<'_, AppState>, app: tauri::AppHandle) -> Resu
     app.exit(0);
     Ok(())
 }
+
+/// Returns all available domain/hostlist files in the lists directory.
+#[tauri::command]
+pub async fn list_domain_files() -> Result<Vec<String>, String> {
+    crate::win32::lists::list_domain_files()
+}
+
+/// Reads domain entries from a specific file in the lists directory.
+#[tauri::command]
+pub async fn read_domain_list(filename: String) -> Result<Vec<String>, String> {
+    crate::win32::lists::read_domains(&filename)
+}
+
+/// Adds a domain to a specific list file and returns the updated domain list.
+#[tauri::command]
+pub async fn add_domain_to_list(filename: String, domain: String) -> Result<Vec<String>, String> {
+    crate::win32::lists::add_domain_to_list(&filename, &domain)
+}
+
+/// Removes a domain from a specific list file and returns the updated domain list.
+#[tauri::command]
+pub async fn remove_domain_from_list(filename: String, domain: String) -> Result<Vec<String>, String> {
+    crate::win32::lists::remove_domain_from_list(&filename, &domain)
+}
+
+/// Flushes Windows DNS client cache via ipconfig /flushdns.
+#[tauri::command]
+pub async fn flush_dns_cache() -> Result<String, String> {
+    crate::win32::lists::flush_dns_cache()
+}
+
+/// Opens the lists directory in Windows Explorer.
+#[tauri::command]
+pub async fn open_lists_folder() -> Result<(), String> {
+    crate::win32::lists::open_lists_folder()
+}

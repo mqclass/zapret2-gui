@@ -11,6 +11,7 @@ interface HeaderProps {
   isAutostart: boolean;
   onToggleAutostart: () => void;
   isTogglingAutostart: boolean;
+  onOpenDomainManager: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = React.memo(
@@ -22,6 +23,7 @@ export const Header: React.FC<HeaderProps> = React.memo(
     isAutostart,
     onToggleAutostart,
     isTogglingAutostart,
+    onOpenDomainManager,
   }) => {
     const { language, setLanguage, t } = useI18n();
 
@@ -106,6 +108,16 @@ export const Header: React.FC<HeaderProps> = React.memo(
                 isAutostart ? "bg-indigo-400 shadow-[0_0_6px_#818cf8]" : "bg-slate-600"
               }`}
             />
+          </button>
+
+          {/* Domain & Sites Manager Modal Trigger */}
+          <button
+            onClick={onOpenDomainManager}
+            className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-500/50 shadow-sm shadow-emerald-500/10 transition-all cursor-pointer"
+            title={t.domainManager.title}
+          >
+            <Globe className="h-3.5 w-3.5 text-emerald-400" />
+            <span>{t.header.sitesManager}</span>
           </button>
 
           {/* Privilege Elevation Pill */}

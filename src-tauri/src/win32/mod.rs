@@ -3,6 +3,7 @@ pub mod autostart;
 pub mod conflicts;
 pub mod custom_profiles;
 pub mod job_object;
+pub mod lists;
 pub mod privileges;
 pub mod process;
 
