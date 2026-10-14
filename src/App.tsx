@@ -12,24 +12,23 @@ import {
   AppSettings,
   ListSyncReport,
 } from "./types";
-import { Header } from "./components/Header";
+import { Sidebar, NavTab } from "./components/Sidebar";
+import { TopBar } from "./components/TopBar";
 import { ConflictBanner } from "./components/ConflictBanner";
-import { StatusBadge } from "./components/StatusBadge";
-import { DiagnosticsCard } from "./components/DiagnosticsCard";
-import { StrategySelector } from "./components/StrategySelector";
-import { SplitTunnelBar } from "./components/SplitTunnelBar";
-import { Controls } from "./components/Controls";
-import { LogViewer } from "./components/LogViewer";
-import { DomainManagerModal } from "./components/DomainManagerModal";
-import { NetworkDoctorModal } from "./components/NetworkDoctorModal";
-import { DnsManagerModal } from "./components/DnsManagerModal";
-import { SpeedtestModal } from "./components/SpeedtestModal";
+import { DashboardView } from "./components/views/DashboardView";
+import { StrategiesView } from "./components/views/StrategiesView";
+import { DiagnosticsView } from "./components/views/DiagnosticsView";
+import { DnsSpeedView } from "./components/views/DnsSpeedView";
+import { ListsView } from "./components/views/ListsView";
+import { LogsView } from "./components/views/LogsView";
+import { SettingsView } from "./components/views/SettingsView";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
 
 const AppContent: React.FC = () => {
   const { t } = useI18n();
 
+  const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
   const [isElevated, setIsElevated] = useState<boolean>(true);
   const [status, setStatus] = useState<SupervisorStatus>({
     state: "stopped",
@@ -71,12 +70,7 @@ const AppContent: React.FC = () => {
   const [isRefreshingProbes, setIsRefreshingProbes] = useState<boolean>(false);
   const [isAutostart, setIsAutostart] = useState<boolean>(false);
   const [isTogglingAutostart, setIsTogglingAutostart] = useState<boolean>(false);
-  const [isDomainManagerOpen, setIsDomainManagerOpen] = useState<boolean>(false);
   const [splitTunnelMode, setSplitTunnelMode] = useState<SplitTunnelMode>("full");
-  const [isDoctorModalOpen, setIsDoctorModalOpen] = useState<boolean>(false);
-  const [isDnsModalOpen, setIsDnsModalOpen] = useState<boolean>(false);
-  const [isSpeedtestModalOpen, setIsSpeedtestModalOpen] = useState<boolean>(false);
-  const [isSyncingLists, setIsSyncingLists] = useState<boolean>(false);
 
   const handleModeChange = useCallback(async (mode: SplitTunnelMode) => {
     try {
@@ -90,20 +84,6 @@ const AppContent: React.FC = () => {
       setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
     }
   }, [status.state]);
-
-  const handleSyncLists = useCallback(async () => {
-    setIsSyncingLists(true);
-    setErrorAlert(null);
-    try {
-      const report = await invoke<ListSyncReport>("sync_remote_lists");
-      setSuccessAlert(`${t.syncLists.successTitle}: ${report.files.length} ${t.syncLists.filesUpdated}`);
-    } catch (err: any) {
-      console.error("Failed to sync lists:", err);
-      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
-    } finally {
-      setIsSyncingLists(false);
-    }
-  }, [t.syncLists.successTitle, t.syncLists.filesUpdated]);
 
   const handleToggleAutostart = useCallback(async () => {
     setIsTogglingAutostart(true);
@@ -391,7 +371,6 @@ const AppContent: React.FC = () => {
     try {
       const resolved = await invoke<number>("resolve_conflicts");
       setSuccessAlert(`${t.alerts.conflictsResolved} ${resolved}. ${t.conflicts.successMessage}`);
-      // Re-scan conflicts
       const refreshed = await invoke<ConflictItem[]>("scan_conflicts");
       setConflicts(refreshed);
     } catch (err: any) {
@@ -434,174 +413,141 @@ const AppContent: React.FC = () => {
   }, [selectedStrategyId, t.alerts.configDeleted]);
 
   return (
-    <div className="flex h-screen flex-col bg-slate-950 font-sans text-slate-100 select-none">
-      {/* App Header with Language Switcher, Autostart and Privilege Status */}
-      <Header
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100 select-none">
+      {/* Sidebar Navigation */}
+      <Sidebar
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        state={status.state}
+        splitTunnelMode={splitTunnelMode}
         isElevated={isElevated}
-        onRelaunchElevated={handleRelaunchElevated}
-        onKillStray={handleKillStray}
-        isStrayCleaning={isStrayCleaning}
-        isAutostart={isAutostart}
-        onToggleAutostart={handleToggleAutostart}
-        isTogglingAutostart={isTogglingAutostart}
-        onOpenDomainManager={() => setIsDomainManagerOpen(true)}
-        onOpenDoctor={() => setIsDoctorModalOpen(true)}
-        onOpenDns={() => setIsDnsModalOpen(true)}
-        onOpenSpeedtest={() => setIsSpeedtestModalOpen(true)}
-        onSyncLists={handleSyncLists}
-        isSyncingLists={isSyncingLists}
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-        {/* Conflicting Software Warning Banner (Flowseal / GoodbyeDPI / etc.) */}
-        <ConflictBanner
-          conflicts={conflicts}
-          onResolve={handleResolveConflicts}
-          isResolving={isResolvingConflicts}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        {/* Top Header Bar */}
+        <TopBar
+          activeTab={activeTab}
+          isElevated={isElevated}
+          onRelaunchElevated={handleRelaunchElevated}
+          isAutostart={isAutostart}
+          onToggleAutostart={handleToggleAutostart}
+          isTogglingAutostart={isTogglingAutostart}
+          onKillStray={handleKillStray}
+          isStrayCleaning={isStrayCleaning}
         />
 
-        {/* Error Alert Banner */}
-        {errorAlert && (
-          <div className="flex items-start justify-between rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300 backdrop-blur-md">
-            <div className="flex items-start gap-2.5">
-              <AlertCircle className="h-5 w-5 shrink-0 text-rose-400 mt-0.5" />
-              <div className="text-xs">
-                <div className="font-semibold text-rose-200">{t.alerts.faultTitle}</div>
-                <div className="mt-0.5 leading-relaxed">{errorAlert}</div>
+        {/* Scrollable View Area */}
+        <main className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {/* Conflicting Software Warning Banner */}
+          <ConflictBanner
+            conflicts={conflicts}
+            onResolve={handleResolveConflicts}
+            isResolving={isResolvingConflicts}
+          />
+
+          {/* Error Alert Banner */}
+          {errorAlert && (
+            <div className="flex items-start justify-between rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300 backdrop-blur-md">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="h-5 w-5 shrink-0 text-rose-400 mt-0.5" />
+                <div className="text-xs">
+                  <div className="font-semibold text-rose-200">{t.alerts.faultTitle}</div>
+                  <div className="mt-0.5 leading-relaxed">{errorAlert}</div>
+                </div>
               </div>
-            </div>
-            <button
-              onClick={() => setErrorAlert(null)}
-              className="text-rose-400 hover:text-rose-200 transition-colors cursor-pointer"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Success Alert Banner */}
-        {successAlert && (
-          <div className="flex items-start justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-emerald-300 backdrop-blur-md">
-            <div className="flex items-center gap-2.5 text-xs">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-              <span className="font-medium">{successAlert}</span>
-            </div>
-            <button
-              onClick={() => setSuccessAlert(null)}
-              className="text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Live Status Header Banner */}
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4 backdrop-blur-md">
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              {t.status.title}
-            </span>
-            <StatusBadge
-              state={status.state}
-              pid={status.pid}
-              activeStrategy={status.active_strategy}
-              uptimeSecs={status.uptime_secs}
-            />
-          </div>
-
-          <div className="text-right text-xs text-slate-400">
-            {status.binary_path && (
-              <div
-                className="truncate max-w-md font-mono text-[11px] text-slate-400"
-                title={status.binary_path}
+              <button
+                onClick={() => setErrorAlert(null)}
+                className="text-rose-400 hover:text-rose-200 transition-colors cursor-pointer"
               >
-                {t.status.binary}: {status.binary_path}
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Success Alert Banner */}
+          {successAlert && (
+            <div className="flex items-start justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-emerald-300 backdrop-blur-md">
+              <div className="flex items-center gap-2.5 text-xs">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                <span className="font-medium">{successAlert}</span>
               </div>
-            )}
-          </div>
-        </div>
+              <button
+                onClick={() => setSuccessAlert(null)}
+                className="text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
 
-        {/* Real-Time Network Probes (YouTube & Discord) */}
-        <DiagnosticsCard
-          report={diagnostics}
-          onRefresh={handleRefreshProbes}
-          isRefreshing={isRefreshingProbes}
-          onSelectAndStartStrategy={handleStartStrategy}
-        />
+          {/* Active View Router */}
+          {activeTab === "dashboard" && (
+            <DashboardView
+              status={status}
+              diagnostics={diagnostics}
+              strategies={strategies}
+              selectedStrategyId={selectedStrategyId}
+              splitTunnelMode={splitTunnelMode}
+              onModeChange={handleModeChange}
+              onStart={handleStart}
+              onStop={handleStop}
+              onSelectStrategy={setSelectedStrategyId}
+              onStartStrategy={handleStartStrategy}
+              onRefreshProbes={handleRefreshProbes}
+              isRefreshingProbes={isRefreshingProbes}
+              onNavigateTab={setActiveTab}
+            />
+          )}
 
-        {/* Strategy Selection */}
-        {(() => {
-          const activeStratObj = strategies.find((s) => s.id === status.active_strategy);
-          const selectedStratObj = strategies.find((s) => s.id === selectedStrategyId);
-          const activeStratName = activeStratObj?.name || status.active_strategy;
-          const selectedStratName = selectedStratObj?.name || selectedStrategyId;
+          {activeTab === "strategies" && (
+            <StrategiesView
+              strategies={strategies}
+              selectedStrategyId={selectedStrategyId}
+              activeStrategyId={status.active_strategy}
+              supervisorState={status.state}
+              onSelectStrategy={setSelectedStrategyId}
+              onStartStrategy={handleStartStrategy}
+              onStopStrategy={handleStop}
+              onStart={handleStart}
+              onSaveCustomProfile={handleSaveCustomProfile}
+              onDeleteCustomProfile={handleDeleteCustomProfile}
+              disabled={status.state === "starting" || status.state === "stopping"}
+            />
+          )}
 
-          return (
-            <>
-              {/* Split-Tunneling and Game Mode Selector */}
-              <SplitTunnelBar
-                currentMode={splitTunnelMode}
-                onModeChange={handleModeChange}
-                isRunning={status.state === "running"}
-                disabled={status.state === "starting" || status.state === "stopping"}
-              />
+          {activeTab === "diagnostics" && (
+            <DiagnosticsView
+              diagnostics={diagnostics}
+              onRefreshProbes={handleRefreshProbes}
+              isRefreshingProbes={isRefreshingProbes}
+              onSelectAndStartStrategy={handleStartStrategy}
+            />
+          )}
 
-              <StrategySelector
-                strategies={strategies}
-                selectedStrategyId={selectedStrategyId}
-                activeStrategyId={status.active_strategy}
-                supervisorState={status.state}
-                onSelectStrategy={setSelectedStrategyId}
-                onStartStrategy={handleStartStrategy}
-                onStopStrategy={handleStop}
-                onSaveCustomProfile={handleSaveCustomProfile}
-                onDeleteCustomProfile={handleDeleteCustomProfile}
-                disabled={status.state === "starting" || status.state === "stopping"}
-              />
+          {activeTab === "dns" && <DnsSpeedView />}
 
-              {/* Primary Controls (Start / Stop / Advanced args) */}
-              <Controls
-                state={status.state}
-                activeStrategyName={activeStratName}
-                selectedStrategyName={selectedStratName}
-                onStart={handleStart}
-                onStop={handleStop}
-                onSwitchToSelected={() => handleStartStrategy(selectedStrategyId)}
-                disabled={false}
-              />
-            </>
-          );
-        })()}
+          {activeTab === "lists" && <ListsView />}
 
-        {/* Real-time Log Stream Viewer (Throttled & capped at 100 in DOM) */}
-        <LogViewer logs={logs} onClearLogs={handleClearLogs} />
-      </main>
+          {activeTab === "logs" && (
+            <LogsView logs={logs} onClearLogs={handleClearLogs} />
+          )}
 
-      {/* Domain and Hostlist Manager Modal */}
-      <DomainManagerModal
-        isOpen={isDomainManagerOpen}
-        onClose={() => setIsDomainManagerOpen(false)}
-      />
-
-      {/* Network Doctor Self-Healing Modal */}
-      <NetworkDoctorModal
-        isOpen={isDoctorModalOpen}
-        onClose={() => setIsDoctorModalOpen(false)}
-        onSuccessRefresh={handleRefreshProbes}
-      />
-
-      {/* DNS Manager & Anti-Spoofing Modal */}
-      <DnsManagerModal
-        isOpen={isDnsModalOpen}
-        onClose={() => setIsDnsModalOpen(false)}
-      />
-
-      {/* YouTube 4K Stream Speedtest Modal */}
-      <SpeedtestModal
-        isOpen={isSpeedtestModalOpen}
-        onClose={() => setIsSpeedtestModalOpen(false)}
-      />
+          {activeTab === "settings" && (
+            <SettingsView
+              isElevated={isElevated}
+              onRelaunchElevated={handleRelaunchElevated}
+              isAutostart={isAutostart}
+              onToggleAutostart={handleToggleAutostart}
+              isTogglingAutostart={isTogglingAutostart}
+              onKillStray={handleKillStray}
+              isStrayCleaning={isStrayCleaning}
+              onResolveConflicts={handleResolveConflicts}
+              isResolvingConflicts={isResolvingConflicts}
+            />
+          )}
+        </main>
+      </div>
     </div>
   );
 };

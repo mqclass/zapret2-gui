@@ -563,9 +563,9 @@ impl Supervisor {
         };
 
         let wf_udp = if is_game {
-            format!("--wf-udp=443,19294-19344,50000-50100,{}", settings.game_filter_udp)
+            format!("--wf-udp=443,19294-19344,50000-65535,{}", settings.game_filter_udp)
         } else {
-            "--wf-udp=443,19294-19344,50000-50100".into()
+            "--wf-udp=443,19294-19344,50000-65535".into()
         };
 
         let b = |file: &str| {
@@ -585,8 +585,8 @@ impl Supervisor {
 
         let mut args = match preset_id {
             "flowseal-alt11" => vec![
-                "--wf-tcp=80,443,2053,2083,2087,2096,8443".into(),
-                "--wf-udp=443,19294-19344,50000-50100".into(),
+                wf_tcp.clone(),
+                wf_udp.clone(),
                 "--filter-udp=443".into(),
                 format!("--hostlist={}", l("list-general.txt")),
                 format!("--hostlist={}", l("list-general-user.txt")),
@@ -598,15 +598,17 @@ impl Supervisor {
                 "--dpi-desync-repeats=11".into(),
                 format!("--dpi-desync-fake-quic={}", b("quic_initial_www_google_com.bin")),
                 "--new".into(),
-                "--filter-udp=19294-19344,50000-50100".into(),
-                "--filter-l7=discord,stun".into(),
+                "--filter-udp=19294-19344,50000-65535".into(),
                 "--dpi-desync=fake".into(),
+                "--dpi-desync-any-protocol=1".into(),
+                "--dpi-desync-cutoff=n4".into(),
                 format!("--dpi-desync-fake-discord={}", b("ACTIVE_DISCORD_UDP.bin")),
                 format!("--dpi-desync-fake-stun={}", b("ACTIVE_DISCORD_UDP.bin")),
+                format!("--dpi-desync-fake-unknown-udp={}", b("ACTIVE_DISCORD_UDP.bin")),
                 "--dpi-desync-repeats=6".into(),
                 "--new".into(),
-                "--filter-tcp=2053,2083,2087,2096,8443".into(),
-                "--hostlist-domains=discord.media".into(),
+                "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
+                "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
                 "--dpi-desync=fake,multisplit".into(),
                 "--dpi-desync-split-seqovl=681".into(),
                 "--dpi-desync-split-pos=1".into(),
@@ -670,8 +672,8 @@ impl Supervisor {
                 format!("--dpi-desync-fake-http={}", b("tls_clienthello_max_ru.bin")),
             ],
             "flowseal-alt" => vec![
-                "--wf-tcp=80,443,2053,2083,2087,2096,8443".into(),
-                "--wf-udp=443,19294-19344,50000-50100".into(),
+                wf_tcp.clone(),
+                wf_udp.clone(),
                 "--filter-udp=443".into(),
                 format!("--hostlist={}", l("list-general.txt")),
                 format!("--hostlist={}", l("list-general-user.txt")),
@@ -683,19 +685,21 @@ impl Supervisor {
                 "--dpi-desync-repeats=6".into(),
                 format!("--dpi-desync-fake-quic={}", b("quic_initial_www_google_com.bin")),
                 "--new".into(),
-                "--filter-udp=19294-19344,50000-50100".into(),
-                "--filter-l7=discord,stun".into(),
+                "--filter-udp=19294-19344,50000-65535".into(),
                 "--dpi-desync=fake".into(),
+                "--dpi-desync-any-protocol=1".into(),
+                "--dpi-desync-cutoff=n4".into(),
                 format!("--dpi-desync-fake-discord={}", b("ACTIVE_DISCORD_UDP.bin")),
                 format!("--dpi-desync-fake-stun={}", b("ACTIVE_DISCORD_UDP.bin")),
+                format!("--dpi-desync-fake-unknown-udp={}", b("ACTIVE_DISCORD_UDP.bin")),
                 "--dpi-desync-repeats=6".into(),
                 "--new".into(),
-                "--filter-tcp=2053,2083,2087,2096,8443".into(),
-                "--hostlist-domains=discord.media".into(),
-                "--dpi-desync=fake,fakedsplit".into(),
+                "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
+                "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
+                "--dpi-desync=fake,multisplit".into(),
+                "--dpi-desync-split-pos=1".into(),
                 "--dpi-desync-repeats=6".into(),
                 "--dpi-desync-fooling=ts".into(),
-                "--dpi-desync-fakedsplit-pattern=0x00".into(),
                 format!("--dpi-desync-fake-tls={}", b("tls_clienthello_www_google_com.bin")),
                 "--new".into(),
                 "--filter-tcp=443".into(),
@@ -747,8 +751,8 @@ impl Supervisor {
                 format!("--dpi-desync-fake-http={}", b("tls_clienthello_max_ru.bin")),
             ],
             "flowseal-fake-tls-auto" => vec![
-                "--wf-tcp=80,443,2053,2083,2087,2096,8443".into(),
-                "--wf-udp=443,19294-19344,50000-50100".into(),
+                wf_tcp.clone(),
+                wf_udp.clone(),
                 "--filter-udp=443".into(),
                 format!("--hostlist={}", l("list-general.txt")),
                 format!("--hostlist={}", l("list-general-user.txt")),
@@ -760,15 +764,17 @@ impl Supervisor {
                 "--dpi-desync-repeats=11".into(),
                 format!("--dpi-desync-fake-quic={}", b("quic_initial_www_google_com.bin")),
                 "--new".into(),
-                "--filter-udp=19294-19344,50000-50100".into(),
-                "--filter-l7=discord,stun".into(),
+                "--filter-udp=19294-19344,50000-65535".into(),
                 "--dpi-desync=fake".into(),
+                "--dpi-desync-any-protocol=1".into(),
+                "--dpi-desync-cutoff=n4".into(),
                 format!("--dpi-desync-fake-discord={}", b("ACTIVE_DISCORD_UDP.bin")),
                 format!("--dpi-desync-fake-stun={}", b("ACTIVE_DISCORD_UDP.bin")),
+                format!("--dpi-desync-fake-unknown-udp={}", b("ACTIVE_DISCORD_UDP.bin")),
                 "--dpi-desync-repeats=6".into(),
                 "--new".into(),
-                "--filter-tcp=2053,2083,2087,2096,8443".into(),
-                "--hostlist-domains=discord.media".into(),
+                "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
+                "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
                 "--dpi-desync=fake,multidisorder".into(),
                 "--dpi-desync-split-pos=1,midsld".into(),
                 "--dpi-desync-repeats=11".into(),
@@ -830,8 +836,8 @@ impl Supervisor {
                 format!("--dpi-desync-fake-http={}", b("tls_clienthello_max_ru.bin")),
             ],
             "flowseal-simple-fake" => vec![
-                "--wf-tcp=80,443,2053,2083,2087,2096,8443".into(),
-                "--wf-udp=443,19294-19344,50000-50100".into(),
+                wf_tcp.clone(),
+                wf_udp.clone(),
                 "--filter-udp=443".into(),
                 format!("--hostlist={}", l("list-general.txt")),
                 format!("--hostlist={}", l("list-general-user.txt")),
@@ -843,15 +849,17 @@ impl Supervisor {
                 "--dpi-desync-repeats=6".into(),
                 format!("--dpi-desync-fake-quic={}", b("quic_initial_www_google_com.bin")),
                 "--new".into(),
-                "--filter-udp=19294-19344,50000-50100".into(),
-                "--filter-l7=discord,stun".into(),
+                "--filter-udp=19294-19344,50000-65535".into(),
                 "--dpi-desync=fake".into(),
+                "--dpi-desync-any-protocol=1".into(),
+                "--dpi-desync-cutoff=n4".into(),
                 format!("--dpi-desync-fake-discord={}", b("ACTIVE_DISCORD_UDP.bin")),
                 format!("--dpi-desync-fake-stun={}", b("ACTIVE_DISCORD_UDP.bin")),
+                format!("--dpi-desync-fake-unknown-udp={}", b("ACTIVE_DISCORD_UDP.bin")),
                 "--dpi-desync-repeats=6".into(),
                 "--new".into(),
-                "--filter-tcp=2053,2083,2087,2096,8443".into(),
-                "--hostlist-domains=discord.media".into(),
+                "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
+                "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
                 "--dpi-desync=fake".into(),
                 "--dpi-desync-repeats=6".into(),
                 "--dpi-desync-fooling=ts".into(),
@@ -900,8 +908,8 @@ impl Supervisor {
                 format!("--dpi-desync-fake-http={}", b("tls_clienthello_max_ru.bin")),
             ],
             _ /* flowseal-general */ => vec![
-                "--wf-tcp=80,443,2053,2083,2087,2096,8443".into(),
-                "--wf-udp=443,19294-19344,50000-50100".into(),
+                wf_tcp.clone(),
+                wf_udp.clone(),
                 "--filter-udp=443".into(),
                 format!("--hostlist={}", l("list-general.txt")),
                 format!("--hostlist={}", l("list-general-user.txt")),
@@ -913,15 +921,17 @@ impl Supervisor {
                 "--dpi-desync-repeats=6".into(),
                 format!("--dpi-desync-fake-quic={}", b("quic_initial_www_google_com.bin")),
                 "--new".into(),
-                "--filter-udp=19294-19344,50000-50100".into(),
-                "--filter-l7=discord,stun".into(),
+                "--filter-udp=19294-19344,50000-65535".into(),
                 "--dpi-desync=fake".into(),
+                "--dpi-desync-any-protocol=1".into(),
+                "--dpi-desync-cutoff=n4".into(),
                 format!("--dpi-desync-fake-discord={}", b("ACTIVE_DISCORD_UDP.bin")),
                 format!("--dpi-desync-fake-stun={}", b("ACTIVE_DISCORD_UDP.bin")),
+                format!("--dpi-desync-fake-unknown-udp={}", b("ACTIVE_DISCORD_UDP.bin")),
                 "--dpi-desync-repeats=6".into(),
                 "--new".into(),
-                "--filter-tcp=2053,2083,2087,2096,8443".into(),
-                "--hostlist-domains=discord.media".into(),
+                "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
+                "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
                 "--dpi-desync=multisplit".into(),
                 "--dpi-desync-split-seqovl=681".into(),
                 "--dpi-desync-split-pos=1".into(),
@@ -1049,7 +1059,7 @@ impl Supervisor {
     fn build_zapret2_ru_ultimate_args(_bin_dir: &Path, _lists_dir: &Path) -> Vec<String> {
         vec![
             "--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into(),
-            "--wf-udp-out=443,19294-19344,50000-50100".into(),
+            "--wf-udp-out=443,19294-19344,50000-65535".into(),
 
             // Lua library initialization (relative to bin_dir)
             "--lua-init=@zapret-lib.lua".into(),
@@ -1071,16 +1081,17 @@ impl Supervisor {
             "--payload=quic_initial".into(),
             "--lua-desync=fake:blob=quic_google:repeats=11".into(),
 
-            // 2. Discord Voice UDP & STUN Media (19294-19344, 50000-50100)
+            // 2. Discord Voice UDP & STUN Media (19294-19344, 50000-65535)
             "--new=discord_voice".into(),
-            "--filter-udp=19294-19344,50000-50100".into(),
+            "--filter-udp=19294-19344,50000-65535".into(),
             "--payload=all".into(),
+            "--out-range=n1-n4".into(),
             "--lua-desync=fake:blob=discord_udp:repeats=6".into(),
 
-            // 3. Discord Media & Voice Gateway TCP (2053, 2083, 2087, 2096, 8443)
+            // 3. Discord Media & Voice Gateway TCP (443, 2053, 2083, 2087, 2096, 8443)
             "--new=discord_media".into(),
-            "--filter-tcp=2053,2083,2087,2096,8443".into(),
-            "--hostlist-domains=discord.media".into(),
+            "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
+            "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
             "--payload=tls_client_hello".into(),
             "--out-range=n1-n4".into(),
             "--lua-desync=fake:blob=tls_google:repeats=8:tcp_ts=1000".into(),
@@ -1193,7 +1204,7 @@ impl Supervisor {
         // 4. Otherwise, assemble Lua arguments for zapret2 (winws2)
         let mut args = Vec::new();
         args.push("--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into());
-        args.push("--wf-udp-out=443,19294-19344,50000-50100".into());
+        args.push("--wf-udp-out=443,19294-19344,50000-65535".into());
         args.push("--filter-tcp=80,443,2053,2083,2087,2096,8443".into());
 
         let lib_lua = strategies

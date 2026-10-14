@@ -246,4 +246,33 @@ export interface Translations {
     successTitle: string;
     filesUpdated: string;
   };
+  nav: {
+    dashboard: string;
+    strategies: string;
+    diagnostics: string;
+    dns: string;
+    lists: string;
+    logs: string;
+    settings: string;
+  };
+  settingsTab: {
+    title: string;
+    subtitle: string;
+    systemSection: string;
+    autostartDesc: string;
+    elevationTitle: string;
+    elevationDesc: string;
+    elevationBtn: string;
+    strayTitle: string;
+    strayDesc: string;
+    strayBtn: string;
+    conflictsTitle: string;
+    conflictsDesc: string;
+    conflictsBtn: string;
+    languageSection: string;
+    creditsSection: string;
+    warningFakesTitle: string;
+    warningFakesBody: string;
+    originalRepos: string;
+  };
 }

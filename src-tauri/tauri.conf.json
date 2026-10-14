@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "zapret2-supervisor",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "identifier": "com.zapret2.supervisor",
   "build": {
     "frontendDist": "../dist"
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "zapret2 — High-Performance Windows Supervisor",
+        "title": "zapret2 GUI & Supervisor v1.0.7",
         "width": 1050,
         "height": 760,
         "minWidth": 850,

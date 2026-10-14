@@ -41,6 +41,7 @@ configs/custom_profiles.json
 *.tmp
 out.txt
 err.txt
+Логиtxt.txt
 
 # Workstation helper launcher scripts
 Запустить*.*
