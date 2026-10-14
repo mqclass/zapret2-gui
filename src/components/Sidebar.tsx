@@ -7,7 +7,6 @@ import {
   ListFilter,
   Terminal,
   Settings,
-  Flame,
   CheckCircle2,
   XCircle,
   Loader2,
@@ -15,6 +14,7 @@ import {
   Layers,
   Compass,
 } from "lucide-react";
+import { ZapretLogo } from "./ZapretLogo";
 import { useI18n } from "../i18n";
 import { SupervisorState, SplitTunnelMode } from "../types";
 
@@ -84,10 +84,10 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
     return (
       <aside className="w-56 shrink-0 flex flex-col justify-between border-r border-white/[0.07] bg-slate-950/90 backdrop-blur-2xl select-none">
         {/* Top Brand Header */}
-        <div className="p-4 border-b border-white/[0.05]">
-          <div className="flex items-center gap-3">
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-500 shadow-md shadow-blue-500/25">
-              <Flame className="h-5 w-5 text-white" />
+        <div data-tauri-drag-region className="p-4 border-b border-white/[0.05]">
+          <div data-tauri-drag-region className="flex items-center gap-3">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-cyan-600/30 via-blue-600/30 to-indigo-600/30 border border-cyan-500/30 shadow-lg shadow-cyan-500/10">
+              <ZapretLogo className="h-6 w-6" glow={isRunning} />
               {/* Animated status ring */}
               <span
                 className={`absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-slate-950 ${
@@ -103,14 +103,14 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                 )}
               </span>
             </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-base font-bold tracking-tight text-white">zapret2</span>
-                <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.2 text-[10px] font-mono font-bold text-blue-400">
-                  v1.0.8
+            <div data-tauri-drag-region>
+              <div data-tauri-drag-region className="flex items-center gap-1.5">
+                <span data-tauri-drag-region className="text-base font-black tracking-tight text-white">zapret2</span>
+                <span className="rounded-md bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.2 text-[10px] font-mono font-bold text-cyan-400">
+                  {t.header.version}
                 </span>
               </div>
-              <p className="text-[11px] font-medium text-slate-400 truncate">GUI & Supervisor</p>
+              <p data-tauri-drag-region className="text-[11px] font-medium text-slate-400">DPI Bypass Utility</p>
             </div>
           </div>
         </div>

@@ -22,7 +22,7 @@
 Технические средства противодействия угрозам (ТСПУ) анализируют сетевые пакеты по сигнатурам (DPI — Deep Packet Inspection). В частности:
 - **HTTPS сайты и YouTube**: фильтр анализирует первый пакет TLS-рукопожатия — `ClientHello`, в котором открытым текстом передаётся имя запрашиваемого домена (SNI, Server Name Indication).
 - **YouTube 4K (HTTP/3 QUIC)**: работает по протоколу UDP на 443 порту. ТСПУ глушит или замедляет пакеты `QUIC Initial`.
-- **Discord Voice**: использует UDP-трафик на портах `50000-50100` и `19294-19344`.
+- **Discord Voice**: использует UDP-трафик на портах `50000-65535` и `19294-19344`.
 
 ### Главные методы обхода:
 1. **`fake` (Фальшивый пакет)**: перед реальным пакетом отправляется поддельный пакет с невалидным таймштампом (`ts`) или контрольной суммой (`badsum`). Фильтр ТСПУ видит фейк и «запоминает» его, а конечный сервер отбрасывает фейк и принимает ваши настоящие данные.
@@ -36,9 +36,9 @@
 | Параметр | Назначение | Пример использования |
 | :--- | :--- | :--- |
 | `--wf-tcp=...` | Порты, которые перехватывает драйвер WinDivert для TCP | `--wf-tcp=80,443,2053,2083,8443` |
-| `--wf-udp=...` | Порты, которые перехватывает WinDivert для UDP | `--wf-udp=443,19294-19344,50000-50100` |
+| `--wf-udp=...` | Порты, которые перехватывает WinDivert для UDP | `--wf-udp=443,19294-19344,50000-65535` |
 | `--filter-tcp=...` | Порты для конкретного правила внутри профиля | `--filter-tcp=443` |
-| `--filter-udp=...` | Порты UDP для конкретного правила | `--filter-udp=50000-50100` |
+| `--filter-udp=...` | Порты UDP для конкретного правила | `--filter-udp=50000-65535` |
 | `--hostlist=...` | Путь к файлу со списком доменов | `--hostlist="lists/list-general.txt"` |
 | `--hostlist-exclude=...` | Список доменов-исключений (не фильтровать) | `--hostlist-exclude="lists/list-exclude.txt"` |
 | `--dpi-desync=...` | Методы десинхронизации (через запятую) | `--dpi-desync=fake,multisplit` |
@@ -63,7 +63,7 @@
 --filter-udp=443 --dpi-desync=fake --dpi-desync-fake-quic="bin/quic_initial_www_google_com.bin"
 --new
 [ПРАВИЛО 2: Discord Голос]
---filter-udp=50000-50100 --dpi-desync=fake --dpi-desync-fake-discord="bin/ACTIVE_DISCORD_UDP.bin"
+--filter-udp=50000-65535 --dpi-desync=fake --dpi-desync-fake-discord="bin/ACTIVE_DISCORD_UDP.bin"
 --new
 [ПРАВИЛО 3: YouTube 4K TCP]
 --filter-tcp=443 --hostlist="lists/list-google.txt" --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681
@@ -85,7 +85,7 @@
 ### Шаблон 2: Discord Voice & STUN
 Восстанавливает подключение к голосовым комнатам, веб-камерам и демонстрации экрана:
 ```
---wf-tcp=2053,2083,2087,2096,8443 --wf-udp=19294-19344,50000-50100 --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-fake-stun="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls="bin/tls_clienthello_www_google_com.bin"
+--wf-tcp=2053,2083,2087,2096,8443 --wf-udp=19294-19344,50000-65535 --filter-udp=19294-19344,50000-65535 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-fake-stun="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls="bin/tls_clienthello_www_google_com.bin"
 ```
 
 ### Шаблон 3: Блокировки сайтов (РКН)
@@ -97,7 +97,7 @@
 ### Шаблон 4: Универсальный комбо-профиль
 Комплексный профиль «всё в одном» для дома:
 ```
---wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist="lists/list-general.txt" --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic="bin/quic_initial_www_google_com.bin" --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-fake-stun="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls="bin/tls_clienthello_www_google_com.bin" --new --filter-tcp=443 --hostlist="lists/list-google.txt" --ip-id=zero --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls="bin/tls_clienthello_www_google_com.bin" --new --filter-tcp=80,443 --hostlist="lists/list-general.txt" --hostlist-exclude="lists/list-exclude.txt" --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=664 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_max_ru.bin" --dpi-desync-fake-tls="bin/stun2.bin" --dpi-desync-fake-tls="bin/tls_clienthello_max_ru.bin" --dpi-desync-fake-http="bin/tls_clienthello_max_ru.bin"
+--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-65535 --filter-udp=443 --hostlist="lists/list-general.txt" --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic="bin/quic_initial_www_google_com.bin" --new --filter-udp=19294-19344,50000-65535 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-fake-stun="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls="bin/tls_clienthello_www_google_com.bin" --new --filter-tcp=443 --hostlist="lists/list-google.txt" --ip-id=zero --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls="bin/tls_clienthello_www_google_com.bin" --new --filter-tcp=80,443 --hostlist="lists/list-general.txt" --hostlist-exclude="lists/list-exclude.txt" --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=664 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_max_ru.bin" --dpi-desync-fake-tls="bin/stun2.bin" --dpi-desync-fake-tls="bin/tls_clienthello_max_ru.bin" --dpi-desync-fake-http="bin/tls_clienthello_max_ru.bin"
 ```
 
 ---

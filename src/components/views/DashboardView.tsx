@@ -12,7 +12,7 @@ import {
   Tv,
   ListFilter,
   Wrench,
-  Flame,
+  Mic,
   ArrowRight,
   ExternalLink,
   ChevronRight,
@@ -132,9 +132,9 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
 
               <div>
                 <h1 className="text-2xl font-black tracking-tight text-white flex items-center gap-2.5">
-                  <span>zapret2 Supervisor</span>
-                  <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 text-xs font-mono font-bold text-blue-400">
-                    v1.0.7
+                  <span>zapret2</span>
+                  <span className="rounded-md bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 text-xs font-mono font-bold text-cyan-400">
+                    {t.header.version}
                   </span>
                 </h1>
                 <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
@@ -236,7 +236,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           <div className="rounded-xl border border-white/[0.06] bg-slate-900/60 p-4 backdrop-blur-md flex items-center justify-between">
             <div className="flex items-center gap-3.5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                <Flame className="h-5 w-5" />
+                <Mic className="h-5 w-5" />
               </div>
               <div>
                 <div className="flex items-center gap-2">

@@ -324,6 +324,36 @@ const AppContent: React.FC = () => {
     }
   }, [handleRefreshProbes]);
 
+  const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
+  const handleRefreshLogs = useCallback(async () => {
+    setIsRefreshingLogs(true);
+    try {
+      const refreshed = await invoke<LogEntry[]>("get_logs");
+      if (refreshed) {
+        setLogs(refreshed);
+      }
+    } catch (err: any) {
+      console.error("Failed to refresh logs:", err);
+    } finally {
+      setIsRefreshingLogs(false);
+    }
+  }, []);
+
+  // Proactive live log polling while viewing the logs tab
+  useEffect(() => {
+    if (activeTab === "logs") {
+      handleRefreshLogs();
+      const interval = setInterval(() => {
+        invoke<LogEntry[]>("get_logs")
+          .then((latest) => {
+            if (latest && latest.length > 0) setLogs(latest);
+          })
+          .catch(() => {});
+      }, 1500);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, handleRefreshLogs]);
+
   const handleClearLogs = useCallback(async () => {
     try {
       await invoke("clear_logs");
@@ -530,7 +560,12 @@ const AppContent: React.FC = () => {
           {activeTab === "lists" && <ListsView />}
 
           {activeTab === "logs" && (
-            <LogsView logs={logs} onClearLogs={handleClearLogs} />
+            <LogsView
+              logs={logs}
+              onClearLogs={handleClearLogs}
+              onRefreshLogs={handleRefreshLogs}
+              isRefreshing={isRefreshingLogs}
+            />
           )}
 
           {activeTab === "settings" && (

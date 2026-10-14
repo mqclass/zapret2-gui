@@ -1,5 +1,5 @@
 import React from "react";
-import { Gamepad2, Shield, Filter, Check, Flame } from "lucide-react";
+import { Gamepad2, Shield, Filter, Check, Sliders } from "lucide-react";
 import { SplitTunnelMode } from "../types";
 import { useI18n } from "../i18n";
 
@@ -64,7 +64,7 @@ export const SplitTunnelBar: React.FC<SplitTunnelBarProps> = ({
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3.5 backdrop-blur-md">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
         <div className="flex items-center gap-2">
-          <Flame className="h-4 w-4 text-amber-400" />
+          <Sliders className="h-4 w-4 text-cyan-400" />
           <span className="text-xs font-semibold text-slate-300">
             {t.splitTunnel.title}
           </span>

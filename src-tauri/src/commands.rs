@@ -402,3 +402,26 @@ pub async fn sync_remote_lists() -> Result<crate::win32::lists::ListSyncReport, 
     crate::win32::lists::update_remote_lists().await
 }
 
+/// Minimizes the application window.
+#[tauri::command]
+pub fn window_minimize(window: tauri::Window) -> Result<(), String> {
+    window.minimize().map_err(|e| e.to_string())
+}
+
+/// Toggles between maximized and restored window states.
+#[tauri::command]
+pub fn window_toggle_maximize(window: tauri::Window) -> Result<(), String> {
+    if window.is_maximized().unwrap_or(false) {
+        window.unminimize().map_err(|e| e.to_string())
+    } else {
+        window.maximize().map_err(|e| e.to_string())
+    }
+}
+
+/// Hides the window to system tray.
+#[tauri::command]
+pub fn window_close(window: tauri::Window) -> Result<(), String> {
+    window.hide().map_err(|e| e.to_string())
+}
+
+

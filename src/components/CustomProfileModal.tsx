@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LuaStrategy } from "../types";
 import { useI18n } from "../i18n";
-import { X, Sparkles, Terminal, Check, AlertCircle } from "lucide-react";
+import { X, Sparkles, Terminal, Check, AlertCircle, Tv, Mic, Globe, Zap, Lightbulb } from "lucide-react";
 
 interface CustomProfileModalProps {
   isOpen: boolean;
@@ -283,30 +283,34 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                 <button
                   type="button"
                   onClick={() => applyQuickTemplate("youtube")}
-                  className="rounded-lg border border-red-500/30 bg-red-950/30 px-2.5 py-1 text-[11px] font-medium text-red-300 hover:bg-red-900/40 hover:border-red-500/50 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-950/30 px-2.5 py-1 text-[11px] font-medium text-red-300 hover:bg-red-900/40 hover:border-red-500/50 transition-all cursor-pointer"
                 >
-                  📺 {t.modal.templateYoutube}
+                  <Tv className="h-3 w-3 text-red-400" />
+                  <span>{t.modal.templateYoutube}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => applyQuickTemplate("discord")}
-                  className="rounded-lg border border-indigo-500/30 bg-indigo-950/30 px-2.5 py-1 text-[11px] font-medium text-indigo-300 hover:bg-indigo-900/40 hover:border-indigo-500/50 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-950/30 px-2.5 py-1 text-[11px] font-medium text-indigo-300 hover:bg-indigo-900/40 hover:border-indigo-500/50 transition-all cursor-pointer"
                 >
-                  🎙️ {t.modal.templateDiscord}
+                  <Mic className="h-3 w-3 text-indigo-400" />
+                  <span>{t.modal.templateDiscord}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => applyQuickTemplate("general")}
-                  className="rounded-lg border border-emerald-500/30 bg-emerald-950/30 px-2.5 py-1 text-[11px] font-medium text-emerald-300 hover:bg-emerald-900/40 hover:border-emerald-500/50 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-950/30 px-2.5 py-1 text-[11px] font-medium text-emerald-300 hover:bg-emerald-900/40 hover:border-emerald-500/50 transition-all cursor-pointer"
                 >
-                  🌐 {t.modal.templateGeneral}
+                  <Globe className="h-3 w-3 text-emerald-400" />
+                  <span>{t.modal.templateGeneral}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => applyQuickTemplate("combo")}
-                  className="rounded-lg border border-purple-500/30 bg-purple-950/30 px-2.5 py-1 text-[11px] font-medium text-purple-300 hover:bg-purple-900/40 hover:border-purple-500/50 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-950/30 px-2.5 py-1 text-[11px] font-medium text-purple-300 hover:bg-purple-900/40 hover:border-purple-500/50 transition-all cursor-pointer"
                 >
-                  ⚡ {t.modal.templateCombo}
+                  <Zap className="h-3 w-3 text-purple-400" />
+                  <span>{t.modal.templateCombo}</span>
                 </button>
               </div>
             </div>
@@ -333,7 +337,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                 className="flex w-full items-center justify-between text-left text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="text-amber-400">💡</span>
+                  <Lightbulb className="h-3.5 w-3.5 text-amber-400" />
                   <span>{t.modal.cheatsheetTitle}</span>
                 </div>
                 <span className="text-[11px] text-slate-500">

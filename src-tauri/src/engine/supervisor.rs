@@ -115,6 +115,9 @@ impl Supervisor {
         // Spawn high-throughput micro-batching engine
         supervisor.spawn_micro_batching_worker(log_rx);
 
+        supervisor.log("info", "zapret2 v1.0.9 initialized. WinDivert and WFP subsystem ready.");
+        supervisor.log("info", "Ready to start DPI bypass. Select a strategy to begin.");
+
         Ok(supervisor)
     }
 

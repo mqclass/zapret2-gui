@@ -13,6 +13,9 @@ import {
   Square,
   Zap,
   Loader2,
+  Layers,
+  Cpu,
+  Wrench,
 } from "lucide-react";
 import { useI18n } from "../i18n";
 import { CustomProfileModal } from "./CustomProfileModal";
@@ -124,46 +127,50 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
         </div>
 
         {/* Category Tabs */}
-        <div className="flex items-center gap-1.5 border-b border-slate-800/80 pb-2.5 mb-3 overflow-x-auto text-xs">
+        <div className="flex items-center gap-1.5 border-b border-white/[0.06] pb-3 mb-4 overflow-x-auto text-xs">
           <button
             onClick={() => setActiveTab("flowseal")}
-            className={`rounded-lg px-3 py-1 font-medium transition-colors cursor-pointer shrink-0 ${
+            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 font-semibold transition-all cursor-pointer shrink-0 ${
               activeTab === "flowseal"
-                ? "bg-indigo-600/30 text-indigo-300 border border-indigo-500/50 shadow-sm"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                ? "bg-indigo-600/25 text-indigo-300 border border-indigo-500/40 shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
             }`}
           >
-            {t.strategies.tabFlowseal}
+            <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+            <span>{t.strategies.tabFlowseal}</span>
           </button>
           <button
             onClick={() => setActiveTab("zapret2")}
-            className={`rounded-lg px-3 py-1 font-medium transition-colors cursor-pointer shrink-0 ${
+            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 font-semibold transition-all cursor-pointer shrink-0 ${
               activeTab === "zapret2"
-                ? "bg-sky-600/30 text-sky-300 border border-sky-500/50 shadow-sm"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                ? "bg-cyan-600/25 text-cyan-300 border border-cyan-500/40 shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
             }`}
           >
-            {t.strategies.tabZapret2}
+            <Cpu className="h-3.5 w-3.5 text-cyan-400" />
+            <span>{t.strategies.tabZapret2}</span>
           </button>
           <button
             onClick={() => setActiveTab("custom")}
-            className={`rounded-lg px-3 py-1 font-medium transition-colors cursor-pointer shrink-0 ${
+            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 font-semibold transition-all cursor-pointer shrink-0 ${
               activeTab === "custom"
-                ? "bg-amber-600/30 text-amber-300 border border-amber-500/50 shadow-sm"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                ? "bg-amber-600/25 text-amber-300 border border-amber-500/40 shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
             }`}
           >
-            {t.strategies.tabCustom}
+            <Wrench className="h-3.5 w-3.5 text-amber-400" />
+            <span>{t.strategies.tabCustom}</span>
           </button>
           <button
             onClick={() => setActiveTab("all")}
-            className={`rounded-lg px-3 py-1 font-medium transition-colors cursor-pointer shrink-0 ${
+            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 font-semibold transition-all cursor-pointer shrink-0 ${
               activeTab === "all"
-                ? "bg-slate-800 text-slate-200 border border-slate-700 shadow-sm"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                ? "bg-white/[0.1] text-white border border-white/[0.15] shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
             }`}
           >
-            {t.strategies.tabAll}
+            <Layers className="h-3.5 w-3.5 text-slate-400" />
+            <span>{t.strategies.tabAll}</span>
           </button>
         </div>
 
@@ -188,11 +195,11 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
               const isFlowseal = strat.engine === "winws";
               const isCustom = strat.category === "custom";
 
-              let cardStyle = "border-slate-800/80 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:bg-slate-800/40";
+              let cardStyle = "border-white/[0.08] bg-slate-900/40 text-slate-300 hover:border-white/[0.16] hover:bg-slate-900/70 hover:shadow-lg hover:shadow-black/20";
               if (isActive) {
-                cardStyle = "border-emerald-500/80 bg-gradient-to-br from-emerald-950/40 via-slate-900/90 to-slate-900 text-white shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/50";
+                cardStyle = "border-emerald-500/60 bg-gradient-to-br from-emerald-950/30 via-slate-900/80 to-slate-900 text-white shadow-xl shadow-emerald-500/10 ring-1 ring-emerald-500/40";
               } else if (isSelected) {
-                cardStyle = "border-blue-500 bg-blue-500/10 text-white shadow-sm shadow-blue-500/10 ring-1 ring-blue-500/30";
+                cardStyle = "border-cyan-500/60 bg-cyan-950/20 text-white shadow-lg shadow-cyan-500/10 ring-1 ring-cyan-500/30";
               }
 
               return (
@@ -207,52 +214,51 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                       onStartStrategy(strat.id);
                     }
                   }}
-                  className={`relative flex flex-col justify-between rounded-xl border p-3 text-left transition-all cursor-pointer ${cardStyle} ${
+                  className={`relative flex flex-col justify-between rounded-2xl border p-4 text-left transition-all duration-200 cursor-pointer min-h-[175px] ${cardStyle} ${
                     isTransitioning ? "opacity-75" : ""
                   }`}
                 >
+                  {/* Top Content: Title, Badges, Description, Filename */}
                   <div>
-                    <div className="flex items-start justify-between gap-2 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="flex items-start gap-2.5 min-w-0">
-                        <FileCode
-                          className={`h-4 w-4 shrink-0 mt-0.5 ${
+                        <div
+                          className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${
                             isActive
-                              ? "text-emerald-400"
+                              ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
                               : isSelected
-                              ? "text-blue-400"
+                              ? "bg-cyan-500/15 border-cyan-500/30 text-cyan-400"
                               : isCustom
-                              ? "text-amber-400"
-                              : isUltimate
-                              ? "text-cyan-400"
-                              : isFlowseal
-                              ? "text-indigo-400"
-                              : "text-sky-400"
+                              ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                              : "bg-white/[0.04] border-white/[0.08] text-slate-400"
                           }`}
-                        />
-                        <div className="min-w-0">
+                        >
+                          <FileCode className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-xs font-semibold truncate text-slate-100">
+                            <span className="text-xs font-bold truncate text-white">
                               {strat.name}
                             </span>
                             {isUltimate && (
-                              <span className="flex items-center gap-0.5 rounded bg-cyan-500/20 border border-cyan-500/40 px-1.5 py-0.2 text-[9px] font-bold text-cyan-300 shrink-0">
+                              <span className="flex items-center gap-0.5 rounded-md bg-cyan-500/20 border border-cyan-500/40 px-1.5 py-0.2 text-[9px] font-bold text-cyan-300 shrink-0">
                                 <Sparkles className="h-2.5 w-2.5" />
                                 <span>{t.strategies.flagshipBadge}</span>
                               </span>
                             )}
                             {isRecommended && (
-                              <span className="flex items-center gap-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 px-1.5 py-0.2 text-[9px] font-bold text-emerald-300 shrink-0">
+                              <span className="flex items-center gap-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 px-1.5 py-0.2 text-[9px] font-bold text-emerald-300 shrink-0">
                                 <Sparkles className="h-2.5 w-2.5" />
                                 <span>{t.strategies.badgeRecommended}</span>
                               </span>
                             )}
                             {is4k && (
-                              <span className="flex items-center gap-0.5 rounded bg-purple-500/20 border border-purple-500/40 px-1.5 py-0.2 text-[9px] font-bold text-purple-300 shrink-0">
+                              <span className="flex items-center gap-0.5 rounded-md bg-purple-500/20 border border-purple-500/40 px-1.5 py-0.2 text-[9px] font-bold text-purple-300 shrink-0">
                                 <span>{t.strategies.badge4k}</span>
                               </span>
                             )}
                             <span
-                              className={`rounded px-1 py-0.2 text-[9px] font-mono font-medium shrink-0 ${
+                              className={`rounded-md px-1.5 py-0.2 text-[9px] font-mono font-medium shrink-0 ${
                                 isFlowseal
                                   ? "bg-indigo-500/15 border border-indigo-500/30 text-indigo-300"
                                   : "bg-sky-500/15 border border-sky-500/30 text-sky-300"
@@ -261,10 +267,10 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                               {isFlowseal ? t.strategies.engineFlowseal : t.strategies.engineZapret2}
                             </span>
                           </div>
-                          <div className="text-[11px] text-blue-300/80 mt-1 line-clamp-2">
+                          <div className="text-[11px] text-slate-400 mt-1 line-clamp-2 leading-relaxed min-h-[32px]">
                             {friendlyDesc}
                           </div>
-                          <div className="text-[10px] font-mono text-slate-400 mt-0.5 truncate">
+                          <div className="text-[10px] font-mono text-slate-500 mt-1 truncate">
                             {strat.filename}
                           </div>
                         </div>
@@ -279,7 +285,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                           </span>
                         )}
                         {!isActive && isSelected && (
-                          <div className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-white">
+                          <div className="flex h-4 w-4 items-center justify-center rounded-full bg-cyan-500 text-white">
                             <Check className="h-2.5 w-2.5" />
                           </div>
                         )}
@@ -287,40 +293,40 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                     </div>
                   </div>
 
-                  {/* Bottom Action Bar */}
-                  <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                    {/* Custom Actions (Edit/Delete) */}
-                    <div className="flex items-center gap-1">
+                  {/* Bottom Action Footer */}
+                  <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
+                    {/* Left: Custom Actions or Strategy ID Badge */}
+                    <div className="flex items-center gap-1 min-w-0">
                       {isCustom ? (
-                        <>
+                        <div className="flex items-center gap-1">
                           <button
                             type="button"
                             onClick={(e) => handleEditCustom(strat, e)}
                             disabled={isTransitioning}
-                            className="p-1 rounded text-slate-400 hover:text-blue-300 hover:bg-slate-800 transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-white/[0.06] transition-colors cursor-pointer"
                             title={t.strategies.editCustom}
                           >
-                            <Pencil className="h-3 w-3" />
+                            <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button
                             type="button"
                             onClick={(e) => handleDeleteCustom(strat.id, e)}
                             disabled={isTransitioning}
-                            className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
                             title={t.strategies.deleteCustom}
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
-                        </>
+                        </div>
                       ) : (
-                        <span className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]">
+                        <span className="text-[10px] text-slate-400 font-mono truncate max-w-[105px] bg-white/[0.03] border border-white/[0.06] px-1.5 py-0.5 rounded-md">
                           {strat.id}
                         </span>
                       )}
                     </div>
 
-                    {/* 1-Click Action Buttons: Enable / Disable / Switch */}
-                    <div>
+                    {/* Right: 1-Click Action Buttons */}
+                    <div className="shrink-0">
                       {isActive ? (
                         <button
                           type="button"
@@ -329,7 +335,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                             onStopStrategy();
                           }}
                           disabled={isTransitioning}
-                          className="flex items-center gap-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 text-xs font-semibold shadow-md shadow-rose-600/30 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                          className="flex items-center gap-1.5 rounded-xl bg-rose-500/15 border border-rose-500/35 hover:bg-rose-500/25 text-rose-300 px-3 py-1.5 text-xs font-bold transition-all active:scale-95 cursor-pointer disabled:opacity-50"
                           title={t.controls.stop}
                         >
                           {isStoppingThis ? (
@@ -339,7 +345,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                             </>
                           ) : (
                             <>
-                              <Square className="h-3 w-3 fill-white" />
+                              <Square className="h-3 w-3 fill-current" />
                               <span>{t.strategies.cardStop}</span>
                             </>
                           )}
@@ -352,7 +358,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                             onStartStrategy(strat.id);
                           }}
                           disabled={isTransitioning}
-                          className="flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-1.5 text-xs font-semibold shadow-md shadow-indigo-600/25 transition-all active:scale-95 cursor-pointer disabled:opacity-50 hover:brightness-110"
+                          className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white px-3 py-1.5 text-xs font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
                           title={t.strategies.cardSwitch}
                         >
                           {isStartingThis ? (
@@ -362,7 +368,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                             </>
                           ) : (
                             <>
-                              <Zap className="h-3 w-3 text-amber-300 fill-amber-300" />
+                              <Zap className="h-3 w-3 fill-current" />
                               <span>{t.strategies.cardSwitch}</span>
                             </>
                           )}
@@ -375,10 +381,10 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                             onStartStrategy(strat.id);
                           }}
                           disabled={isTransitioning}
-                          className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold shadow-sm transition-all active:scale-95 cursor-pointer disabled:opacity-50 ${
+                          className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all active:scale-95 cursor-pointer disabled:opacity-50 ${
                             isSelected
-                              ? "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/25"
-                              : "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600"
+                              ? "bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/25"
+                              : "bg-white/[0.06] hover:bg-white/[0.1] text-slate-200 border border-white/[0.1]"
                           }`}
                           title={t.strategies.cardStart}
                         >

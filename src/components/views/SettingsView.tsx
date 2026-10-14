@@ -11,8 +11,8 @@ import {
   Shield,
   Info,
   CheckCircle2,
-  Flame,
 } from "lucide-react";
+import { ZapretLogo } from "../ZapretLogo";
 import { useI18n } from "../../i18n";
 import { Language } from "../../i18n/types";
 
@@ -255,9 +255,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         <div className="rounded-2xl border border-white/[0.08] bg-slate-900/40 p-5 backdrop-blur-xl">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <div className="flex items-center gap-2">
-              <Flame className="h-4 w-4 text-blue-400" />
-              <span className="font-bold text-white">zapret2 GUI & Supervisor</span>
-              <span className="font-mono text-blue-400 font-bold">v1.0.7</span>
+              <ZapretLogo className="h-4 w-4" />
+              <span className="font-bold text-white">zapret2</span>
+              <span className="font-mono text-cyan-400 font-bold">{t.header.version}</span>
             </div>
             <div className="font-mono text-[11px] text-slate-500">
               WinWS v2.1.8 • WinDivert v2.2.2-F • Tauri v2
