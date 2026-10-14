@@ -194,4 +194,56 @@ export interface Translations {
     deleteDomain: string;
     tip: string;
   };
+  splitTunnel: {
+    title: string;
+    modeFull: string;
+    modeFullDesc: string;
+    modeStrict: string;
+    modeStrictDesc: string;
+    modeGame: string;
+    modeGameDesc: string;
+    badgeGame: string;
+    badgeStrict: string;
+    badgeFull: string;
+  };
+  doctor: {
+    title: string;
+    subtitle: string;
+    runBtn: string;
+    running: string;
+    successMessage: string;
+    stepOk: string;
+    stepFixed: string;
+    stepFailed: string;
+    closeBtn: string;
+  };
+  dns: {
+    title: string;
+    subtitle: string;
+    adapterLabel: string;
+    currentDnsLabel: string;
+    applyBtn: string;
+    applying: string;
+    activeBadge: string;
+    dohBadge: string;
+    successApplied: string;
+    closeBtn: string;
+  };
+  speedtest: {
+    title: string;
+    subtitle: string;
+    runBtn: string;
+    running: string;
+    resultSpeed: string;
+    resultDuration: string;
+    resultPayload: string;
+    resultVerdict: string;
+    closeBtn: string;
+  };
+  syncLists: {
+    syncBtn: string;
+    syncing: string;
+    successTitle: string;
+    filesUpdated: string;
+  };
 }

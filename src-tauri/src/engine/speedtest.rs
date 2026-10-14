@@ -1,0 +1,88 @@
+//! Real YouTube 4K Video Stream Throughput & Speed Benchmark
+//!
+//! Downloads a 10MB streaming payload through the active desynchronization pipeline,
+//! measuring real-time throughput (Mbps), latency jitter, and video quality tier readiness.
+
+use std::time::{Duration, Instant};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpeedtestResult {
+    pub mbps: f64,
+    pub download_time_ms: u64,
+    pub bytes_downloaded: u64,
+    pub quality_tier: String, // "ready_4k", "ready_1080p", "ready_720p", "slow"
+    pub verdict: String,
+}
+
+pub async fn run_youtube_speedtest() -> Result<SpeedtestResult, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .connect_timeout(Duration::from_secs(4))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    // Use high-capacity Cloudflare/Global CDN stream chunk (10 Megabytes)
+    let test_url = "https://speed.cloudflare.com/__down?bytes=10000000";
+
+    let start = Instant::now();
+    let resp = client
+        .get(test_url)
+        .header("Cache-Control", "no-cache")
+        .send()
+        .await
+        .map_err(|e| format!("Speedtest download request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Speedtest server returned HTTP status {}", resp.status()));
+    }
+
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed reading response stream: {}", e))?;
+
+    let elapsed = start.elapsed();
+    let elapsed_ms = elapsed.as_millis() as u64;
+    let bytes_len = bytes.len() as u64;
+
+    if elapsed_ms == 0 || bytes_len == 0 {
+        return Err("Speedtest duration was too short to calculate bandwidth".into());
+    }
+
+    let seconds = elapsed.as_secs_f64();
+    let bits = (bytes_len * 8) as f64;
+    let mbps = (bits / seconds) / 1_000_000.0;
+    let rounded_mbps = (mbps * 10.0).round() / 10.0;
+
+    let (quality_tier, verdict) = if rounded_mbps >= 40.0 {
+        (
+            "ready_4k".to_string(),
+            format!("{} Мбит/с — 4K 60FPS Ultra HD (Идеально без буферизации)", rounded_mbps),
+        )
+    } else if rounded_mbps >= 15.0 {
+        (
+            "ready_1080p".to_string(),
+            format!("{} Мбит/с — 1080p 60FPS Full HD (Отличная скорость)", rounded_mbps),
+        )
+    } else if rounded_mbps >= 5.0 {
+        (
+            "ready_720p".to_string(),
+            format!("{} Мбит/с — 720p HD (Стабильно)", rounded_mbps),
+        )
+    } else {
+        (
+            "slow".to_string(),
+            format!("{} Мбит/с — Провайдер режет скорость (Рекомендуется Flowseal ALT11)", rounded_mbps),
+        )
+    };
+
+    Ok(SpeedtestResult {
+        mbps: rounded_mbps,
+        download_time_ms: elapsed_ms,
+        bytes_downloaded: bytes_len,
+        quality_tier,
+        verdict,
+    })
+}

@@ -475,6 +475,10 @@ impl Supervisor {
                             *child_guard = None;
                             drop(child_guard);
 
+                            tokio::spawn(async {
+                                cleanup_windivert_driver().await;
+                            });
+
                             {
                                 let mut state = supervisor_clone.state.write();
                                 if *state == SupervisorState::Running || *state == SupervisorState::Stopping {
@@ -543,6 +547,22 @@ impl Supervisor {
 
     /// Builds Flowseal preset command-line arguments.
     fn build_flowseal_args(preset_id: &str, bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
+        let settings = crate::win32::settings::load_settings();
+        let is_game = settings.split_tunnel_mode == crate::win32::settings::SplitTunnelMode::GameMode;
+        let is_strict = settings.split_tunnel_mode == crate::win32::settings::SplitTunnelMode::Strict;
+
+        let wf_tcp = if is_game {
+            format!("--wf-tcp=80,443,2053,2083,2087,2096,8443,{}", settings.game_filter_tcp)
+        } else {
+            "--wf-tcp=80,443,2053,2083,2087,2096,8443".into()
+        };
+
+        let wf_udp = if is_game {
+            format!("--wf-udp=443,19294-19344,50000-50100,{}", settings.game_filter_udp)
+        } else {
+            "--wf-udp=443,19294-19344,50000-50100".into()
+        };
+
         let b = |file: &str| {
             if bin_dir.join(file).is_file() {
                 file.to_string()
@@ -558,7 +578,7 @@ impl Supervisor {
             }
         };
 
-        match preset_id {
+        let mut args = match preset_id {
             "flowseal-alt11" => vec![
                 "--wf-tcp=80,443,2053,2083,2087,2096,8443".into(),
                 "--wf-udp=443,19294-19344,50000-50100".into(),
@@ -941,9 +961,82 @@ impl Supervisor {
                 "--dpi-desync=multisplit".into(),
                 "--dpi-desync-split-seqovl=568".into(),
                 "--dpi-desync-split-pos=1".into(),
-                format!("--dpi-desync-split-seqovl-pattern={}", b("tls_clienthello_4pda_to.bin")),
             ],
+        };
+
+        // 1. If Game Mode is active, attach game port filtering and ACTIVE_GAME_UDP desync
+        if is_game {
+            args.extend([
+                "--new".into(),
+                format!("--filter-tcp={}", settings.game_filter_tcp),
+                format!("--ipset={}", l("ipset-all.txt")),
+                format!("--ipset-exclude={}", l("ipset-exclude.txt")),
+                format!("--ipset-exclude={}", l("ipset-exclude-user.txt")),
+                "--dpi-desync=fake,fakedsplit".into(),
+                "--dpi-desync-repeats=6".into(),
+                "--dpi-desync-any-protocol=1".into(),
+                "--dpi-desync-cutoff=n4".into(),
+                "--dpi-desync-fooling=ts".into(),
+                "--dpi-desync-fakedsplit-pattern=0x00".into(),
+                format!("--dpi-desync-fake-tls={}", b("stun.bin")),
+                format!("--dpi-desync-fake-tls={}", b("tls_clienthello_www_google_com.bin")),
+                format!("--dpi-desync-fake-http={}", b("tls_clienthello_max_ru.bin")),
+                format!("--dpi-desync-fake-unknown={}", b("stun.bin")),
+                format!("--dpi-desync-fake-unknown={}", b("tls_clienthello_www_google_com.bin")),
+                "--new".into(),
+                format!("--filter-udp={}", settings.game_filter_udp),
+                format!("--ipset={}", l("ipset-all.txt")),
+                format!("--ipset-exclude={}", l("ipset-exclude.txt")),
+                format!("--ipset-exclude={}", l("ipset-exclude-user.txt")),
+                "--dpi-desync=fake".into(),
+                "--dpi-desync-repeats=12".into(),
+                "--dpi-desync-any-protocol=1".into(),
+                format!("--dpi-desync-fake-unknown-udp={}", b("ACTIVE_GAME_UDP.bin")),
+                "--dpi-desync-cutoff=n3".into(),
+            ]);
         }
+
+        // 2. If Strict Split-Tunneling is active, bypass all other websites and ipset-all
+        if is_strict {
+            let mut filtered = Vec::new();
+            let mut current_block = Vec::new();
+            for arg in args {
+                if arg == "--new" {
+                    let has_general = current_block.iter().any(|a: &String| a.contains("list-general.txt") || a.contains("ipset-all.txt"));
+                    if !has_general {
+                        if !filtered.is_empty() {
+                            filtered.push("--new".to_string());
+                        }
+                        filtered.extend(current_block);
+                    }
+                    current_block = Vec::new();
+                } else {
+                    current_block.push(arg);
+                }
+            }
+            if !current_block.is_empty() {
+                let has_general = current_block.iter().any(|a: &String| a.contains("list-general.txt") || a.contains("ipset-all.txt"));
+                if !has_general {
+                    if !filtered.is_empty() {
+                        filtered.push("--new".to_string());
+                    }
+                    filtered.extend(current_block);
+                }
+            }
+            args = filtered;
+        }
+
+        // 3. Ensure WinDivert root port filters are updated
+        if let Some(first) = args.first_mut() {
+            if first.starts_with("--wf-tcp") {
+                *first = wf_tcp;
+            }
+        }
+        if args.len() > 1 && args[1].starts_with("--wf-udp") {
+            args[1] = wf_udp;
+        }
+
+        args
     }
 
     /// Builds zapret2 Ultimate configuration for Russia on winws2 v2.

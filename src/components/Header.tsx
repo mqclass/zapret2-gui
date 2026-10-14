@@ -1,5 +1,17 @@
 import React from "react";
-import { ShieldCheck, ShieldAlert, RefreshCw, Trash2, Globe, Cpu, Rocket } from "lucide-react";
+import {
+  ShieldCheck,
+  ShieldAlert,
+  RefreshCw,
+  Trash2,
+  Globe,
+  Cpu,
+  Rocket,
+  Wrench,
+  Globe2,
+  Tv,
+  CloudDownload,
+} from "lucide-react";
 import { useI18n } from "../i18n";
 import { Language } from "../i18n/types";
 
@@ -12,6 +24,11 @@ interface HeaderProps {
   onToggleAutostart: () => void;
   isTogglingAutostart: boolean;
   onOpenDomainManager: () => void;
+  onOpenDoctor: () => void;
+  onOpenDns: () => void;
+  onOpenSpeedtest: () => void;
+  onSyncLists: () => void;
+  isSyncingLists: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = React.memo(
@@ -24,6 +41,11 @@ export const Header: React.FC<HeaderProps> = React.memo(
     onToggleAutostart,
     isTogglingAutostart,
     onOpenDomainManager,
+    onOpenDoctor,
+    onOpenDns,
+    onOpenSpeedtest,
+    onSyncLists,
+    isSyncingLists,
   }) => {
     const { language, setLanguage, t } = useI18n();
 
@@ -108,6 +130,47 @@ export const Header: React.FC<HeaderProps> = React.memo(
                 isAutostart ? "bg-indigo-400 shadow-[0_0_6px_#818cf8]" : "bg-slate-600"
               }`}
             />
+          </button>
+
+          {/* Auto-Doctor Modal Trigger */}
+          <button
+            onClick={onOpenDoctor}
+            className="flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 hover:border-amber-500/50 shadow-sm shadow-amber-500/10 transition-all cursor-pointer"
+            title={t.doctor.title}
+          >
+            <Wrench className="h-3.5 w-3.5 text-amber-400" />
+            <span>Доктор</span>
+          </button>
+
+          {/* DNS Manager Modal Trigger */}
+          <button
+            onClick={onOpenDns}
+            className="flex items-center gap-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 hover:border-cyan-500/50 shadow-sm shadow-cyan-500/10 transition-all cursor-pointer"
+            title={t.dns.title}
+          >
+            <Globe2 className="h-3.5 w-3.5 text-cyan-400" />
+            <span>DNS</span>
+          </button>
+
+          {/* YouTube 4K Speedtest Modal Trigger */}
+          <button
+            onClick={onOpenSpeedtest}
+            className="flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-300 hover:bg-rose-500/20 hover:border-rose-500/50 shadow-sm shadow-rose-500/10 transition-all cursor-pointer"
+            title={t.speedtest.title}
+          >
+            <Tv className="h-3.5 w-3.5 text-rose-400" />
+            <span>Тест 4K</span>
+          </button>
+
+          {/* Remote Lists Sync Button */}
+          <button
+            onClick={onSyncLists}
+            disabled={isSyncingLists}
+            className="flex items-center gap-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-300 hover:bg-indigo-500/20 hover:border-indigo-500/50 shadow-sm shadow-indigo-500/10 transition-all cursor-pointer disabled:opacity-50"
+            title={t.syncLists.syncBtn}
+          >
+            <CloudDownload className={`h-3.5 w-3.5 text-indigo-400 ${isSyncingLists ? "animate-bounce" : ""}`} />
+            <span>{isSyncingLists ? t.syncLists.syncing : t.syncLists.syncBtn}</span>
           </button>
 
           {/* Domain & Sites Manager Modal Trigger */}

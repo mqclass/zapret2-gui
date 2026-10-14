@@ -49,15 +49,20 @@ The application enables 1-click circumvention of ISP throttling and blocking for
   The child engine process `winws2.exe` is bound to a native `JobObject` configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Even if the UI process crashes or is forcefully terminated via Task Manager, the Windows kernel terminates the worker immediately, preventing driver leaks, network locks, or orphaned processes.
 - 📌 **System Tray Integration (Minimize on Close):**
   Closing the main window with `[X]` hides the window straight into the Windows notification area (System Tray near the clock) without stopping the circumvention engine. Left-click or double-click instantly restores the window; right-click opens the context menu to toggle bypass or exit completely.
+- 🎮 **Split-Tunneling & Game Mode:**
+  - **Full Bypass:** Complete circumvention of YouTube, Discord, and all blocked domains/ipsets.
+  - **Strict Split-Tunnel:** Intercepts ONLY YouTube and Discord connections. Games, online banking, torrents, and domestic websites route 100% directly without touching the driver.
+  - **Game Mode:** Activates Flowseal Game Filter on UDP ports 1024-65535 (`cutoff=n3`) to unblock in-game lobbies and voice chats (Apex Legends, Steam, Roblox) with zero added latency (0ms lag).
+- 🩺 **1-Click Auto-Doctor (Network Self-Healing):**
+  Automatic 6-step recovery: terminates orphaned processes, unhooks WinDivert driver service, flushes DNS cache (`ipconfig /flushdns`), purges ARP table, activates TCP Timestamps, and verifies gateway connectivity.
+- 🛡️ **DNS Manager & Anti-Spoofing:**
+  Configure system DNS on your active network adapter in 1 click: Cloudflare (1.1.1.1), Comss.one (optimized for Russian anti-censorship), Google (8.8.8.8), Quad9 (9.9.9.9), and default DHCP.
+- ⚡ **Real YouTube 4K Stream Speedtest:**
+  Direct live throughput measurement of googlevideo video chunks in Mbps with quality readiness verdict (4K 60FPS, 1080p, 720p).
+- 🔄 **OTA Lists Sync with GitHub:**
+  1-click update for domain lists and ipsets directly from Flowseal's repository with automatic `.bak` backups.
 - 🌐 **Built-in Domain & Hostlist Manager:**
   A full-featured visual editor to manage target domain lists (`list-general.txt`, `list-general-user.txt`, `list-exclude.txt`), live search entries, add new websites with automatic formatting and duplicate prevention, remove domains, or open them in your default browser.
-- ⚡ **1-Click DNS Cache Flush:**
-  Instantly flushes the Windows DNS client cache (`ipconfig /flushdns`) directly from the UI, ensuring routing updates and newly added domains take effect immediately.
-- 🎯 **Flagship Preset «zapret2 РФ Ultimate»:**
-  Custom-tailored configuration engineered against modern Russian TSPU DPI filters:
-  - **YouTube 4K 60FPS:** HTTP/3 QUIC Initial desync (UDP port 443) + TCP TLS Fake with repeats and sequence overlapping (`seqovl=681`).
-  - **Discord Voice & STUN:** Direct evasion for voice gateways on ports `50000-50100` and `19294-19344` using binary payload `ACTIVE_DISCORD_UDP.bin`.
-  - **General Web Bypass:** Universal `tls_max_ru` masking with fine-tuned offsets.
 - 🌟 **Dual Engine Support (Flowseal v1 & zapret2 Lua v2):**
   Seamlessly switch between proven Flowseal presets and modern modular Lua configuration scripts.
 - 🔍 **Autonomous Diagnostics Probes (Tokio Probes):**

@@ -198,3 +198,73 @@ pub fn open_lists_folder() -> Result<(), String> {
         .map_err(|e| format!("Не удалось открыть проводник: {}", e))?;
     Ok(())
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ListSyncReport {
+    pub success: bool,
+    pub files_updated: usize,
+    pub total_domains: usize,
+    pub details: Vec<String>,
+}
+
+/// Downloads fresh domain lists and ipsets from official Flowseal repository.
+pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
+    let dir = get_lists_dir()?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP Client error: {}", e))?;
+
+    let targets = [
+        ("list-general.txt", "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main/lists/list-general.txt"),
+        ("list-google.txt", "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main/lists/list-google.txt"),
+        ("list-exclude.txt", "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main/lists/list-exclude.txt"),
+        ("ipset-all.txt", "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main/lists/ipset-all.txt"),
+    ];
+
+    let mut files_updated = 0;
+    let mut total_domains = 0;
+    let mut details = Vec::new();
+
+    for (filename, url) in targets {
+        match client.get(url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(text) = resp.text().await {
+                    if text.trim().len() > 20 {
+                        let target_path = dir.join(filename);
+                        let bak_path = dir.join(format!("{}.bak", filename));
+
+                        // Backup existing file
+                        if target_path.exists() {
+                            let _ = fs::copy(&target_path, &bak_path);
+                        }
+
+                        let lines_count = text.lines().count();
+                        if fs::write(&target_path, &text).is_ok() {
+                            files_updated += 1;
+                            total_domains += lines_count;
+                            details.push(format!("{}: обновлено {} записей", filename, lines_count));
+                        }
+                    }
+                }
+            }
+            Ok(resp) => {
+                details.push(format!("{}: сервер вернул HTTP {}", filename, resp.status()));
+            }
+            Err(e) => {
+                details.push(format!("{}: ошибка скачивания ({})", filename, e));
+            }
+        }
+    }
+
+    // Flush Windows DNS resolver after lists update
+    let _ = flush_dns_cache();
+
+    Ok(ListSyncReport {
+        success: files_updated > 0,
+        files_updated,
+        total_domains,
+        details,
+    })
+}
+

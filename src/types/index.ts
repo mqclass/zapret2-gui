@@ -89,3 +89,66 @@ export interface SystemStatusResponse {
   conflicts: ConflictItem[];
   autostart_enabled: boolean;
 }
+
+export type SplitTunnelMode = "full" | "strict" | "game_mode";
+
+export interface AppSettings {
+  split_tunnel_mode: SplitTunnelMode;
+  game_filter_tcp: boolean;
+  game_filter_udp: boolean;
+  game_ports_tcp: string;
+  game_ports_udp: string;
+  dns_provider: string;
+  auto_doctor_on_start: boolean;
+}
+
+export interface DoctorStep {
+  id: string;
+  title: string;
+  status: "ok" | "fixed" | "failed" | "skipped";
+  details: string;
+}
+
+export interface DoctorReport {
+  success: boolean;
+  steps: DoctorStep[];
+  message: string;
+}
+
+export interface DnsProvider {
+  id: string;
+  name: string;
+  primary: string;
+  secondary: string;
+  description: string;
+  is_doh_capable: boolean;
+}
+
+export interface DnsStatus {
+  adapter_name: string;
+  current_dns: string[];
+  active_provider_id: string;
+  available_providers: DnsProvider[];
+}
+
+export interface SpeedtestResult {
+  success: boolean;
+  speed_mbps: number;
+  duration_ms: number;
+  bytes_downloaded: number;
+  resolution_tier: string;
+  message: string;
+}
+
+export interface ListSyncItem {
+  filename: string;
+  lines_count: number;
+  status: "updated" | "failed" | "created";
+}
+
+export interface ListSyncReport {
+  success: boolean;
+  files: ListSyncItem[];
+  message: string;
+}
+

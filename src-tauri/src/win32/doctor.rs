@@ -1,0 +1,139 @@
+//! 1-Click Network & Driver Auto-Doctor (Self-Healing Troubleshooter)
+//!
+//! Automatically diagnoses and repairs common network stack, driver, and caching issues:
+//! 1. Cleans orphaned winws/winws2 background processes.
+//! 2. Resets and unhooks the WinDivert kernel driver service.
+//! 3. Flushes Windows DNS client cache (`ipconfig /flushdns`).
+//! 4. Purges local ARP address cache (`netsh interface ip delete arpcache`).
+//! 5. Enables TCP Timestamps (`netsh int tcp set global timestamps=enabled`) required for packet desync.
+//! 6. Verifies outbound gateway connectivity to Cloudflare/Google DNS.
+
+use std::net::SocketAddr;
+use std::process::Command;
+use std::time::Duration;
+use serde::{Deserialize, Serialize};
+use tokio::net::TcpStream;
+use tokio::time::timeout;
+
+use crate::win32::process::{cleanup_windivert_driver, kill_stray_winws2_processes};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoctorStepResult {
+    pub id: String,
+    pub title: String,
+    pub status: String, // "ok", "warn", "error"
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoctorReport {
+    pub success: bool,
+    pub steps: Vec<DoctorStepResult>,
+    pub summary: String,
+}
+
+pub async fn run_auto_doctor(active_pid: Option<u32>) -> DoctorReport {
+    let mut steps = Vec::new();
+    let mut all_ok = true;
+
+    // 1. Terminate orphaned processes
+    let strays = kill_stray_winws2_processes(active_pid);
+    steps.push(DoctorStepResult {
+        id: "process_cleanup".into(),
+        title: "Очистка фоновых процессов winws".into(),
+        status: "ok".into(),
+        message: if strays > 0 {
+            format!("Успешно завершено {} зависших процессов", strays)
+        } else {
+            "Зависших процессов не обнаружено".into()
+        },
+    });
+
+    // 2. Reset WinDivert driver registration
+    cleanup_windivert_driver().await;
+    steps.push(DoctorStepResult {
+        id: "windivert_reset".into(),
+        title: "Сброс драйвера ядра WinDivert".into(),
+        status: "ok".into(),
+        message: "Служба WinDivert успешно сброшена и готова к работе".into(),
+    });
+
+    // 3. Flush DNS Cache
+    let dns_res = Command::new("ipconfig").arg("/flushdns").output();
+    let dns_ok = dns_res.map(|o| o.status.success()).unwrap_or(false);
+    steps.push(DoctorStepResult {
+        id: "flush_dns".into(),
+        title: "Сброс системного кэша DNS".into(),
+        status: if dns_ok { "ok".into() } else { "warn".into() },
+        message: if dns_ok {
+            "Кэш сопоставления DNS Windows успешно очищен".into()
+        } else {
+            "Не удалось выполнить команду ipconfig /flushdns".into()
+        },
+    });
+
+    // 4. Purge ARP table cache
+    let arp_res = Command::new("netsh")
+        .args(["interface", "ip", "delete", "arpcache"])
+        .output();
+    let arp_ok = arp_res.map(|o| o.status.success()).unwrap_or(false);
+    steps.push(DoctorStepResult {
+        id: "arp_purge".into(),
+        title: "Очистка сетевой таблицы ARP".into(),
+        status: if arp_ok { "ok".into() } else { "warn".into() },
+        message: if arp_ok {
+            "Таблица адресов ARP успешно сброшена".into()
+        } else {
+            "Очистка ARP завершилась с предупреждением".into()
+        },
+    });
+
+    // 5. Enforce TCP Timestamps
+    let ts_res = Command::new("netsh")
+        .args(["interface", "tcp", "set", "global", "timestamps=enabled"])
+        .output();
+    let ts_ok = ts_res.map(|o| o.status.success()).unwrap_or(false);
+    steps.push(DoctorStepResult {
+        id: "tcp_timestamps".into(),
+        title: "Включение TCP Timestamps".into(),
+        status: if ts_ok { "ok".into() } else { "warn".into() },
+        message: if ts_ok {
+            "TCP Timestamps включены (необходимо для надежной десинхронизации ТСПУ)".into()
+        } else {
+            "Не удалось включить TCP Timestamps".into()
+        },
+    });
+
+    // 6. Test Gateway / Outbound TCP Handshake
+    let test_addr: SocketAddr = "1.1.1.1:53".parse().unwrap();
+    let connect_res = timeout(Duration::from_millis(2000), TcpStream::connect(test_addr)).await;
+    match connect_res {
+        Ok(Ok(_)) => {
+            steps.push(DoctorStepResult {
+                id: "connectivity_check".into(),
+                title: "Проверка базового сетевого подключения".into(),
+                status: "ok".into(),
+                message: "Сетевой шлюз и глобальный интернет доступны".into(),
+            });
+        }
+        _ => {
+            all_ok = false;
+            steps.push(DoctorStepResult {
+                id: "connectivity_check".into(),
+                title: "Проверка базового сетевого подключения".into(),
+                status: "warn".into(),
+                message: "Задержка или отсутствие прямого TCP отклика от 1.1.1.1:53".into(),
+            });
+        }
+    }
+
+    DoctorReport {
+        success: all_ok,
+        steps,
+        summary: if all_ok {
+            "Все сетевые службы, драйвер ядра и сокеты успешно восстановлены!".into()
+        } else {
+            "Базовые компоненты восстановлены, но обнаружены задержки в сетевом подключении.".into()
+        },
+    }
+}

@@ -182,6 +182,14 @@ async fn main() {
             commands::get_log_file_path,
             commands::ping_custom_target,
             commands::benchmark_strategies,
+            commands::get_app_settings,
+            commands::save_app_settings,
+            commands::set_split_tunnel_mode,
+            commands::run_auto_doctor,
+            commands::get_dns_status,
+            commands::set_system_dns,
+            commands::benchmark_youtube_speed,
+            commands::sync_remote_lists,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running zapret2 Tauri supervisor application");

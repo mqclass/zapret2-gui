@@ -2,10 +2,13 @@
 pub mod autostart;
 pub mod conflicts;
 pub mod custom_profiles;
+pub mod dns;
+pub mod doctor;
 pub mod job_object;
 pub mod lists;
 pub mod privileges;
 pub mod process;
+pub mod settings;
 
 pub use autostart::{is_autostart_enabled, set_autostart};
 pub use conflicts::{resolve_all_conflicts, resolve_all_conflicts_excluding, scan_conflicts, scan_conflicts_excluding, ConflictItem};

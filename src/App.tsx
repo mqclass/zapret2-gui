@@ -8,15 +8,22 @@ import {
   LogEntry,
   SystemStatusResponse,
   ConflictItem,
+  SplitTunnelMode,
+  AppSettings,
+  ListSyncReport,
 } from "./types";
 import { Header } from "./components/Header";
 import { ConflictBanner } from "./components/ConflictBanner";
 import { StatusBadge } from "./components/StatusBadge";
 import { DiagnosticsCard } from "./components/DiagnosticsCard";
 import { StrategySelector } from "./components/StrategySelector";
+import { SplitTunnelBar } from "./components/SplitTunnelBar";
 import { Controls } from "./components/Controls";
 import { LogViewer } from "./components/LogViewer";
 import { DomainManagerModal } from "./components/DomainManagerModal";
+import { NetworkDoctorModal } from "./components/NetworkDoctorModal";
+import { DnsManagerModal } from "./components/DnsManagerModal";
+import { SpeedtestModal } from "./components/SpeedtestModal";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
 
@@ -65,6 +72,38 @@ const AppContent: React.FC = () => {
   const [isAutostart, setIsAutostart] = useState<boolean>(false);
   const [isTogglingAutostart, setIsTogglingAutostart] = useState<boolean>(false);
   const [isDomainManagerOpen, setIsDomainManagerOpen] = useState<boolean>(false);
+  const [splitTunnelMode, setSplitTunnelMode] = useState<SplitTunnelMode>("full");
+  const [isDoctorModalOpen, setIsDoctorModalOpen] = useState<boolean>(false);
+  const [isDnsModalOpen, setIsDnsModalOpen] = useState<boolean>(false);
+  const [isSpeedtestModalOpen, setIsSpeedtestModalOpen] = useState<boolean>(false);
+  const [isSyncingLists, setIsSyncingLists] = useState<boolean>(false);
+
+  const handleModeChange = useCallback(async (mode: SplitTunnelMode) => {
+    try {
+      const updated = await invoke<AppSettings>("set_split_tunnel_mode", { mode });
+      setSplitTunnelMode(updated.split_tunnel_mode);
+      if (status.state === "running") {
+        setSuccessAlert("Режим туннелирования изменен. Перезапустите обход для применения настроек.");
+      }
+    } catch (err: any) {
+      console.error("Failed to set split tunnel mode:", err);
+      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+    }
+  }, [status.state]);
+
+  const handleSyncLists = useCallback(async () => {
+    setIsSyncingLists(true);
+    setErrorAlert(null);
+    try {
+      const report = await invoke<ListSyncReport>("sync_remote_lists");
+      setSuccessAlert(`${t.syncLists.successTitle}: ${report.files.length} ${t.syncLists.filesUpdated}`);
+    } catch (err: any) {
+      console.error("Failed to sync lists:", err);
+      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+    } finally {
+      setIsSyncingLists(false);
+    }
+  }, [t.syncLists.successTitle, t.syncLists.filesUpdated]);
 
   const handleToggleAutostart = useCallback(async () => {
     setIsTogglingAutostart(true);
@@ -140,6 +179,15 @@ const AppContent: React.FC = () => {
         if (diag) setDiagnostics(diag);
       })
       .catch((err) => console.error("Failed to fetch initial probes:", err));
+
+    // Load saved settings (Split-Tunneling / Game Mode)
+    invoke<AppSettings>("get_app_settings")
+      .then((cfg) => {
+        if (cfg) {
+          setSplitTunnelMode(cfg.split_tunnel_mode);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch app settings:", err));
 
     // 2. Discover strategies
     invoke<LuaStrategy[]>("list_strategies")
@@ -383,6 +431,11 @@ const AppContent: React.FC = () => {
         onToggleAutostart={handleToggleAutostart}
         isTogglingAutostart={isTogglingAutostart}
         onOpenDomainManager={() => setIsDomainManagerOpen(true)}
+        onOpenDoctor={() => setIsDoctorModalOpen(true)}
+        onOpenDns={() => setIsDnsModalOpen(true)}
+        onOpenSpeedtest={() => setIsSpeedtestModalOpen(true)}
+        onSyncLists={handleSyncLists}
+        isSyncingLists={isSyncingLists}
       />
 
       {/* Main Content Area */}
@@ -472,6 +525,14 @@ const AppContent: React.FC = () => {
 
           return (
             <>
+              {/* Split-Tunneling and Game Mode Selector */}
+              <SplitTunnelBar
+                currentMode={splitTunnelMode}
+                onModeChange={handleModeChange}
+                isRunning={status.state === "running"}
+                disabled={status.state === "starting" || status.state === "stopping"}
+              />
+
               <StrategySelector
                 strategies={strategies}
                 selectedStrategyId={selectedStrategyId}
@@ -507,6 +568,25 @@ const AppContent: React.FC = () => {
       <DomainManagerModal
         isOpen={isDomainManagerOpen}
         onClose={() => setIsDomainManagerOpen(false)}
+      />
+
+      {/* Network Doctor Self-Healing Modal */}
+      <NetworkDoctorModal
+        isOpen={isDoctorModalOpen}
+        onClose={() => setIsDoctorModalOpen(false)}
+        onSuccessRefresh={handleRefreshProbes}
+      />
+
+      {/* DNS Manager & Anti-Spoofing Modal */}
+      <DnsManagerModal
+        isOpen={isDnsModalOpen}
+        onClose={() => setIsDnsModalOpen(false)}
+      />
+
+      {/* YouTube 4K Stream Speedtest Modal */}
+      <SpeedtestModal
+        isOpen={isSpeedtestModalOpen}
+        onClose={() => setIsSpeedtestModalOpen(false)}
       />
     </div>
   );

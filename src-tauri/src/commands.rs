@@ -335,3 +335,64 @@ pub async fn benchmark_strategies(
 
     Ok(results)
 }
+
+/// Retrieves current application settings (Split-Tunneling, Game Filter, DNS).
+#[tauri::command]
+pub async fn get_app_settings() -> Result<crate::win32::settings::AppSettings, String> {
+    Ok(crate::win32::settings::load_settings())
+}
+
+/// Saves application settings.
+#[tauri::command]
+pub async fn save_app_settings(
+    settings: crate::win32::settings::AppSettings,
+) -> Result<(), String> {
+    crate::win32::settings::save_settings(settings)
+}
+
+/// Changes the active Split-Tunneling mode.
+#[tauri::command]
+pub async fn set_split_tunnel_mode(
+    mode: crate::win32::settings::SplitTunnelMode,
+) -> Result<crate::win32::settings::AppSettings, String> {
+    let mut settings = crate::win32::settings::load_settings();
+    settings.split_tunnel_mode = mode;
+    crate::win32::settings::save_settings(settings.clone())?;
+    Ok(settings)
+}
+
+/// Executes the 1-click Auto-Doctor to repair driver, DNS, ARP, and network stack.
+#[tauri::command]
+pub async fn run_auto_doctor(
+    state: State<'_, AppState>,
+) -> Result<crate::win32::doctor::DoctorReport, String> {
+    let pid = state.supervisor.get_status().pid;
+    Ok(crate::win32::doctor::run_auto_doctor(pid).await)
+}
+
+/// Retrieves DNS status and available providers.
+#[tauri::command]
+pub async fn get_dns_status() -> Result<crate::win32::dns::DnsStatus, String> {
+    crate::win32::dns::get_dns_status()
+}
+
+/// Configures system DNS on the active network adapter.
+#[tauri::command]
+pub async fn set_system_dns(
+    provider_id: String,
+) -> Result<crate::win32::dns::DnsStatus, String> {
+    crate::win32::dns::set_system_dns(&provider_id)
+}
+
+/// Runs a real YouTube 4K stream download speedtest.
+#[tauri::command]
+pub async fn benchmark_youtube_speed() -> Result<crate::engine::speedtest::SpeedtestResult, String> {
+    crate::engine::speedtest::run_youtube_speedtest().await
+}
+
+/// Updates domain lists and ipsets from remote repository.
+#[tauri::command]
+pub async fn sync_remote_lists() -> Result<crate::win32::lists::ListSyncReport, String> {
+    crate::win32::lists::update_remote_lists().await
+}
+
