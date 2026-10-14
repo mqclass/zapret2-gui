@@ -99,7 +99,9 @@ export interface AppSettings {
   game_ports_tcp: string;
   game_ports_udp: string;
   dns_provider: string;
-  auto_doctor_on_start: boolean;
+  last_strategy_id?: string | null;
+  auto_start_bypass?: boolean;
+  auto_doctor_on_start?: boolean;
 }
 
 export interface DoctorStep {

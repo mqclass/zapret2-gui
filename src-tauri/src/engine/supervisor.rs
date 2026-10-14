@@ -312,17 +312,22 @@ impl Supervisor {
         let target_strat = if let Some(ref id) = strategy_id {
             strategies.iter().find(|s| &s.id == id).cloned()
         } else {
-            strategies
-                .iter()
-                .find(|s| s.id == "flowseal-alt")
-                .or_else(|| strategies.first())
-                .cloned()
+            let last_id = crate::win32::settings::load_settings().last_strategy_id;
+            last_id
+                .and_then(|lid| strategies.iter().find(|s| s.id == lid).cloned())
+                .or_else(|| strategies.iter().find(|s| s.id == "flowseal-alt").cloned())
+                .or_else(|| strategies.first().cloned())
         };
 
         let active_id = target_strat
             .as_ref()
             .map(|s| s.id.clone())
             .unwrap_or_else(|| "flowseal-alt".into());
+
+        // Remember last used strategy in settings
+        let mut app_settings = crate::win32::settings::load_settings();
+        app_settings.last_strategy_id = Some(active_id.clone());
+        let _ = crate::win32::settings::save_settings(app_settings);
 
         let use_winws1 = target_strat.as_ref().map_or(false, |s| s.engine == "winws");
         let target_exe = if use_winws1 {

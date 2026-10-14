@@ -54,35 +54,123 @@ pub fn is_autostart_enabled() -> bool {
 
 /// Enables or disables autostart with Windows.
 pub fn set_autostart(enable: bool) -> Result<bool, String> {
+    // 1. Terminate running task instance if any
+    let _ = Command::new("schtasks.exe")
+        .args(["/end", "/tn", TASK_NAME])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
     if enable {
         let exe_path = resolve_autostart_exe_path()?;
-        let exe_str = exe_path.to_string_lossy().to_string();
-        let task_run_arg = format!("\"{}\" --minimized", exe_str);
+        let work_dir = exe_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        // Generate robust Task Scheduler XML with InteractiveToken so the app starts in
+        // the user's interactive desktop session (with tray icon and window), NOT in Session 0!
+        let xml_content = format!(
+            r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Author>zapret2-supervisor</Author>
+    <Description>zapret2 Windows High-Performance Bypass Supervisor Autostart</Description>
+    <URI>\{}</URI>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <Delay>PT2S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{}</Command>
+      <Arguments>--autostart --minimized</Arguments>
+      <WorkingDirectory>{}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>"#,
+            TASK_NAME,
+            exe_path.display(),
+            work_dir.display()
+        );
+
+        let temp_xml = std::env::temp_dir().join("zapret2_autostart_task.xml");
+
+        // Write as UTF-16LE with Byte Order Mark (BOM) [0xFF, 0xFE] as required by schtasks
+        let mut bytes = vec![0xFF, 0xFE];
+        for u in xml_content.encode_utf16() {
+            bytes.extend_from_slice(&u.to_le_bytes());
+        }
+
+        std::fs::write(&temp_xml, &bytes)
+            .map_err(|e| format!("Failed to create temporary task XML: {}", e))?;
 
         let output = Command::new("schtasks.exe")
             .args([
                 "/create",
                 "/tn",
                 TASK_NAME,
-                "/tr",
-                &task_run_arg,
-                "/sc",
-                "onlogon",
-                "/rl",
-                "highest",
+                "/xml",
+                &temp_xml.to_string_lossy(),
                 "/f",
-                "/np",
             ])
             .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| format!("Failed to invoke schtasks.exe: {}", e))?;
+            .output();
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Failed to configure autostart task: {}", stderr.trim()));
+        let _ = std::fs::remove_file(&temp_xml);
+
+        match output {
+            Ok(out) if out.status.success() => Ok(true),
+            Ok(out) => {
+                // Fallback to interactive CLI command with /IT flag (never /NP)
+                let exe_str = exe_path.to_string_lossy().to_string();
+                let task_run_arg = format!("\"{}\" --autostart --minimized", exe_str);
+                let fallback = Command::new("schtasks.exe")
+                    .args([
+                        "/create",
+                        "/tn",
+                        TASK_NAME,
+                        "/tr",
+                        &task_run_arg,
+                        "/sc",
+                        "onlogon",
+                        "/rl",
+                        "highest",
+                        "/it",
+                        "/f",
+                    ])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output()
+                    .map_err(|e| format!("Failed to invoke schtasks.exe fallback: {}", e))?;
+
+                if fallback.status.success() {
+                    Ok(true)
+                } else {
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    Err(format!("Failed to register scheduled task: {}", err.trim()))
+                }
+            }
+            Err(e) => Err(format!("Failed to execute schtasks.exe: {}", e)),
         }
-
-        Ok(true)
     } else {
         let output = Command::new("schtasks.exe")
             .args(["/delete", "/tn", TASK_NAME, "/f"])

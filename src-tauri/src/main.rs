@@ -53,11 +53,23 @@ async fn main() {
             let handle = app.handle().clone();
             supervisor.set_app_handle(handle.clone());
 
-            // If started via Windows autostart with --minimized, hide main window
-            if std::env::args().any(|a| a == "--minimized" || a == "--autostart") {
+            // If started via Windows autostart with --minimized or --autostart
+            let is_autostart = std::env::args().any(|a| a == "--minimized" || a == "--autostart");
+            if is_autostart {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
                 }
+
+                // Automatically start bypass engine on Windows logon
+                let supervisor_auto = supervisor.clone();
+                tauri::async_runtime::spawn(async move {
+                    // Small delay to allow Windows network adapters to finish DHCP/gateway connection
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                    if let Err(e) = supervisor_auto.start(None, None).await {
+                        eprintln!("Warning: Failed to auto-start bypass on boot: {}", e);
+                    }
+                });
             }
 
             // Build System Tray Menu

@@ -30,6 +30,8 @@ pub struct AppSettings {
     pub game_filter_tcp: String,
     pub game_filter_udp: String,
     pub dns_provider: String, // "system", "cloudflare", "google", "quad9", "comss"
+    pub last_strategy_id: Option<String>,
+    pub auto_start_bypass: bool,
 }
 
 impl Default for AppSettings {
@@ -39,6 +41,8 @@ impl Default for AppSettings {
             game_filter_tcp: "1024-65535".into(),
             game_filter_udp: "1024-65535".into(),
             dns_provider: "system".into(),
+            last_strategy_id: Some("flowseal-alt".into()),
+            auto_start_bypass: true,
         }
     }
 }

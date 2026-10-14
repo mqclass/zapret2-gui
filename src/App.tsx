@@ -194,12 +194,26 @@ const AppContent: React.FC = () => {
       .then((strats) => {
         setStrategies(strats);
         if (strats.length > 0) {
-          const defaultStrat = strats.find(
-            (s) => s.id === "flowseal-general"
-          ) || strats[0];
-          if (defaultStrat) {
-            setSelectedStrategyId(defaultStrat.id);
-          }
+          invoke<AppSettings>("get_app_settings")
+            .then((cfg) => {
+              if (cfg?.last_strategy_id) {
+                const matched = strats.find((s) => s.id === cfg.last_strategy_id);
+                if (matched) {
+                  setSelectedStrategyId(matched.id);
+                  return;
+                }
+              }
+              const defaultStrat = strats.find((s) => s.id === "flowseal-alt") || strats[0];
+              if (defaultStrat) {
+                setSelectedStrategyId(defaultStrat.id);
+              }
+            })
+            .catch(() => {
+              const defaultStrat = strats.find((s) => s.id === "flowseal-alt") || strats[0];
+              if (defaultStrat) {
+                setSelectedStrategyId(defaultStrat.id);
+              }
+            });
         }
       })
       .catch((err) => {
