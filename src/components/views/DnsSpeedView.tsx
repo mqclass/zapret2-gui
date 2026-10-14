@@ -141,8 +141,10 @@ export const DnsSpeedView: React.FC = React.memo(() => {
             <div className="flex items-center justify-between text-xs font-mono">
               <span className="text-slate-500">{t.dns.currentDnsLabel}:</span>
               <span className="text-cyan-400">
-                {dnsStatus.current_dns && dnsStatus.current_dns.length > 0
+                {(dnsStatus.current_dns && dnsStatus.current_dns.length > 0)
                   ? dnsStatus.current_dns.join(", ")
+                  : (dnsStatus.active_servers && dnsStatus.active_servers.length > 0)
+                  ? dnsStatus.active_servers.join(", ")
                   : "DHCP (Автоматически)"}
               </span>
             </div>
@@ -152,7 +154,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
         {/* DNS Providers Grid */}
         <div className="space-y-2">
           {dnsStatus?.available_providers.map((p) => {
-            const isCurrent = dnsStatus.active_provider_id === p.id;
+            const isCurrent = (dnsStatus.active_provider_id || dnsStatus.current_provider) === p.id;
             const isApplying = applyingDnsId === p.id;
 
             return (
@@ -241,7 +243,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
             ) : speedResult ? (
               <div className="flex flex-col items-center">
                 <span className="text-3xl font-extrabold tracking-tight text-white font-mono">
-                  {speedResult.speed_mbps.toFixed(1)}
+                  {(speedResult.speed_mbps ?? speedResult.mbps ?? 0).toFixed(1)}
                 </span>
                 <span className="text-[10px] font-semibold uppercase text-rose-400">Мбит/с</span>
               </div>
@@ -278,10 +280,10 @@ export const DnsSpeedView: React.FC = React.memo(() => {
               <span className="text-xs text-slate-400">{t.speedtest.resultVerdict}:</span>
               <span
                 className={`rounded-lg border px-2.5 py-0.5 text-xs font-bold ${getTierColor(
-                  speedResult.resolution_tier
+                  speedResult.resolution_tier || speedResult.quality_tier || ""
                 )}`}
               >
-                {speedResult.resolution_tier}
+                {speedResult.resolution_tier || speedResult.quality_tier || "N/A"}
               </span>
             </div>
 
@@ -290,7 +292,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                 <Timer className="h-4 w-4 text-slate-500" />
                 <span className="text-slate-400">{t.speedtest.resultDuration}:</span>
                 <span className="font-mono font-semibold text-slate-200">
-                  {(speedResult.duration_ms / 1000).toFixed(2)} с
+                  {((speedResult.duration_ms ?? speedResult.download_time_ms ?? 0) / 1000).toFixed(2)} с
                 </span>
               </div>
               <div className="flex items-center gap-2">

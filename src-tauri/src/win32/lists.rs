@@ -200,11 +200,20 @@ pub fn open_lists_folder() -> Result<(), String> {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ListSyncItem {
+    pub filename: String,
+    pub lines_count: usize,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ListSyncReport {
     pub success: bool,
     pub files_updated: usize,
     pub total_domains: usize,
     pub details: Vec<String>,
+    pub files: Vec<ListSyncItem>,
+    pub message: String,
 }
 
 /// Downloads fresh domain lists and ipsets from official Flowseal repository.
@@ -225,6 +234,7 @@ pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
     let mut files_updated = 0;
     let mut total_domains = 0;
     let mut details = Vec::new();
+    let mut files = Vec::new();
 
     for (filename, url) in targets {
         match client.get(url).send().await {
@@ -244,6 +254,11 @@ pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
                             files_updated += 1;
                             total_domains += lines_count;
                             details.push(format!("{}: обновлено {} записей", filename, lines_count));
+                            files.push(ListSyncItem {
+                                filename: filename.to_string(),
+                                lines_count,
+                                status: "updated".to_string(),
+                            });
                         }
                     }
                 }
@@ -260,11 +275,15 @@ pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
     // Flush Windows DNS resolver after lists update
     let _ = flush_dns_cache();
 
+    let message = format!("Обновлено файлов: {}, суммарно доменов: {}", files_updated, total_domains);
+
     Ok(ListSyncReport {
         success: files_updated > 0,
         files_updated,
         total_domains,
         details,
+        files,
+        message,
     })
 }
 

@@ -3,7 +3,7 @@ import { Translations } from "./types";
 export const en: Translations = {
   header: {
     title: "zapret2",
-    version: "v1.0.7",
+    version: "v1.0.8",
     subtitle: "Windows WFP & WinDivert Bypass Service",
     adminReady: "Administrator (WFP Ready)",
     adminRequired: "Admin Rights Needed (Click)",

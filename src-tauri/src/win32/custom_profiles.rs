@@ -10,8 +10,12 @@ use crate::win32::process::LuaStrategy;
 
 /// Returns the path to the custom profiles JSON storage.
 pub fn get_custom_profiles_path() -> PathBuf {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let configs_dir = cwd.join("configs");
+    let base_dir = if let Ok(exe) = std::env::current_exe() {
+        exe.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    };
+    let configs_dir = base_dir.join("configs");
     if !configs_dir.exists() {
         let _ = fs::create_dir_all(&configs_dir);
     }

@@ -569,17 +569,18 @@ impl Supervisor {
         };
 
         let b = |file: &str| {
-            if bin_dir.join(file).is_file() {
+            let p = bin_dir.join(file);
+            if p.is_file() {
                 file.to_string()
             } else {
-                bin_dir.join(file).to_string_lossy().to_string()
+                p.to_string_lossy().replace('\\', "/")
             }
         };
         let l = |file: &str| {
             if bin_dir.join("lists").join(file).is_file() {
                 format!("lists/{}", file)
             } else {
-                lists_dir.join(file).to_string_lossy().to_string()
+                lists_dir.join(file).to_string_lossy().replace('\\', "/")
             }
         };
 

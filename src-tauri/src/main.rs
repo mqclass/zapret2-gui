@@ -190,6 +190,7 @@ async fn main() {
             commands::remove_domain_from_list,
             commands::flush_dns_cache,
             commands::open_lists_folder,
+            commands::reveal_lists_folder,
             commands::open_logs_folder,
             commands::get_log_file_path,
             commands::ping_custom_target,

@@ -107,14 +107,17 @@ export interface AppSettings {
 export interface DoctorStep {
   id: string;
   title: string;
-  status: "ok" | "fixed" | "failed" | "skipped";
+  name?: string;
+  status: "ok" | "fixed" | "failed" | "warn" | "skipped" | string;
   details: string;
+  message?: string;
 }
 
 export interface DoctorReport {
   success: boolean;
   steps: DoctorStep[];
   message: string;
+  summary?: string;
 }
 
 export interface DnsProvider {
@@ -123,33 +126,42 @@ export interface DnsProvider {
   primary: string;
   secondary: string;
   description: string;
-  is_doh_capable: boolean;
+  is_doh_capable?: boolean;
 }
 
 export interface DnsStatus {
   adapter_name: string;
   current_dns: string[];
+  active_servers?: string[];
   active_provider_id: string;
+  current_provider?: string;
   available_providers: DnsProvider[];
 }
 
 export interface SpeedtestResult {
   success: boolean;
   speed_mbps: number;
+  mbps?: number;
   duration_ms: number;
+  download_time_ms?: number;
   bytes_downloaded: number;
   resolution_tier: string;
+  quality_tier?: string;
   message: string;
+  verdict?: string;
 }
 
 export interface ListSyncItem {
   filename: string;
   lines_count: number;
-  status: "updated" | "failed" | "created";
+  status: "updated" | "failed" | "created" | string;
 }
 
 export interface ListSyncReport {
   success: boolean;
+  files_updated?: number;
+  total_domains?: number;
+  details?: string[];
   files: ListSyncItem[];
   message: string;
 }

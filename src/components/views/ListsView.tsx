@@ -129,9 +129,10 @@ export const ListsView: React.FC = React.memo(() => {
     setIsSyncing(true);
     try {
       const report = await invoke<ListSyncReport>("sync_remote_lists");
+      const updatedCount = report.files_updated ?? report.files?.length ?? 0;
       setFeedback({
         type: "success",
-        text: `${t.syncLists.successTitle}: ${report.files.length} ${t.syncLists.filesUpdated}`,
+        text: `${t.syncLists.successTitle}: ${updatedCount} ${t.syncLists.filesUpdated}`,
       });
       await loadFiles();
       if (selectedFile) await loadDomains(selectedFile);
@@ -144,7 +145,7 @@ export const ListsView: React.FC = React.memo(() => {
 
   const handleOpenFolder = async () => {
     try {
-      await invoke("reveal_lists_folder");
+      await invoke("open_lists_folder");
     } catch (err) {
       setFeedback({ type: "error", text: String(err) });
     }

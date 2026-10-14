@@ -50,6 +50,15 @@ impl Default for AppSettings {
 static CACHED_SETTINGS: RwLock<Option<AppSettings>> = RwLock::new(None);
 
 fn get_settings_file_path() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let p = parent.join("configs");
+            if p.is_dir() {
+                return p.join("app_settings.json");
+            }
+        }
+    }
+
     let local_path = PathBuf::from("configs/app_settings.json");
     if local_path.parent().map_or(false, |p| p.is_dir()) {
         return local_path;

@@ -1,6 +1,6 @@
 [package]
 name = "zapret2-supervisor"
-version = "1.0.7"
+version = "1.0.8"
 description = "zapret2 Windows GUI & Background Supervisor"
 authors = ["zapret2-gui"]
 edition = "2021"

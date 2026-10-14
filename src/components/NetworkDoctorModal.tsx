@@ -137,7 +137,7 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
                 ) : (
                   <AlertTriangle className="h-4 w-4 text-amber-400" />
                 )}
-                <span>{report.message}</span>
+                <span>{report.message || report.summary}</span>
               </div>
 
               <div className="divide-y divide-slate-800/80 rounded-xl border border-slate-800 bg-slate-950/60 overflow-hidden">
@@ -156,7 +156,14 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
                         {t.doctor.stepFixed}
                       </span>
                     );
-                  } else if (step.status === "failed") {
+                  } else if (step.status === "warn") {
+                    statusBadge = (
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md">
+                        <AlertTriangle className="h-3 w-3" />
+                        Предупреждение
+                      </span>
+                    );
+                  } else if (step.status === "failed" || step.status === "error") {
                     statusBadge = (
                       <span className="flex items-center gap-1 text-[11px] font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-md">
                         <XCircle className="h-3 w-3" />
@@ -169,10 +176,10 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
                     <div key={step.id} className="p-3.5 flex items-start justify-between gap-3">
                       <div>
                         <div className="font-semibold text-xs text-slate-200">
-                          {step.title}
+                          {step.title || step.name}
                         </div>
                         <div className="text-[11px] text-slate-400 mt-0.5">
-                          {step.details}
+                          {step.details || step.message}
                         </div>
                       </div>
                       <div className="shrink-0">{statusBadge}</div>

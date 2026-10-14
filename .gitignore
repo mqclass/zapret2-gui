@@ -27,6 +27,8 @@ src-tauri/target/
 *.a
 *.zip
 release-pkg/
+*-release/
+v*-release/
 
 
 # Upstream Vendor Folders (Kept locally on development workstation)

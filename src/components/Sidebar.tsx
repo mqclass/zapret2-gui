@@ -107,7 +107,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
               <div className="flex items-center gap-1.5">
                 <span className="text-base font-bold tracking-tight text-white">zapret2</span>
                 <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.2 text-[10px] font-mono font-bold text-blue-400">
-                  v1.0.7
+                  v1.0.8
                 </span>
               </div>
               <p className="text-[11px] font-medium text-slate-400 truncate">GUI & Supervisor</p>

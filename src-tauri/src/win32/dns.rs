@@ -24,7 +24,9 @@ pub struct DnsProviderInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DnsStatus {
     pub current_provider: String,
+    pub active_provider_id: String,
     pub active_servers: Vec<String>,
+    pub current_dns: Vec<String>,
     pub adapter_name: String,
     pub available_providers: Vec<DnsProviderInfo>,
 }
@@ -69,18 +71,28 @@ pub fn get_available_providers() -> Vec<DnsProviderInfo> {
     ]
 }
 
-/// Detects the primary active network adapter name (Ethernet or Wi-Fi).
+/// Detects the primary active network adapter name (Ethernet or Wi-Fi) by lowest RouteMetric default gateway.
 pub fn detect_primary_adapter() -> Result<String, String> {
-    let script = "$a = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Sort-Object LinkSpeed -Descending | Select-Object -First 1; if ($a) { $a.Name } else { '' }";
+    let script = r#"
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
+        $r = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1;
+        if ($r) {
+            $a = Get-NetAdapter -InterfaceIndex $r.InterfaceIndex -ErrorAction SilentlyContinue;
+            if ($a) { $a.Name } else { $r.InterfaceAlias }
+        } else {
+            $a = Get-NetAdapter | Where-Object Status -eq 'Up' | Sort-Object LinkSpeed -Descending | Select-Object -First 1;
+            if ($a) { $a.Name } else { 'Ethernet' }
+        }
+    "#;
     
     let output = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
         .output()
         .map_err(|e| format!("Failed to query network adapters: {}", e))?;
 
-    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let name = stdout.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").trim().to_string();
     if name.is_empty() {
-        // Fallback generic search
         Ok("Ethernet".into())
     } else {
         Ok(name)
@@ -90,21 +102,22 @@ pub fn detect_primary_adapter() -> Result<String, String> {
 /// Queries active DNS server addresses on the primary adapter.
 pub fn get_active_dns_servers(adapter: &str) -> Vec<String> {
     let script = format!(
-        "$d = (Get-DnsClientServerAddress -InterfaceAlias '{}' -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses; if ($d) {{ $d -join ',' }} else {{ '' }}",
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $d = (Get-DnsClientServerAddress -InterfaceAlias '{}' -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses; if ($d) {{ $d -join ',' }} else {{ '' }}",
         adapter
     );
 
     let output = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &script])
         .output();
 
     match output {
         Ok(out) => {
-            let res = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let res = stdout.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").trim().to_string();
             if res.is_empty() {
                 Vec::new()
             } else {
-                res.split(',').map(|s| s.trim().to_string()).collect()
+                res.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
             }
         }
         Err(_) => Vec::new(),
@@ -118,8 +131,10 @@ pub fn get_dns_status() -> Result<DnsStatus, String> {
     let active_servers = get_active_dns_servers(&adapter);
 
     Ok(DnsStatus {
-        current_provider: settings.dns_provider,
-        active_servers,
+        current_provider: settings.dns_provider.clone(),
+        active_provider_id: settings.dns_provider,
+        active_servers: active_servers.clone(),
+        current_dns: active_servers,
         adapter_name: adapter,
         available_providers: get_available_providers(),
     })
@@ -133,19 +148,19 @@ pub fn set_system_dns(provider_id: &str) -> Result<DnsStatus, String> {
     if provider_id == "system" || provider_id == "dhcp" {
         // Reset to automatic DHCP assignment
         let script = format!(
-            "Set-DnsClientServerAddress -InterfaceAlias '{}' -ResetServerAddresses -ErrorAction Stop",
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ResetServerAddresses -ErrorAction Stop",
             adapter
         );
         let _ = Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &script])
             .output();
     } else if let Some(target) = providers.iter().find(|p| p.id == provider_id) {
         let script = format!(
-            "Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}', '{}') -ErrorAction Stop",
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}', '{}') -ErrorAction Stop",
             adapter, target.primary, target.secondary
         );
         let output = Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &script])
             .output()
             .map_err(|e| format!("Failed to apply DNS settings: {}", e))?;
 

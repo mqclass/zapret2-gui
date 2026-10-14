@@ -237,6 +237,12 @@ pub async fn open_lists_folder() -> Result<(), String> {
     crate::win32::lists::open_lists_folder()
 }
 
+/// Opens the lists directory in Windows Explorer (alias).
+#[tauri::command]
+pub async fn reveal_lists_folder() -> Result<(), String> {
+    crate::win32::lists::open_lists_folder()
+}
+
 /// Opens the persistent logs folder in Windows Explorer.
 #[tauri::command]
 pub async fn open_logs_folder(state: State<'_, AppState>) -> Result<(), String> {

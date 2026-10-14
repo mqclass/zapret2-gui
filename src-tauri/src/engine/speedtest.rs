@@ -8,11 +8,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeedtestResult {
+    pub success: bool,
     pub mbps: f64,
+    pub speed_mbps: f64,
     pub download_time_ms: u64,
+    pub duration_ms: u64,
     pub bytes_downloaded: u64,
     pub quality_tier: String, // "ready_4k", "ready_1080p", "ready_720p", "slow"
+    pub resolution_tier: String,
     pub verdict: String,
+    pub message: String,
 }
 
 pub async fn run_youtube_speedtest() -> Result<SpeedtestResult, String> {
@@ -79,10 +84,15 @@ pub async fn run_youtube_speedtest() -> Result<SpeedtestResult, String> {
     };
 
     Ok(SpeedtestResult {
+        success: true,
         mbps: rounded_mbps,
+        speed_mbps: rounded_mbps,
         download_time_ms: elapsed_ms,
+        duration_ms: elapsed_ms,
         bytes_downloaded: bytes_len,
-        quality_tier,
-        verdict,
+        quality_tier: quality_tier.clone(),
+        resolution_tier: quality_tier,
+        verdict: verdict.clone(),
+        message: verdict,
     })
 }
