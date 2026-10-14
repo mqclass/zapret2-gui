@@ -100,7 +100,7 @@ pub fn read_domains(filename: &str) -> Result<Vec<String>, String> {
     Ok(domains)
 }
 
-/// Sanitizes a domain input string (strips protocol, port, path, whitespace).
+/// Sanitizes a domain input string (strips protocol, port, path, whitespace; preserves CIDRs and subdomain prefixes).
 fn sanitize_domain(raw: &str) -> Option<String> {
     let mut s = raw.trim().to_lowercase();
     if s.is_empty() {
@@ -112,23 +112,35 @@ fn sanitize_domain(raw: &str) -> Option<String> {
         s = stripped.to_string();
     }
 
-    // Strip path if provided
-    if let Some(idx) = s.find('/') {
-        s = s[..idx].to_string();
-    }
-    // Strip port if provided
-    if let Some(idx) = s.find(':') {
-        s = s[..idx].to_string();
+    // Check if input represents an IP CIDR block (e.g. 192.168.1.0/24 or 2001:db8::/32)
+    let is_cidr = if let Some((ip_part, mask_part)) = s.split_once('/') {
+        ip_part.parse::<std::net::IpAddr>().is_ok()
+            && mask_part.parse::<u8>().map_or(false, |m| m <= 128)
+    } else {
+        false
+    };
+
+    if !is_cidr {
+        // Strip URL path if provided
+        if let Some(idx) = s.find('/') {
+            s = s[..idx].to_string();
+        }
+        // Strip port if provided (ignore IPv6 colons)
+        if !s.contains("::") && s.matches(':').count() == 1 {
+            if let Some(idx) = s.find(':') {
+                s = s[..idx].to_string();
+            }
+        }
     }
 
     let trimmed = s.trim().to_string();
-    if trimmed.is_empty() || !trimmed.contains('.') {
+    if trimmed.is_empty() || (!trimmed.contains('.') && !trimmed.contains(':')) {
         return None;
     }
     Some(trimmed)
 }
 
-/// Appends a new domain to a specific list.
+/// Appends a new domain to a specific list while preserving comments, headers, and structure.
 pub fn add_domain_to_list(filename: &str, raw_domain: &str) -> Result<Vec<String>, String> {
     let domain = sanitize_domain(raw_domain)
         .ok_or_else(|| "Некорректный домен (например, google.com или rutracker.org)".to_string())?;
@@ -139,22 +151,29 @@ pub fn add_domain_to_list(filename: &str, raw_domain: &str) -> Result<Vec<String
         .ok_or_else(|| "Неверное имя файла".to_string())?;
     let file_path = dir.join(safe_name);
 
-    let mut domains = read_domains(filename)?;
-    if domains.iter().any(|d| d.eq_ignore_ascii_case(&domain)) {
+    let existing_domains = read_domains(filename)?;
+    if existing_domains.iter().any(|d| d.eq_ignore_ascii_case(&domain)) {
         return Err(format!("Домен '{}' уже есть в списке", domain));
     }
 
-    domains.push(domain);
-    domains.sort();
+    let mut file_content = if file_path.exists() {
+        fs::read_to_string(&file_path).map_err(|e| e.to_string())?
+    } else {
+        String::new()
+    };
 
-    // Write back sorted unique list
-    let content = domains.join("\r\n") + "\r\n";
-    fs::write(&file_path, content).map_err(|e| format!("Ошибка записи файла: {}", e))?;
+    if !file_content.is_empty() && !file_content.ends_with('\n') {
+        file_content.push_str("\r\n");
+    }
+    file_content.push_str(&domain);
+    file_content.push_str("\r\n");
 
-    Ok(domains)
+    fs::write(&file_path, file_content).map_err(|e| format!("Ошибка записи файла: {}", e))?;
+
+    read_domains(filename)
 }
 
-/// Removes a domain from a specific list.
+/// Removes a domain from a specific list while preserving comments and structure.
 pub fn remove_domain_from_list(filename: &str, raw_domain: &str) -> Result<Vec<String>, String> {
     let domain = raw_domain.trim().to_lowercase();
     let dir = get_lists_dir()?;
@@ -163,14 +182,33 @@ pub fn remove_domain_from_list(filename: &str, raw_domain: &str) -> Result<Vec<S
         .ok_or_else(|| "Неверное имя файла".to_string())?;
     let file_path = dir.join(safe_name);
 
-    let mut domains = read_domains(filename)?;
-    domains.retain(|d| !d.eq_ignore_ascii_case(&domain));
+    if !file_path.exists() {
+        return Ok(Vec::new());
+    }
 
-    let content = domains.join("\r\n") + "\r\n";
-    fs::write(&file_path, content).map_err(|e| format!("Ошибка записи файла: {}", e))?;
+    let content = fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
+    let target_stripped = domain.strip_prefix('^').unwrap_or(&domain);
+    let mut new_lines = Vec::new();
 
-    Ok(domains)
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            new_lines.push(line.to_string());
+        } else {
+            let line_lower = trimmed.to_lowercase();
+            let line_stripped = line_lower.strip_prefix('^').unwrap_or(&line_lower);
+            if line_lower != domain && line_stripped != target_stripped {
+                new_lines.push(line.to_string());
+            }
+        }
+    }
+
+    let updated_content = new_lines.join("\r\n") + "\r\n";
+    fs::write(&file_path, updated_content).map_err(|e| format!("Ошибка записи файла: {}", e))?;
+
+    read_domains(filename)
 }
+
 
 /// Flushes Windows DNS client cache via ipconfig /flushdns.
 pub fn flush_dns_cache() -> Result<String, String> {
@@ -286,4 +324,50 @@ pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
         message,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_domain_handles_cidr_and_subdomains() {
+        // Subnets for ipset-all.txt / ipset-exclude.txt must not have mask stripped as a URL path
+        let cidr = "192.168.1.0/24";
+        let sanitized = sanitize_domain(cidr).expect("CIDR should be valid in ipset list");
+        assert_eq!(sanitized, "192.168.1.0/24", "Subnet mask must not be stripped");
+    }
+
+    #[test]
+    fn test_add_and_remove_domain_preserves_comments_and_subdomains() {
+        let lists_dir = get_lists_dir().expect("lists dir must resolve");
+        let test_filename = "test_custom_comments_preservation.txt";
+        let test_path = lists_dir.join(test_filename);
+
+        let initial_content = "# Header description\r\n# Important TSPU rule\r\n^dns.google\r\nalpha.com\r\n";
+        let _ = fs::write(&test_path, initial_content);
+
+        // 1. Add new domain
+        let updated = add_domain_to_list(test_filename, "beta.com").expect("Add domain should succeed");
+        assert!(updated.contains(&"beta.com".to_string()));
+
+        let disk_content = fs::read_to_string(&test_path).unwrap();
+        assert!(disk_content.contains("# Header description"), "Header comment must remain");
+        assert!(disk_content.contains("# Important TSPU rule"), "Rule comment must remain");
+        assert!(disk_content.contains("^dns.google"), "Existing subdomains must remain");
+        assert!(disk_content.contains("beta.com"), "New domain must be appended");
+
+        // 2. Remove domain with ^ matching
+        let remaining = remove_domain_from_list(test_filename, "dns.google").expect("Remove should succeed");
+        assert!(!remaining.contains(&"^dns.google".to_string()));
+
+        let disk_content_after_remove = fs::read_to_string(&test_path).unwrap();
+        assert!(disk_content_after_remove.contains("# Header description"), "Header must remain after remove");
+        assert!(disk_content_after_remove.contains("beta.com"), "Beta domain must remain");
+
+        // Clean up
+        let _ = fs::remove_file(&test_path);
+    }
+}
+
+
 

@@ -38,7 +38,9 @@ zapret2-master/
 Zapret-GUI-main/
 
 # User Local Configuration & State
-configs/custom_profiles.json
+configs/
+logs/
+.agents/
 *.log
 *.tmp
 out.txt

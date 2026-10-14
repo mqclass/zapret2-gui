@@ -3,7 +3,7 @@ import { Translations } from "./types";
 export const uk: Translations = {
   header: {
     title: "zapret2",
-    version: "v1.0.9",
+    version: "v1.0.10",
     subtitle: "Служба обходу блокувань WFP & WinDivert",
     adminReady: "Адміністратор (WFP готовий)",
     adminRequired: "Потрібні права адміна (Натисніть)",
@@ -223,8 +223,8 @@ export const uk: Translations = {
   dns: {
     title: "Менеджер DNS & Захист від підміни",
     subtitle: "Перемикання системного DNS на основному мережевому адаптері для захисту від перехоплення провайдером",
-    adapterLabel: "Активний мережевий адаптер:",
-    currentDnsLabel: "Поточний системний DNS:",
+    adapterLabel: "Активний мережевий адаптер",
+    currentDnsLabel: "Поточний системний DNS",
     applyBtn: "Застосувати DNS",
     applying: "Застосування налаштувань...",
     activeBadge: "АКТИВНИЙ",

@@ -12,6 +12,7 @@ import {
   Square,
   X,
 } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 import { Language } from "../i18n/types";
@@ -111,32 +112,55 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
 
     const currentLangItem = languages.find((l) => l.code === language) || languages[0];
 
-    // Window controls handlers
+    // Native window controls
     const handleMinimize = useCallback(() => {
-      invoke("window_minimize").catch((e) => console.error("Minimize error:", e));
+      getCurrentWindow().minimize().catch(() => {
+        invoke("window_minimize").catch((e) => console.error("Minimize error:", e));
+      });
     }, []);
 
     const handleToggleMaximize = useCallback(() => {
-      invoke("window_toggle_maximize").catch((e) => console.error("Maximize error:", e));
+      getCurrentWindow().toggleMaximize().catch(() => {
+        invoke("window_toggle_maximize").catch((e) => console.error("Maximize error:", e));
+      });
     }, []);
 
     const handleClose = useCallback(() => {
-      invoke("window_close").catch((e) => console.error("Close error:", e));
+      getCurrentWindow().hide().catch(() => {
+        invoke("window_close").catch((e) => console.error("Close error:", e));
+      });
+    }, []);
+
+    // Native window drag handler for custom frameless window
+    const handleDragMouseDown = useCallback((e: React.MouseEvent) => {
+      if (
+        e.button === 0 &&
+        !(e.target as HTMLElement).closest("button, input, select, a, [role='button']")
+      ) {
+        getCurrentWindow()
+          .startDragging()
+          .catch(() => {
+            invoke("window_start_dragging").catch((err) =>
+              console.error("window_start_dragging error:", err)
+            );
+          });
+      }
     }, []);
 
     return (
       <header
         data-tauri-drag-region
+        onMouseDown={handleDragMouseDown}
         onDoubleClick={handleToggleMaximize}
-        className="h-14 shrink-0 flex items-center justify-between pl-5 pr-2 border-b border-white/[0.06] bg-slate-950/80 backdrop-blur-2xl select-none"
+        className="relative z-50 h-14 shrink-0 flex items-center justify-between pl-5 pr-2 border-b border-[#20242e] bg-[#11141c] select-none"
       >
         {/* Title and subtitle area (Draggable) */}
         <div data-tauri-drag-region className="flex items-center gap-3">
-          <div>
-            <h2 data-tauri-drag-region className="text-sm font-bold tracking-tight text-white leading-tight">
+          <div data-tauri-drag-region>
+            <h2 data-tauri-drag-region className="text-sm font-semibold tracking-tight text-white leading-tight">
               {meta.title}
             </h2>
-            <p data-tauri-drag-region className="text-[11px] text-slate-400 font-medium">
+            <p data-tauri-drag-region className="text-[11px] text-slate-400 font-normal">
               {meta.subtitle}
             </p>
           </div>
@@ -147,8 +171,8 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           {/* UAC Elevation Status */}
           {isElevated ? (
             <div
-              className="flex items-center gap-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300"
-              title="Приложение запущено с повышенными правами Администратора (WFP доступен)"
+              className="flex items-center gap-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300"
+              title="Приложение запущено с правами Администратора (WFP драйвер активен)"
             >
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
               <span>Админ</span>
@@ -156,8 +180,8 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           ) : (
             <button
               onClick={onRelaunchElevated}
-              className="flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-500/25 transition-all cursor-pointer animate-pulse"
-              title="Нажмите для перезапуска с правами Администратора (требуется для WFP)"
+              className="flex items-center gap-1.5 rounded-lg border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer"
+              title="Нажмите для перезапуска с правами Администратора (требуется для фильтрации)"
             >
               <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
               <span>Нужен Админ</span>
@@ -170,22 +194,22 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
             disabled={isTogglingAutostart}
             className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer disabled:opacity-60 ${
               isAutostart
-                ? "bg-indigo-600/15 border-indigo-500/35 text-indigo-300 hover:bg-indigo-600/25"
+                ? "bg-blue-600/15 border-blue-500/30 text-blue-300 hover:bg-blue-600/25"
                 : "bg-white/[0.03] border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]"
             }`}
             title={isAutostart ? "Автозапуск включен" : "Автозапуск выключен"}
           >
             {isTogglingAutostart ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin text-indigo-400" />
+              <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-400" />
             ) : (
               <Rocket
-                className={`h-3.5 w-3.5 ${isAutostart ? "text-indigo-400" : "text-slate-500"}`}
+                className={`h-3.5 w-3.5 ${isAutostart ? "text-blue-400" : "text-slate-500"}`}
               />
             )}
             <span>Автозапуск</span>
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                isAutostart ? "bg-indigo-400 shadow-[0_0_6px_#818cf8]" : "bg-slate-600"
+                isAutostart ? "bg-blue-400" : "bg-slate-600"
               }`}
             />
           </button>
@@ -195,7 +219,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
             onClick={onKillStray}
             disabled={isStrayCleaning}
             className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-slate-400 hover:text-rose-300 hover:border-rose-500/30 hover:bg-rose-500/10 transition-all cursor-pointer disabled:opacity-60"
-            title="Завершить потерянные процессы winws2 в памяти"
+            title="Завершить зависшие процессы winws2 в памяти"
           >
             {isStrayCleaning ? (
               <RefreshCw className="h-3.5 w-3.5 animate-spin text-rose-400" />
@@ -206,27 +230,27 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           </button>
 
           {/* Animated Single Active Language Dropdown */}
-          <div className="relative" ref={langDropdownRef}>
+          <div className="relative z-[60]" ref={langDropdownRef}>
             <button
               type="button"
               onClick={() => setIsLangMenuOpen((prev) => !prev)}
-              className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-slate-900/70 hover:bg-slate-800/80 px-2.5 py-1 text-[11px] font-bold text-slate-200 transition-all cursor-pointer hover:border-white/[0.16]"
+              className="flex items-center gap-1.5 rounded-lg border border-[#272d3b] bg-[#161a22] hover:bg-[#1c212c] px-2.5 py-1 text-[11px] font-semibold text-slate-200 transition-all cursor-pointer hover:border-[#384256]"
               title="Сменить язык интерфейса"
             >
-              <Globe className="h-3.5 w-3.5 text-cyan-400" />
+              <Globe className="h-3.5 w-3.5 text-blue-400" />
               <span className="font-mono tracking-wider">{currentLangItem.label}</span>
               <ChevronDown
                 className={`h-3 w-3 text-slate-400 transition-transform duration-200 ${
-                  isLangMenuOpen ? "rotate-180 text-cyan-400" : ""
+                  isLangMenuOpen ? "rotate-180 text-blue-400" : ""
                 }`}
               />
             </button>
 
-            {/* Smooth animated sliding dropdown menu */}
+            {/* Floating Dropdown Menu (Guaranteed on top of hero card) */}
             <div
-              className={`absolute right-0 top-full mt-2 w-36 rounded-xl border border-white/[0.1] bg-slate-900/95 shadow-2xl backdrop-blur-2xl p-1 z-50 transition-all duration-200 ease-out origin-top-right transform ${
+              className={`absolute right-0 top-full mt-2 w-36 rounded-xl border border-[#293040] bg-[#161a22] shadow-2xl p-1 z-[100] transition-all duration-150 ease-out origin-top-right transform ${
                 isLangMenuOpen
-                  ? "opacity-100 scale-100 translate-y-0 pointer-events-auto shadow-cyan-500/5"
+                  ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
                   : "opacity-0 scale-95 -translate-y-2 pointer-events-none"
               }`}
             >
@@ -240,19 +264,19 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
                       setLanguage(l.code);
                       setIsLangMenuOpen(false);
                     }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
                       isSelected
-                        ? "bg-cyan-500/15 text-cyan-300 font-bold"
+                        ? "bg-blue-600/15 text-blue-300 font-semibold"
                         : "text-slate-300 hover:text-white hover:bg-white/[0.06]"
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] font-bold text-slate-400">
+                      <span className="font-mono text-[10px] text-slate-400">
                         {l.label}
                       </span>
                       <span>{l.full}</span>
                     </div>
-                    {isSelected && <Check className="h-3.5 w-3.5 text-cyan-400" />}
+                    {isSelected && <Check className="h-3.5 w-3.5 text-blue-400" />}
                   </button>
                 );
               })}

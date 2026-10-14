@@ -205,6 +205,7 @@ async fn main() {
             commands::sync_remote_lists,
             commands::window_minimize,
             commands::window_toggle_maximize,
+            commands::window_start_dragging,
             commands::window_close,
         ])
         .run(tauri::generate_context!())

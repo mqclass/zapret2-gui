@@ -127,45 +127,49 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
         </div>
 
         {/* Category Tabs */}
-        <div className="flex items-center gap-1.5 border-b border-white/[0.06] pb-3 mb-4 overflow-x-auto text-xs">
+        <div className="flex items-center gap-1.5 border-b border-[#202534] pb-3 mb-4 overflow-x-auto text-xs">
           <button
+            type="button"
             onClick={() => setActiveTab("flowseal")}
-            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 font-semibold transition-all cursor-pointer shrink-0 ${
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-all cursor-pointer shrink-0 ${
               activeTab === "flowseal"
-                ? "bg-indigo-600/25 text-indigo-300 border border-indigo-500/40 shadow-sm"
+                ? "bg-[#1d2332] text-white border border-[#384359] shadow-sm"
                 : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
             }`}
           >
-            <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+            <Sparkles className="h-3.5 w-3.5 text-blue-400" />
             <span>{t.strategies.tabFlowseal}</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab("zapret2")}
-            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 font-semibold transition-all cursor-pointer shrink-0 ${
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-all cursor-pointer shrink-0 ${
               activeTab === "zapret2"
-                ? "bg-cyan-600/25 text-cyan-300 border border-cyan-500/40 shadow-sm"
+                ? "bg-[#1d2332] text-white border border-[#384359] shadow-sm"
                 : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
             }`}
           >
-            <Cpu className="h-3.5 w-3.5 text-cyan-400" />
+            <Cpu className="h-3.5 w-3.5 text-blue-400" />
             <span>{t.strategies.tabZapret2}</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab("custom")}
-            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 font-semibold transition-all cursor-pointer shrink-0 ${
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-all cursor-pointer shrink-0 ${
               activeTab === "custom"
-                ? "bg-amber-600/25 text-amber-300 border border-amber-500/40 shadow-sm"
+                ? "bg-[#1d2332] text-white border border-[#384359] shadow-sm"
                 : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
             }`}
           >
-            <Wrench className="h-3.5 w-3.5 text-amber-400" />
+            <Wrench className="h-3.5 w-3.5 text-blue-400" />
             <span>{t.strategies.tabCustom}</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab("all")}
-            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 font-semibold transition-all cursor-pointer shrink-0 ${
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-all cursor-pointer shrink-0 ${
               activeTab === "all"
-                ? "bg-white/[0.1] text-white border border-white/[0.15] shadow-sm"
+                ? "bg-[#1d2332] text-white border border-[#384359] shadow-sm"
                 : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
             }`}
           >
@@ -195,11 +199,11 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
               const isFlowseal = strat.engine === "winws";
               const isCustom = strat.category === "custom";
 
-              let cardStyle = "border-white/[0.08] bg-slate-900/40 text-slate-300 hover:border-white/[0.16] hover:bg-slate-900/70 hover:shadow-lg hover:shadow-black/20";
+              let cardStyle = "border-[#212635] bg-[#141720] text-slate-300 hover:border-[#333d52] hover:bg-[#181d28]";
               if (isActive) {
-                cardStyle = "border-emerald-500/60 bg-gradient-to-br from-emerald-950/30 via-slate-900/80 to-slate-900 text-white shadow-xl shadow-emerald-500/10 ring-1 ring-emerald-500/40";
+                cardStyle = "border-emerald-500/60 bg-[#13251e] text-white shadow-sm ring-1 ring-emerald-500/30";
               } else if (isSelected) {
-                cardStyle = "border-cyan-500/60 bg-cyan-950/20 text-white shadow-lg shadow-cyan-500/10 ring-1 ring-cyan-500/30";
+                cardStyle = "border-blue-500/60 bg-[#151f33] text-white shadow-sm ring-1 ring-blue-500/30";
               }
 
               return (

@@ -2,18 +2,17 @@ import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Globe2,
-  ShieldCheck,
   Check,
   Loader2,
   AlertCircle,
   Tv,
-  Gauge,
   Play,
   Timer,
   DownloadCloud,
   CheckCircle2,
   RefreshCw,
-  Zap,
+  Activity,
+  ShieldCheck,
 } from "lucide-react";
 import { DnsStatus, SpeedtestResult } from "../../types";
 import { useI18n } from "../../i18n";
@@ -30,6 +29,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
 
   // Speedtest State
   const [isSpeedRunning, setIsSpeedRunning] = useState<boolean>(false);
+  const [speedProgress, setSpeedProgress] = useState<number>(0);
   const [speedResult, setSpeedResult] = useState<SpeedtestResult | null>(null);
   const [speedError, setSpeedError] = useState<string | null>(null);
 
@@ -70,48 +70,86 @@ export const DnsSpeedView: React.FC = React.memo(() => {
 
   const handleStartSpeedtest = async () => {
     setIsSpeedRunning(true);
+    setSpeedProgress(15);
     setSpeedError(null);
     setSpeedResult(null);
 
+    const interval = setInterval(() => {
+      setSpeedProgress((prev) => {
+        if (prev >= 90) return prev;
+        return prev + Math.floor(Math.random() * 15) + 5;
+      });
+    }, 350);
+
     try {
       const res = await invoke<SpeedtestResult>("benchmark_youtube_speed");
+      setSpeedProgress(100);
       setSpeedResult(res);
     } catch (err: any) {
       console.error("YouTube speedtest failed:", err);
       setSpeedError(typeof err === "string" ? err : JSON.stringify(err));
     } finally {
+      clearInterval(interval);
       setIsSpeedRunning(false);
     }
   };
 
-  const getTierColor = (tier: string) => {
-    if (tier.includes("4K")) return "text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
-    if (tier.includes("1080p")) return "text-blue-400 bg-blue-500/10 border-blue-500/30";
-    if (tier.includes("720p")) return "text-amber-400 bg-amber-500/10 border-amber-500/30";
-    return "text-rose-400 bg-rose-500/10 border-rose-500/30";
+  const getTierBadge = (speedMbps: number) => {
+    if (speedMbps >= 25) {
+      return {
+        label: "4K Ultra HD (2160p 60fps)",
+        badgeClass: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
+        desc: "Идеально: моментальная буферизация 4K HDR",
+      };
+    }
+    if (speedMbps >= 15) {
+      return {
+        label: "2K Quad HD (1440p)",
+        badgeClass: "text-blue-400 bg-blue-500/10 border-blue-500/30",
+        desc: "Отлично: быстрая загрузка 1440p и 1080p60",
+      };
+    }
+    if (speedMbps >= 6) {
+      return {
+        label: "Full HD (1080p)",
+        badgeClass: "text-amber-400 bg-amber-500/10 border-amber-500/30",
+        desc: "Хорошо: стабильное воспроизведение 1080p",
+      };
+    }
+    return {
+      label: "HD (720p / 480p)",
+      badgeClass: "text-rose-400 bg-rose-500/10 border-rose-500/30",
+      desc: "Низкая скорость: возможны задержки в 1080p",
+    };
   };
 
+  const speedValue = speedResult
+    ? (speedResult.speed_mbps ?? speedResult.mbps ?? 0)
+    : 0;
+  const currentTier = speedResult ? getTierBadge(speedValue) : null;
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4">
       {/* DNS Manager Section */}
-      <div className="rounded-2xl border border-white/[0.08] bg-slate-900/60 p-5 backdrop-blur-xl space-y-5">
-        <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
+      <div className="rounded-2xl border border-[#212635] bg-[#141720] p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-[#202534] pb-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 shadow-md shadow-cyan-500/20 text-white">
-              <Globe2 className="h-5 w-5" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
+              <Globe2 className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">{t.dns.title}</h3>
-              <p className="text-xs text-slate-400">{t.dns.subtitle}</p>
+              <h3 className="text-xs font-semibold text-white">{t.dns.title}</h3>
+              <p className="text-[11px] text-slate-400">{t.dns.subtitle}</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={loadDns}
             disabled={isLoadingDns}
-            className="p-1.5 rounded-lg border border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-white transition-all cursor-pointer disabled:opacity-50"
+            className="p-1.5 rounded-lg border border-[#252b3b] bg-[#161a22] text-slate-400 hover:text-white hover:bg-[#1b212c] transition-all cursor-pointer disabled:opacity-50"
             title="Обновить текущий DNS"
           >
-            <RefreshCw className={`h-4 w-4 ${isLoadingDns ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoadingDns ? "animate-spin" : ""}`} />
           </button>
         </div>
 
@@ -129,21 +167,21 @@ export const DnsSpeedView: React.FC = React.memo(() => {
           </div>
         )}
 
-        {/* Current DNS Status Badge */}
+        {/* Current DNS Status Card */}
         {dnsStatus && (
-          <div className="rounded-xl border border-white/[0.06] bg-slate-950/60 p-3.5 space-y-1.5">
+          <div className="rounded-xl border border-[#202534] bg-[#12151d] p-3 space-y-1.5">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400">{t.dns.adapterLabel}:</span>
-              <span className="font-semibold text-white truncate max-w-xs">
+              <span className="text-slate-400">{t.dns.adapterLabel}</span>
+              <span className="font-semibold text-white truncate max-w-xs font-mono text-[11px]">
                 {dnsStatus.adapter_name}
               </span>
             </div>
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-slate-500">{t.dns.currentDnsLabel}:</span>
-              <span className="text-cyan-400">
-                {(dnsStatus.current_dns && dnsStatus.current_dns.length > 0)
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-400">{t.dns.currentDnsLabel}</span>
+              <span className="text-blue-400 font-mono text-[11px] font-semibold">
+                {dnsStatus.current_dns && dnsStatus.current_dns.length > 0
                   ? dnsStatus.current_dns.join(", ")
-                  : (dnsStatus.active_servers && dnsStatus.active_servers.length > 0)
+                  : dnsStatus.active_servers && dnsStatus.active_servers.length > 0
                   ? dnsStatus.active_servers.join(", ")
                   : "DHCP (Автоматически)"}
               </span>
@@ -151,7 +189,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
           </div>
         )}
 
-        {/* DNS Providers Grid */}
+        {/* DNS Providers List */}
         <div className="space-y-2">
           {dnsStatus?.available_providers.map((p) => {
             const isCurrent = (dnsStatus.active_provider_id || dnsStatus.current_provider) === p.id;
@@ -160,28 +198,28 @@ export const DnsSpeedView: React.FC = React.memo(() => {
             return (
               <div
                 key={p.id}
-                className={`flex items-center justify-between rounded-xl border p-3 transition-all ${
+                className={`flex items-center justify-between rounded-xl border p-3 transition-colors ${
                   isCurrent
-                    ? "border-cyan-500/40 bg-cyan-500/10 shadow-sm"
-                    : "border-white/[0.05] bg-slate-950/40 hover:border-white/[0.1] hover:bg-slate-950/70"
+                    ? "border-[#384359] bg-[#1d2332]"
+                    : "border-[#202534] bg-[#12151d] hover:border-[#2b3345] hover:bg-[#161a23]"
                 }`}
               >
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-white">{p.name}</span>
+                    <span className="text-xs font-semibold text-white">{p.name}</span>
                     {isCurrent && (
-                      <span className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-[9px] font-bold text-cyan-300 uppercase">
+                      <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-blue-300 uppercase">
                         {t.dns.activeBadge}
                       </span>
                     )}
                     {p.is_doh_capable && (
-                      <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-400">
+                      <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
                         {t.dns.dohBadge}
                       </span>
                     )}
                   </div>
                   <p className="text-[11px] text-slate-400 font-mono">
-                    {p.primary ? `${p.primary} / ${p.secondary}` : "DHCP / Провайдер"}
+                    {p.primary ? `${p.primary} / ${p.secondary}` : "DHCP (Провайдер)"}
                   </p>
                   <p className="text-[10px] text-slate-500 leading-tight">
                     {p.description}
@@ -189,16 +227,17 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                 </div>
 
                 <button
+                  type="button"
                   onClick={() => handleApplyDns(p.id)}
                   disabled={isCurrent || isApplying}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:cursor-not-allowed shrink-0 ${
                     isCurrent
-                      ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                      : "bg-white/[0.05] hover:bg-cyan-600 hover:text-white text-slate-300 border border-white/[0.08]"
+                      ? "bg-blue-500/15 text-blue-300 border border-blue-500/30"
+                      : "bg-[#181d28] hover:bg-[#2563eb] hover:text-white text-slate-300 border border-[#2b3345]"
                   }`}
                 >
                   {isApplying ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" />
                   ) : isCurrent ? (
                     <>
                       <Check className="h-3.5 w-3.5" />
@@ -215,15 +254,15 @@ export const DnsSpeedView: React.FC = React.memo(() => {
       </div>
 
       {/* YouTube 4K Stream Speedtest Section */}
-      <div className="rounded-2xl border border-white/[0.08] bg-slate-900/60 p-5 backdrop-blur-xl space-y-5">
-        <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
+      <div className="rounded-2xl border border-[#212635] bg-[#141720] p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-[#202534] pb-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-rose-600 to-red-600 shadow-md shadow-red-600/20 text-white">
-              <Tv className="h-5 w-5" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-500/10 border border-red-500/20 text-red-400">
+              <Tv className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">{t.speedtest.title}</h3>
-              <p className="text-xs text-slate-400">{t.speedtest.subtitle}</p>
+              <h3 className="text-xs font-semibold text-white">{t.speedtest.title}</h3>
+              <p className="text-[11px] text-slate-400">{t.speedtest.subtitle}</p>
             </div>
           </div>
         </div>
@@ -235,76 +274,116 @@ export const DnsSpeedView: React.FC = React.memo(() => {
           </div>
         )}
 
-        {/* Speed Dial / Gauge */}
-        <div className="flex flex-col items-center justify-center py-4">
-          <div className="relative flex h-36 w-36 items-center justify-center rounded-full border-4 border-slate-800 bg-slate-950/80 shadow-inner">
+        {/* Digital Benchmark Display */}
+        <div className="rounded-xl border border-[#202534] bg-[#12151d] p-5 flex flex-col items-center justify-center space-y-4">
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <Activity className="h-3.5 w-3.5 text-red-400" />
+            <span>Целевой узел: YouTube Video Edge Cache (googlevideo.com)</span>
+          </div>
+
+          {/* Speed Value & Live Pulse */}
+          <div className="flex flex-col items-center justify-center py-2">
             {isSpeedRunning ? (
-              <Loader2 className="h-10 w-10 animate-spin text-rose-500" />
+              <div className="flex flex-col items-center space-y-2">
+                <Loader2 className="h-8 w-8 animate-spin text-red-400" />
+                <span className="text-xs font-medium text-slate-300">
+                  Замер пропускной способности потока...
+                </span>
+                {/* Progress bar */}
+                <div className="w-56 h-1.5 bg-[#1e2330] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-red-500 transition-all duration-300 rounded-full"
+                    style={{ width: `${speedProgress}%` }}
+                  />
+                </div>
+              </div>
             ) : speedResult ? (
               <div className="flex flex-col items-center">
-                <span className="text-3xl font-extrabold tracking-tight text-white font-mono">
-                  {(speedResult.speed_mbps ?? speedResult.mbps ?? 0).toFixed(1)}
-                </span>
-                <span className="text-[10px] font-semibold uppercase text-rose-400">Мбит/с</span>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-4xl font-extrabold tracking-tight text-white font-mono">
+                    {speedValue.toFixed(1)}
+                  </span>
+                  <span className="text-xs font-bold uppercase text-red-400 font-mono">
+                    Мбит/с
+                  </span>
+                </div>
+                {currentTier && (
+                  <span
+                    className={`mt-2 rounded-md border px-2.5 py-0.5 text-xs font-semibold ${currentTier.badgeClass}`}
+                  >
+                    {currentTier.label}
+                  </span>
+                )}
               </div>
             ) : (
-              <Gauge className="h-12 w-12 text-slate-600" />
+              <div className="flex flex-col items-center text-center py-2 space-y-1">
+                <span className="text-2xl font-bold font-mono text-slate-500">—</span>
+                <span className="text-xs text-slate-400">
+                  Нажмите кнопку ниже для реального замера скорости YouTube
+                </span>
+              </div>
             )}
           </div>
 
-          <div className="mt-4">
-            <button
-              onClick={handleStartSpeedtest}
-              disabled={isSpeedRunning}
-              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-rose-600/20 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-              {isSpeedRunning ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>{t.speedtest.running}</span>
-                </>
-              ) : (
-                <>
-                  <Play className="h-4 w-4 fill-current" />
-                  <span>{t.speedtest.runBtn}</span>
-                </>
-              )}
-            </button>
-          </div>
+          {/* Action Button */}
+          <button
+            type="button"
+            onClick={handleStartSpeedtest}
+            disabled={isSpeedRunning}
+            className="flex items-center gap-2 rounded-xl bg-[#dc2626] hover:bg-[#b91c1c] px-6 py-2.5 text-xs font-semibold text-white shadow-sm transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
+          >
+            {isSpeedRunning ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>{t.speedtest.running}</span>
+              </>
+            ) : (
+              <>
+                <Play className="h-3.5 w-3.5 fill-current" />
+                <span>{t.speedtest.runBtn}</span>
+              </>
+            )}
+          </button>
         </div>
 
-        {/* Speedtest Results Card */}
+        {/* Speedtest Metrics Cards */}
         {speedResult && (
-          <div className="space-y-3 rounded-xl border border-white/[0.06] bg-slate-950/60 p-4">
-            <div className="flex items-center justify-between border-b border-white/[0.05] pb-2.5">
-              <span className="text-xs text-slate-400">{t.speedtest.resultVerdict}:</span>
-              <span
-                className={`rounded-lg border px-2.5 py-0.5 text-xs font-bold ${getTierColor(
-                  speedResult.resolution_tier || speedResult.quality_tier || ""
-                )}`}
-              >
-                {speedResult.resolution_tier || speedResult.quality_tier || "N/A"}
-              </span>
-            </div>
-
+          <div className="space-y-2 rounded-xl border border-[#202534] bg-[#12151d] p-3.5">
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="flex items-center gap-2">
                 <Timer className="h-4 w-4 text-slate-500" />
-                <span className="text-slate-400">{t.speedtest.resultDuration}:</span>
+                <span className="text-slate-400">{t.speedtest.resultDuration}</span>
                 <span className="font-mono font-semibold text-slate-200">
                   {((speedResult.duration_ms ?? speedResult.download_time_ms ?? 0) / 1000).toFixed(2)} с
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <DownloadCloud className="h-4 w-4 text-slate-500" />
-                <span className="text-slate-400">{t.speedtest.resultPayload}:</span>
+                <span className="text-slate-400">{t.speedtest.resultPayload}</span>
                 <span className="font-mono font-semibold text-slate-200">
                   {(speedResult.bytes_downloaded / (1024 * 1024)).toFixed(1)} МБ
                 </span>
               </div>
             </div>
+            {currentTier && (
+              <div className="pt-2 border-t border-[#1c212d] text-[11px] text-slate-400 flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                <span>{currentTier.desc}</span>
+              </div>
+            )}
           </div>
         )}
+
+        {/* Speed Requirements Helper Card */}
+        <div className="rounded-xl border border-[#1f2431] bg-[#12141c] p-3 space-y-1.5 text-[11px]">
+          <span className="font-semibold text-slate-300">Требования к битрейту YouTube:</span>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-slate-400">
+            <div>• 4K 2160p60: <span className="font-mono text-emerald-400 font-semibold">≥ 25 Мбит/с</span></div>
+            <div>• 2K 1440p60: <span className="font-mono text-blue-400 font-semibold">≥ 15 Мбит/с</span></div>
+            <div>• Full HD 1080p: <span className="font-mono text-amber-400 font-semibold">≥ 6 Мбит/с</span></div>
+            <div>• HD 720p: <span className="font-mono text-slate-400 font-semibold">≥ 3 Мбит/с</span></div>
+          </div>
+        </div>
       </div>
     </div>
   );

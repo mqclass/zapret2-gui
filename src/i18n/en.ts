@@ -3,7 +3,7 @@ import { Translations } from "./types";
 export const en: Translations = {
   header: {
     title: "zapret2",
-    version: "v1.0.9",
+    version: "v1.0.10",
     subtitle: "Windows WFP & WinDivert Bypass Service",
     adminReady: "Administrator (WFP Ready)",
     adminRequired: "Admin Rights Needed (Click)",
@@ -223,8 +223,8 @@ export const en: Translations = {
   dns: {
     title: "DNS Manager & Anti-Spoofing",
     subtitle: "Configure system DNS on your primary network adapter to protect against ISP DNS poisoning and drops",
-    adapterLabel: "Primary Network Adapter:",
-    currentDnsLabel: "Current System DNS:",
+    adapterLabel: "Primary Network Adapter",
+    currentDnsLabel: "Current System DNS",
     applyBtn: "Apply DNS",
     applying: "Applying DNS configuration...",
     activeBadge: "ACTIVE",

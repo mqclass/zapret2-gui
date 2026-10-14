@@ -443,7 +443,7 @@ const AppContent: React.FC = () => {
   }, [selectedStrategyId, t.alerts.configDeleted]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100 select-none">
+    <div className="flex h-screen w-screen overflow-hidden bg-[#0d1017] font-sans text-slate-100 select-none">
       {/* Sidebar Navigation */}
       <Sidebar
         activeTab={activeTab}
@@ -454,21 +454,23 @@ const AppContent: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0d1017]">
         {/* Top Header Bar */}
-        <TopBar
-          activeTab={activeTab}
-          isElevated={isElevated}
-          onRelaunchElevated={handleRelaunchElevated}
-          isAutostart={isAutostart}
-          onToggleAutostart={handleToggleAutostart}
-          isTogglingAutostart={isTogglingAutostart}
-          onKillStray={handleKillStray}
-          isStrayCleaning={isStrayCleaning}
-        />
+        <div className="relative z-50">
+          <TopBar
+            activeTab={activeTab}
+            isElevated={isElevated}
+            onRelaunchElevated={handleRelaunchElevated}
+            isAutostart={isAutostart}
+            onToggleAutostart={handleToggleAutostart}
+            isTogglingAutostart={isTogglingAutostart}
+            onKillStray={handleKillStray}
+            isStrayCleaning={isStrayCleaning}
+          />
+        </div>
 
         {/* Scrollable View Area */}
-        <main className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+        <main className="relative z-10 flex-1 overflow-y-auto px-6 py-5 space-y-4">
           {/* Conflicting Software Warning Banner */}
           <ConflictBanner
             conflicts={conflicts}

@@ -2,8 +2,9 @@ use std::path::Path;
 
 fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let profile = std::env::var("PROFILE").unwrap_or_default();
 
-    if target_os == "windows" {
+    if target_os == "windows" && profile == "release" {
         // Ensure app.rc resource definition points to app.manifest (ID 1, RT_MANIFEST = 24)
         if !Path::new("app.rc").exists() {
             std::fs::write("app.rc", "1 24 \"app.manifest\"\n").unwrap();
@@ -22,3 +23,4 @@ fn main() {
 
     tauri_build::try_build(attrs).expect("failed to run tauri-build");
 }
+

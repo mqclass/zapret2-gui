@@ -9,8 +9,6 @@ import {
   Globe,
   ExternalLink,
   Shield,
-  Info,
-  CheckCircle2,
 } from "lucide-react";
 import { ZapretLogo } from "../ZapretLogo";
 import { useI18n } from "../../i18n";
@@ -49,28 +47,28 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     ];
 
     return (
-      <div className="space-y-6 pb-6 max-w-4xl">
+      <div className="space-y-4 pb-4 max-w-4xl">
         {/* System & Engine Section */}
-        <div className="rounded-2xl border border-white/[0.08] bg-slate-900/60 p-5 backdrop-blur-xl space-y-4">
-          <div className="border-b border-white/[0.06] pb-3">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+        <div className="rounded-2xl border border-[#212635] bg-[#141720] p-5 space-y-4">
+          <div className="border-b border-[#202534] pb-3">
+            <h3 className="text-xs font-semibold text-white flex items-center gap-2">
               <Shield className="h-4 w-4 text-blue-400" />
               <span>{t.settingsTab.systemSection}</span>
             </h3>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {/* Autostart Card */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/[0.05] bg-slate-950/40 p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#202534] bg-[#12151d] p-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <Rocket className="h-4 w-4 text-indigo-400" />
-                  <span className="text-xs font-bold text-white">Автозапуск при входе в Windows</span>
+                  <Rocket className="h-4 w-4 text-blue-400" />
+                  <span className="text-xs font-semibold text-white">Автозапуск при входе в Windows</span>
                   <span
-                    className={`rounded px-1.5 py-0.2 text-[10px] font-semibold ${
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                       isAutostart
-                        ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                        : "bg-slate-800 text-slate-400"
+                        ? "bg-blue-500/15 text-blue-300 border border-blue-500/30"
+                        : "bg-[#1d222e] text-slate-400"
                     }`}
                   >
                     {isAutostart ? "Включен" : "Отключен"}
@@ -82,25 +80,26 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               </div>
 
               <button
+                type="button"
                 onClick={onToggleAutostart}
                 disabled={isTogglingAutostart}
-                className={`flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 ${
+                className={`flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 ${
                   isAutostart
-                    ? "bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30"
-                    : "bg-white/[0.05] hover:bg-white/[0.1] text-slate-200 border border-white/[0.08]"
+                    ? "bg-blue-600/15 hover:bg-blue-600/25 text-blue-300 border border-blue-500/30"
+                    : "bg-[#181d28] hover:bg-[#202636] text-slate-200 border border-[#2b3345]"
                 }`}
               >
                 {isTogglingAutostart ? (
-                  <RefreshCw className="h-4 w-4 animate-spin text-indigo-400" />
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-400" />
                 ) : (
-                  <Rocket className="h-4 w-4 text-indigo-400" />
+                  <Rocket className="h-3.5 w-3.5 text-blue-400" />
                 )}
                 <span>{isAutostart ? "Отключить автозапуск" : "Включить автозапуск"}</span>
               </button>
             </div>
 
             {/* Elevation Status Card */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/[0.05] bg-slate-950/40 p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#202534] bg-[#12151d] p-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   {isElevated ? (
@@ -108,9 +107,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                   ) : (
                     <ShieldAlert className="h-4 w-4 text-amber-400" />
                   )}
-                  <span className="text-xs font-bold text-white">{t.settingsTab.elevationTitle}</span>
+                  <span className="text-xs font-semibold text-white">{t.settingsTab.elevationTitle}</span>
                   <span
-                    className={`rounded px-1.5 py-0.2 text-[10px] font-semibold ${
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                       isElevated
                         ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
                         : "bg-amber-500/15 text-amber-400 border border-amber-500/30"
@@ -126,21 +125,22 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
 
               {!isElevated && (
                 <button
+                  type="button"
                   onClick={onRelaunchElevated}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 px-4 py-2.5 text-xs font-bold transition-all shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer shrink-0"
+                  className="flex items-center justify-center gap-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 px-3.5 py-2 text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer shrink-0"
                 >
-                  <ShieldAlert className="h-4 w-4" />
+                  <ShieldAlert className="h-3.5 w-3.5" />
                   <span>{t.settingsTab.elevationBtn}</span>
                 </button>
               )}
             </div>
 
             {/* Stray Processes Cleanup Card */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/[0.05] bg-slate-950/40 p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#202534] bg-[#12151d] p-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Trash2 className="h-4 w-4 text-rose-400" />
-                  <span className="text-xs font-bold text-white">{t.settingsTab.strayTitle}</span>
+                  <span className="text-xs font-semibold text-white">{t.settingsTab.strayTitle}</span>
                 </div>
                 <p className="text-[11px] text-slate-400 max-w-lg leading-relaxed">
                   {t.settingsTab.strayDesc}
@@ -148,21 +148,22 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               </div>
 
               <button
+                type="button"
                 onClick={onKillStray}
                 disabled={isStrayCleaning}
-                className="flex items-center justify-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/15 hover:bg-rose-500/25 px-4 py-2.5 text-xs font-semibold text-rose-300 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                className="flex items-center justify-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 px-3.5 py-2 text-xs font-semibold text-rose-300 transition-all cursor-pointer disabled:opacity-50 shrink-0"
               >
-                <Trash2 className={`h-4 w-4 ${isStrayCleaning ? "animate-spin" : ""}`} />
+                <Trash2 className={`h-3.5 w-3.5 ${isStrayCleaning ? "animate-spin" : ""}`} />
                 <span>{t.settingsTab.strayBtn}</span>
               </button>
             </div>
 
             {/* Conflict Resolver Card */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-white/[0.05] bg-slate-950/40 p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#202534] bg-[#12151d] p-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-amber-400" />
-                  <span className="text-xs font-bold text-white">{t.settingsTab.conflictsTitle}</span>
+                  <span className="text-xs font-semibold text-white">{t.settingsTab.conflictsTitle}</span>
                 </div>
                 <p className="text-[11px] text-slate-400 max-w-lg leading-relaxed">
                   {t.settingsTab.conflictsDesc}
@@ -170,11 +171,12 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               </div>
 
               <button
+                type="button"
                 onClick={onResolveConflicts}
                 disabled={isResolvingConflicts}
-                className="flex items-center justify-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/15 hover:bg-amber-500/25 px-4 py-2.5 text-xs font-semibold text-amber-300 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                className="flex items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 px-3.5 py-2 text-xs font-semibold text-amber-300 transition-all cursor-pointer disabled:opacity-50 shrink-0"
               >
-                <AlertTriangle className={`h-4 w-4 ${isResolvingConflicts ? "animate-spin" : ""}`} />
+                <AlertTriangle className={`h-3.5 w-3.5 ${isResolvingConflicts ? "animate-spin" : ""}`} />
                 <span>{t.settingsTab.conflictsBtn}</span>
               </button>
             </div>
@@ -182,28 +184,29 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Language Selection Card */}
-        <div className="rounded-2xl border border-white/[0.08] bg-slate-900/60 p-5 backdrop-blur-xl space-y-4">
-          <div className="border-b border-white/[0.06] pb-3">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Globe className="h-4 w-4 text-cyan-400" />
+        <div className="rounded-2xl border border-[#212635] bg-[#141720] p-5 space-y-3">
+          <div className="border-b border-[#202534] pb-3">
+            <h3 className="text-xs font-semibold text-white flex items-center gap-2">
+              <Globe className="h-4 w-4 text-blue-400" />
               <span>{t.settingsTab.languageSection}</span>
             </h3>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2.5">
             {languages.map((item) => {
               const isSelected = language === item.code;
               return (
                 <button
+                  type="button"
                   key={item.code}
                   onClick={() => setLanguage(item.code)}
-                  className={`flex items-center justify-between p-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                  className={`flex items-center justify-between p-3 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
                     isSelected
-                      ? "border-blue-500/50 bg-blue-600/15 text-white shadow-sm"
-                      : "border-white/[0.05] bg-slate-950/40 text-slate-400 hover:text-slate-200 hover:bg-slate-950/70"
+                      ? "border-[#384359] bg-[#1d2332] text-white shadow-sm"
+                      : "border-[#202534] bg-[#12151d] text-slate-400 hover:text-slate-200 hover:bg-[#161a23]"
                   }`}
                 >
-                  <span>{item.full}</span>
+                  <span className="font-semibold">{item.full}</span>
                   <span className="font-mono text-[10px] text-slate-500">{item.label}</span>
                 </button>
               );
@@ -212,15 +215,15 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Security & Warning Against Fakes */}
-        <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent p-5 backdrop-blur-xl space-y-3">
+        <div className="rounded-2xl border border-[#2d261a] bg-[#161411] p-4 space-y-2">
           <div className="flex items-center gap-2 text-amber-400">
-            <AlertTriangle className="h-5 w-5" />
-            <h4 className="text-sm font-bold text-white">{t.settingsTab.warningFakesTitle}</h4>
+            <AlertTriangle className="h-4 w-4" />
+            <h4 className="text-xs font-semibold text-white">{t.settingsTab.warningFakesTitle}</h4>
           </div>
-          <p className="text-xs text-slate-300 leading-relaxed">
+          <p className="text-[11px] text-slate-300 leading-relaxed">
             {t.settingsTab.warningFakesBody}
           </p>
-          <div className="flex flex-wrap gap-4 pt-2 text-xs">
+          <div className="flex flex-wrap gap-4 pt-1 text-xs">
             <a
               href="https://github.com/bol-van/zapret"
               target="_blank"
@@ -234,7 +237,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               href="https://github.com/Flowseal/zapret-discord-youtube"
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 hover:underline"
+              className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 hover:underline"
             >
               <span>GitHub Flowseal (Пресеты)</span>
               <ExternalLink className="h-3 w-3" />
@@ -243,7 +246,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               href="https://github.com/mqclass/zapret2-gui"
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 hover:underline"
+              className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 hover:underline"
             >
               <span>GitHub mqclass/zapret2-gui</span>
               <ExternalLink className="h-3 w-3" />
@@ -252,12 +255,12 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Application Architecture & Versions */}
-        <div className="rounded-2xl border border-white/[0.08] bg-slate-900/40 p-5 backdrop-blur-xl">
+        <div className="rounded-2xl border border-[#212635] bg-[#141720] p-4">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <div className="flex items-center gap-2">
               <ZapretLogo className="h-4 w-4" />
-              <span className="font-bold text-white">zapret2</span>
-              <span className="font-mono text-cyan-400 font-bold">{t.header.version}</span>
+              <span className="font-semibold text-white">zapret2</span>
+              <span className="font-mono text-blue-400 font-semibold">{t.header.version}</span>
             </div>
             <div className="font-mono text-[11px] text-slate-500">
               WinWS v2.1.8 • WinDivert v2.2.2-F • Tauri v2

@@ -412,10 +412,17 @@ pub fn window_minimize(window: tauri::Window) -> Result<(), String> {
 #[tauri::command]
 pub fn window_toggle_maximize(window: tauri::Window) -> Result<(), String> {
     if window.is_maximized().unwrap_or(false) {
-        window.unminimize().map_err(|e| e.to_string())
+        window.unmaximize().map_err(|e| e.to_string())
     } else {
         window.maximize().map_err(|e| e.to_string())
     }
+}
+
+
+/// Starts dragging the window on mousedown.
+#[tauri::command]
+pub fn window_start_dragging(window: tauri::Window) -> Result<(), String> {
+    window.start_dragging().map_err(|e| e.to_string())
 }
 
 /// Hides the window to system tray.
@@ -423,5 +430,18 @@ pub fn window_toggle_maximize(window: tauri::Window) -> Result<(), String> {
 pub fn window_close(window: tauri::Window) -> Result<(), String> {
     window.hide().map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_window_unmaximize_method_exists() {
+        // Compile-time check: verifies that tauri::Window has unmaximize()
+        let _ = |w: &tauri::Window| {
+            let _ = w.unmaximize();
+        };
+    }
+}
+
 
 
