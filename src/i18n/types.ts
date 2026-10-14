@@ -122,6 +122,24 @@ export interface Translations {
     youtubeSubtitle: string;
     discordTitle: string;
     discordSubtitle: string;
+    discordVoiceTitle: string;
+    discordVoiceSubtitle: string;
+    telegramTitle: string;
+    telegramSubtitle: string;
+    twitterTitle: string;
+    twitterSubtitle: string;
+    cloudflareTitle: string;
+    cloudflareSubtitle: string;
+    customPingTitle: string;
+    customPingSubtitle: string;
+    customPingPlaceholder: string;
+    customPingBtn: string;
+    customPingTesting: string;
+    customPingResultTitle: string;
+    dnsLatency: string;
+    tcpLatency: string;
+    httpStatus: string;
+    ipAddress: string;
     latency: string;
     packetLoss: string;
     operational: string;
@@ -129,6 +147,12 @@ export interface Translations {
     blocked: string;
     checking: string;
     refreshTooltip: string;
+    autoTuneBtn: string;
+    autoTuneRunning: string;
+    autoTuneModalTitle: string;
+    autoTuneDesc: string;
+    autoTuneRecommended: string;
+    autoTuneApply: string;
   };
   logs: {
     title: string;
@@ -139,6 +163,10 @@ export interface Translations {
     clear: string;
     empty: string;
     showingLatest: string;
+    openFolder: string;
+    copyAll: string;
+    copiedSuccess: string;
+    logFilePath: string;
   };
   alerts: {
     faultTitle: string;

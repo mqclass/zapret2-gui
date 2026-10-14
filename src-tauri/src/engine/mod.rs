@@ -1,6 +1,8 @@
 #![allow(unused_imports)]
+pub mod logger;
 pub mod probes;
 pub mod supervisor;
 
-pub use probes::{DiagnosticsReport, DiagnosticsService, ProbeMetric, ProbeStatus};
+pub use logger::FileLogger;
+pub use probes::{DiagnosticsReport, DiagnosticsService, ProbeMetric, ProbeStatus, StrategyBenchmarkResult};
 pub use supervisor::{LogEntry, Supervisor, SupervisorState, SupervisorStatus};

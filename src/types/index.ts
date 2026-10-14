@@ -11,15 +11,33 @@ export interface ProbeMetric {
   target: string;
   status: ProbeStatus;
   latency_ms: number | null;
+  dns_ms?: number | null;
+  tcp_ms?: number | null;
+  http_status?: number | null;
   packet_loss_pct: number;
   last_checked_epoch: number;
+  ip_address?: string | null;
   message: string;
 }
 
 export interface DiagnosticsReport {
   youtube: ProbeMetric;
   discord: ProbeMetric;
+  discord_voice?: ProbeMetric;
+  telegram?: ProbeMetric;
+  twitter?: ProbeMetric;
+  cloudflare?: ProbeMetric;
   timestamp: number;
+}
+
+export interface StrategyBenchmarkResult {
+  strategy_id: string;
+  strategy_name: string;
+  working: boolean;
+  average_ping_ms: number | null;
+  youtube_status: ProbeStatus;
+  discord_status: ProbeStatus;
+  summary: string;
 }
 
 export interface SupervisorStatus {

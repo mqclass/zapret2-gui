@@ -182,7 +182,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
               const isStoppingThis = supervisorState === "stopping" && activeStrategyId === strat.id;
               const isBypassRunning = supervisorState === "running";
               const friendlyDesc = getFriendlyDescription(strat);
-              const isRecommended = strat.id === "flowseal-general";
+              const isRecommended = strat.id === "flowseal-alt";
               const isUltimate = strat.id === "zapret2-ru-ultimate";
               const is4k = strat.id === "flowseal-alt11";
               const isFlowseal = strat.engine === "winws";

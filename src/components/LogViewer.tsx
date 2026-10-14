@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { LogEntry } from "../types";
-import { Terminal, Trash2, ArrowDown, Search } from "lucide-react";
+import { Terminal, Trash2, ArrowDown, Search, FolderOpen, Copy, Check } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 
 interface LogViewerProps {
@@ -13,9 +14,10 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(({ logs, onClearLo
   const [filterLevel, setFilterLevel] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
+  const [copied, setCopied] = useState<boolean>(false);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
-  // PERFORMANCE OPTIMIZATION: Memoize filtered and sliced log entries
+  // PERFORMANCE OPTIMIZATION: Memoize filtered and sliced log entries up to 500 lines
   const { filteredCount, displayLogs } = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     const filtered = logs.filter((log) => {
@@ -29,7 +31,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(({ logs, onClearLo
     });
     return {
       filteredCount: filtered.length,
-      displayLogs: filtered.slice(-100),
+      displayLogs: filtered.slice(-500),
     };
   }, [logs, filterLevel, searchTerm]);
 
@@ -59,6 +61,27 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(({ logs, onClearLo
     }
   };
 
+  const handleOpenFolder = async () => {
+    try {
+      await invoke("open_logs_folder");
+    } catch (e) {
+      console.error("Failed to open logs folder:", e);
+    }
+  };
+
+  const handleCopyLogs = async () => {
+    try {
+      const text = logs
+        .map((l) => `[${formatTimestamp(l.timestamp)}] [${l.level.toUpperCase()}] ${l.message}`)
+        .join("\n");
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      console.error("Failed to copy logs:", e);
+    }
+  };
+
   return (
     <div className="flex flex-col rounded-xl border border-slate-800 bg-slate-900/40 p-4">
       {/* Header & Controls */}
@@ -69,7 +92,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(({ logs, onClearLo
           <span className="rounded-md bg-slate-800 px-2 py-0.5 text-[11px] font-mono text-slate-400">
             {logs.length} {t.logs.lines}
           </span>
-          {filteredCount > 100 && (
+          {filteredCount > 500 && (
             <span className="text-[10px] text-slate-500">
               ({t.logs.showingLatest})
             </span>
@@ -102,6 +125,30 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(({ logs, onClearLo
             <option value="warn">warn</option>
             <option value="error">error</option>
           </select>
+
+          {/* Open Logs Folder */}
+          <button
+            onClick={handleOpenFolder}
+            className="flex h-7 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-white transition-all cursor-pointer"
+            title={t.logs.openFolder}
+          >
+            <FolderOpen className="h-3.5 w-3.5 text-cyan-400" />
+            <span>{t.logs.openFolder}</span>
+          </button>
+
+          {/* Copy Logs */}
+          <button
+            onClick={handleCopyLogs}
+            className="flex h-7 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-white transition-all cursor-pointer"
+            title={t.logs.copyAll}
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-emerald-400" />
+            ) : (
+              <Copy className="h-3.5 w-3.5 text-slate-400" />
+            )}
+            <span>{copied ? t.logs.copiedSuccess : t.logs.copyAll}</span>
+          </button>
 
           {/* Auto Scroll toggle */}
           <button

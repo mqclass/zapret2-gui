@@ -21,6 +21,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::interval;
 
+use crate::engine::logger::FileLogger;
 use crate::engine::probes::DiagnosticsService;
 use crate::win32::job_object::JobObject;
 use crate::win32::process::{
@@ -79,6 +80,7 @@ pub struct Supervisor {
 
     ring_buffer: Arc<Mutex<VecDeque<LogEntry>>>,
     log_tx: Sender<LogEntry>,
+    file_logger: Arc<FileLogger>,
 
     app_handle: Arc<RwLock<Option<AppHandle>>>,
 }
@@ -89,6 +91,7 @@ impl Supervisor {
         let job_object = Arc::new(JobObject::create()?);
         let diagnostics = Arc::new(DiagnosticsService::new());
         let ring_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(MAX_LOG_CAPACITY)));
+        let file_logger = Arc::new(FileLogger::new());
 
         let (log_tx, log_rx) = channel::<LogEntry>(2_000);
 
@@ -105,6 +108,7 @@ impl Supervisor {
             diagnostics,
             ring_buffer,
             log_tx,
+            file_logger,
             app_handle,
         };
 
@@ -188,6 +192,8 @@ impl Supervisor {
 
     /// Emits a structured log event into the supervisor pipeline.
     pub fn log(&self, level: &str, message: &str) {
+        self.file_logger.write_entry(level, message);
+
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -200,6 +206,16 @@ impl Supervisor {
         };
 
         let _ = self.log_tx.try_send(entry);
+    }
+
+    /// Opens the logs folder in Windows Explorer.
+    pub fn open_logs_folder(&self) -> Result<(), String> {
+        self.file_logger.open_in_explorer()
+    }
+
+    /// Retrieves the absolute file path to the active log file.
+    pub fn get_log_file_path(&self) -> String {
+        self.file_logger.get_log_file_path().to_string_lossy().to_string()
     }
 
     /// Retrieves current operational status.
@@ -257,7 +273,7 @@ impl Supervisor {
             }
             if *state == SupervisorState::Running {
                 let active = self.active_strategy.read().clone();
-                let requested = strategy_id.clone().unwrap_or_else(|| "flowseal-general".into());
+                let requested = strategy_id.clone().unwrap_or_else(|| "flowseal-alt".into());
                 if active.as_deref() == Some(&requested) && custom_args.is_none() {
                     return Ok(());
                 }
@@ -298,7 +314,7 @@ impl Supervisor {
         } else {
             strategies
                 .iter()
-                .find(|s| s.id == "flowseal-general")
+                .find(|s| s.id == "flowseal-alt")
                 .or_else(|| strategies.first())
                 .cloned()
         };
@@ -306,7 +322,7 @@ impl Supervisor {
         let active_id = target_strat
             .as_ref()
             .map(|s| s.id.clone())
-            .unwrap_or_else(|| "flowseal-general".into());
+            .unwrap_or_else(|| "flowseal-alt".into());
 
         let use_winws1 = target_strat.as_ref().map_or(false, |s| s.engine == "winws");
         let target_exe = if use_winws1 {
@@ -402,10 +418,12 @@ impl Supervisor {
 
         // 5. Spawn asynchronous log readers
         let log_tx_stdout = self.log_tx.clone();
+        let file_logger_stdout = self.file_logger.clone();
         if let Some(stdout_stream) = stdout {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout_stream).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
+                    file_logger_stdout.write_entry("ENGINE", &line);
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap_or_default()
@@ -420,10 +438,12 @@ impl Supervisor {
         }
 
         let log_tx_stderr = self.log_tx.clone();
+        let file_logger_stderr = self.file_logger.clone();
         if let Some(stderr_stream) = stderr {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_stream).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
+                    file_logger_stderr.write_entry("STDERR", &line);
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap_or_default()
@@ -1015,13 +1035,31 @@ impl Supervisor {
         strategy_id: Option<&str>,
         custom_args: Option<Vec<String>>,
     ) -> Result<Vec<String>, ProcessError> {
-        if let Some(args) = custom_args {
+        let mut final_args = if let Some(args) = custom_args {
             if !args.is_empty() {
-                return Ok(args);
+                args
+            } else {
+                self.resolve_strategy_args(binaries, strategy_id)?
             }
+        } else {
+            self.resolve_strategy_args(binaries, strategy_id)?
+        };
+
+        // Ensure --debug=1 is enabled so winws/winws2 outputs runtime logs
+        if !final_args.iter().any(|a| a.starts_with("--debug")) {
+            final_args.insert(0, "--debug=1".to_string());
         }
 
-        let strat_id = strategy_id.unwrap_or("flowseal-general");
+        Ok(final_args)
+    }
+
+    /// Resolves preset or custom strategy command-line arguments.
+    fn resolve_strategy_args(
+        &self,
+        binaries: &ZapretBinaries,
+        strategy_id: Option<&str>,
+    ) -> Result<Vec<String>, ProcessError> {
+        let strat_id = strategy_id.unwrap_or("flowseal-alt");
 
         let lists_dir = binaries
             .lists_dir
@@ -1043,7 +1081,7 @@ impl Supervisor {
         let strategies = discover_strategies().unwrap_or_default();
         let target_strategy = strategies.iter().find(|s| s.id == strat_id).cloned();
 
-        // 2. If it's a custom profile with defined arguments, use them directly
+        // 3. If it's a custom profile with defined arguments, use them directly
         if let Some(ref strat) = target_strategy {
             if strat.category == "custom" {
                 if let Some(ref c_args) = strat.custom_args {
@@ -1054,7 +1092,7 @@ impl Supervisor {
             }
         }
 
-        // 3. Otherwise, assemble Lua arguments for zapret2 (winws2)
+        // 4. Otherwise, assemble Lua arguments for zapret2 (winws2)
         let mut args = Vec::new();
         args.push("--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into());
         args.push("--wf-udp-out=443,19294-19344,50000-50100".into());

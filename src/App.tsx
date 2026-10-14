@@ -54,7 +54,7 @@ const AppContent: React.FC = () => {
   });
 
   const [strategies, setStrategies] = useState<LuaStrategy[]>([]);
-  const [selectedStrategyId, setSelectedStrategyId] = useState<string>("flowseal-general");
+  const [selectedStrategyId, setSelectedStrategyId] = useState<string>("flowseal-alt");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [conflicts, setConflicts] = useState<ConflictItem[]>([]);
   const [isResolvingConflicts, setIsResolvingConflicts] = useState<boolean>(false);
@@ -460,6 +460,7 @@ const AppContent: React.FC = () => {
           report={diagnostics}
           onRefresh={handleRefreshProbes}
           isRefreshing={isRefreshingProbes}
+          onSelectAndStartStrategy={handleStartStrategy}
         />
 
         {/* Strategy Selection */}

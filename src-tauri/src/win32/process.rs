@@ -219,12 +219,12 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
 
     // 1. Flowseal battle-tested presets (primary for Russian ISP / TSPU)
     list.push(LuaStrategy {
-        id: "flowseal-general".into(),
-        name: "Flowseal General (Рекомендованный)".into(),
-        filename: "general.bat (winws)".into(),
-        path: PathBuf::from("presets/flowseal-general"),
-        size_bytes: 3351,
-        description: "YouTube (QUIC + 1080p/4K) + Discord Голос + Все заблокированные сайты".into(),
+        id: "flowseal-alt".into(),
+        name: "Flowseal ALT (Fakedsplit) — Рекомендован для РФ".into(),
+        filename: "general (ALT).bat (winws)".into(),
+        path: PathBuf::from("presets/flowseal-alt"),
+        size_bytes: 3877,
+        description: "Основной рабочий режим для всех провайдеров РФ (Ростелеком, МТС, Дом.ру, Билайн, ТСПУ)".into(),
         engine: "winws".into(),
         category: "flowseal".into(),
         custom_args: None,
@@ -243,12 +243,12 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
     });
 
     list.push(LuaStrategy {
-        id: "flowseal-alt".into(),
-        name: "Flowseal ALT (Fakedsplit)".into(),
-        filename: "general (ALT).bat (winws)".into(),
-        path: PathBuf::from("presets/flowseal-alt"),
-        size_bytes: 3877,
-        description: "Для жестких провайдеров (Ростелеком, Дом.ру, МТС, Билайн, ТСПУ)".into(),
+        id: "flowseal-general".into(),
+        name: "Flowseal General (Multisplit)".into(),
+        filename: "general.bat (winws)".into(),
+        path: PathBuf::from("presets/flowseal-general"),
+        size_bytes: 3351,
+        description: "YouTube + Discord + Сайты (мягкий режим без поддельных пакетов)".into(),
         engine: "winws".into(),
         category: "flowseal".into(),
         custom_args: None,
