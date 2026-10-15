@@ -21,6 +21,9 @@ $RequiredFiles = @("winws2.exe", "winws.exe", "WinDivert.dll", "WinDivert64.sys"
 
 # 1. Search local development paths first
 $SearchLocations = @(
+    (Join-Path $PSScriptRoot "..\vendor\zapret2 releases\binaries\windows-x86_64"),
+    (Join-Path $PSScriptRoot "..\vendor\zapret2-releases\binaries\windows-x86_64"),
+    (Join-Path $PSScriptRoot "..\vendor\zapret-discord-youtube-main\bin"),
     (Join-Path $PSScriptRoot "..\zapret2 releases\binaries\windows-x86_64"),
     (Join-Path $PSScriptRoot "..\zapret2-releases\binaries\windows-x86_64"),
     (Join-Path $PSScriptRoot "..\zapret-discord-youtube-main\bin"),

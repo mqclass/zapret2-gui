@@ -58,6 +58,7 @@ jobs:
           Copy-Item -Path ./lists -Destination "$pkgDir/lists" -Recurse -Force
           if (Test-Path "strategies") { Copy-Item -Path ./strategies -Destination "$pkgDir/strategies" -Recurse -Force }
           if (Test-Path "configs") { Copy-Item -Path ./configs -Destination "$pkgDir/configs" -Recurse -Force }
+          if (Test-Path "docs") { Copy-Item -Path ./docs -Destination "$pkgDir/docs" -Recurse -Force }
           
           # Root helper binaries
           if (Test-Path "bin/WinDivert.dll") { Copy-Item "bin/WinDivert.dll" "$pkgDir/" -Force }

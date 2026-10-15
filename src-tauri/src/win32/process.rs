@@ -117,10 +117,13 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
     candidates.push(cwd.join("bin"));
     candidates.push(cwd.join("bin/windows-x86_64"));
     candidates.push(cwd.clone());
+    candidates.push(cwd.join("vendor/zapret-discord-youtube-main/bin"));
+    candidates.push(cwd.join("vendor/zapret2 releases/binaries/windows-x86_64"));
     candidates.push(cwd.join("zapret-discord-youtube-main/bin"));
     candidates.push(cwd.join("zapret2 releases/binaries/windows-x86_64"));
     candidates.push(cwd.join("zapret2-releases/binaries/windows-x86_64"));
     candidates.push(cwd.join("../bin"));
+    candidates.push(cwd.join("../vendor/zapret-discord-youtube-main/bin"));
     candidates.push(cwd.join("../zapret-discord-youtube-main/bin"));
 
     // 3. Adjacent production paths from the current executable
@@ -129,6 +132,7 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
             candidates.push(exe_dir.join("bin"));
             candidates.push(exe_dir.join("bin/windows-x86_64"));
             candidates.push(exe_dir.to_path_buf());
+            candidates.push(exe_dir.join("vendor/zapret-discord-youtube-main/bin"));
             candidates.push(exe_dir.join("zapret-discord-youtube-main/bin"));
             candidates.push(exe_dir.join("../bin"));
 
@@ -137,6 +141,8 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
                 if let Some(parent) = curr.parent() {
                     curr = parent.to_path_buf();
                     candidates.push(curr.join("bin"));
+                    candidates.push(curr.join("vendor/zapret-discord-youtube-main/bin"));
+                    candidates.push(curr.join("vendor/zapret2 releases/binaries/windows-x86_64"));
                     candidates.push(curr.join("zapret-discord-youtube-main/bin"));
                     candidates.push(curr.join("zapret2 releases/binaries/windows-x86_64"));
                 }
@@ -193,6 +199,8 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
                 Some(cwd.join("lists"))
             } else if candidate.join("../lists").is_dir() {
                 Some(candidate.join("../lists"))
+            } else if cwd.join("vendor/zapret-discord-youtube-main/lists").is_dir() {
+                Some(cwd.join("vendor/zapret-discord-youtube-main/lists"))
             } else if cwd.join("zapret-discord-youtube-main/lists").is_dir() {
                 Some(cwd.join("zapret-discord-youtube-main/lists"))
             } else {
@@ -306,6 +314,7 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
     let mut search_dirs = Vec::new();
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     search_dirs.push(cwd.join("strategies"));
+    search_dirs.push(cwd.join("vendor/zapret2-master/lua"));
     search_dirs.push(cwd.join("zapret2-master/lua"));
     search_dirs.push(cwd.join("lua"));
 

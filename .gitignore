@@ -32,6 +32,7 @@ v*-release/
 
 
 # Upstream Vendor Folders (Kept locally on development workstation)
+vendor/
 zapret-discord-youtube-main/
 zapret2 releases/
 zapret2-master/
