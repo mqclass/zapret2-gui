@@ -153,7 +153,7 @@ export const en: Translations = {
     autoTuneBtn: "⚡ Auto-Tune Best Strategy",
     autoTuneRunning: "Benchmarking against ISP...",
     autoTuneModalTitle: "Auto-Tune Strategy for Your ISP",
-    autoTuneDesc: "zapret2 evaluated top DPI bypass profiles against your ISP:",
+    autoTuneDesc: "Evaluation based on network profile and live latency probes (without interrupting active connections):",
     autoTuneRecommended: "Recommended configuration:",
     autoTuneApply: "Activate this strategy",
   },

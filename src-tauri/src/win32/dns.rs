@@ -225,7 +225,13 @@ pub fn check_split_dns_status() -> (bool, Vec<String>) {
 pub fn apply_split_dns_nrpt(primary: &str, secondary: &str) -> Result<(), String> {
     let ns_list = SPLIT_DNS_NAMESPACES
         .iter()
-        .map(|ns| format!("'{}'", ns))
+        .flat_map(|ns| {
+            let clean = ns.trim_start_matches('.');
+            vec![
+                format!("'.{}'", clean),
+                format!("'{}'", clean),
+            ]
+        })
         .collect::<Vec<_>>()
         .join(",");
 
@@ -315,29 +321,23 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
     };
 
     if provider_id == "system" || provider_id == "dhcp" {
-        // Reset adapter to automatic DHCP and remove Split-DNS
+        // Reset Split-DNS NRPT rule
         let _ = clear_split_dns_nrpt();
-        let script = format!(
-            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ResetServerAddresses -ErrorAction Stop",
-            adapter
-        );
-        let _ = Command::new("powershell")
-            .creation_flags(CREATE_NO_WINDOW)
-            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
-            .output();
+        if effective_scope == crate::win32::settings::DnsScope::Full {
+            // Reset adapter to automatic DHCP assignment only in Full mode
+            let script = format!(
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ResetServerAddresses -ErrorAction Stop",
+                adapter
+            );
+            let _ = Command::new("powershell")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+                .output();
+        }
     } else if let Some(target) = providers.iter().find(|p| p.id == provider_id) {
         match effective_scope {
             crate::win32::settings::DnsScope::Split => {
-                // In Split mode: ensure adapter uses DHCP for everything else, and route bypass domains via NRPT
-                let reset_script = format!(
-                    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ResetServerAddresses -ErrorAction SilentlyContinue",
-                    adapter
-                );
-                let _ = Command::new("powershell")
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &reset_script])
-                    .output();
-
+                // In Split mode: NRPT cleanly overlays on top of the adapter without destroying user's static/custom DNS
                 apply_split_dns_nrpt(&target.primary, &target.secondary)?;
             }
             crate::win32::settings::DnsScope::Full => {
@@ -375,4 +375,43 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
     let _ = save_settings(settings);
 
     get_dns_status()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_dns_must_match_apex_and_subdomains() {
+        let rules: Vec<String> = SPLIT_DNS_NAMESPACES
+            .iter()
+            .flat_map(|ns| {
+                let clean = ns.trim_start_matches('.');
+                vec![
+                    format!(".{}", clean),
+                    clean.to_string(),
+                ]
+            })
+            .collect();
+
+        // Apex domains must be included verbatim
+        assert!(rules.iter().any(|r| r == "discord.com"), "discord.com apex rule missing");
+        assert!(rules.iter().any(|r| r == "youtube.com"), "youtube.com apex rule missing");
+        assert!(rules.iter().any(|r| r == "x.com"), "x.com apex rule missing");
+        assert!(rules.iter().any(|r| r == "t.me"), "t.me apex rule missing");
+        assert!(rules.iter().any(|r| r == "rutracker.org"), "rutracker.org apex rule missing");
+
+        // Subdomain suffix rules must also be present
+        assert!(rules.iter().any(|r| r == ".discord.com"), ".discord.com suffix rule missing");
+        assert!(rules.iter().any(|r| r == ".youtube.com"), ".youtube.com suffix rule missing");
+        assert!(rules.iter().any(|r| r == ".x.com"), ".x.com suffix rule missing");
+    }
+
+    #[test]
+    fn test_split_dns_namespaces_not_empty() {
+        assert!(!SPLIT_DNS_NAMESPACES.is_empty());
+        for ns in SPLIT_DNS_NAMESPACES {
+            assert!(ns.starts_with('.'), "namespace should specify canonical suffix format");
+        }
+    }
 }

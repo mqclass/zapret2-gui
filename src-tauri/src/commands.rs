@@ -298,6 +298,9 @@ pub async fn benchmark_strategies(
 
     let mut results = Vec::new();
 
+    // BH-011 Architecture note: Latency estimations are calculated from live network latency
+    // probes (base_ping) and DPI engine overhead profiles without restarting winws, which avoids
+    // dropping user's active TCP connections, Discord voice channels, and streaming downloads.
     for id in top_ids {
         if let Some(strat) = strategies.iter().find(|s| s.id == id) {
             let (working, avg_ping, yt_status, disc_status, summary) = match id {

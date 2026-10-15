@@ -45,6 +45,7 @@ discordapp.net
 media.discordapp.net
 images-ext-1.discordapp.net
 images-ext-2.discordapp.net
+stable.dl2.discordapp.net
 discordcdn.com
 discordmerch.com
 discordpartygames.com
@@ -75,4 +76,3 @@ giphy.com
 media.giphy.com
 api.giphy.com
 i.giphy.com
-dl.google.com

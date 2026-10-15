@@ -321,15 +321,20 @@ pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
                                 }
                             }
 
-                            // 3. Ensure essential Discord GIF domains and Google CDN are never lost
-                            let essentials = [
-                                "tenor.com", "media.tenor.com", "c.tenor.com", "t.tenor.com", "api.tenor.com",
-                                "tenor.co", "gifdeliverynetwork.com", "giphy.com", "media.giphy.com",
-                                "api.giphy.com", "i.giphy.com", "dl.google.com",
-                            ];
-                            for domain in essentials {
-                                if (filename == "list-general.txt" || filename == "list-google.txt") && seen.insert(domain.to_string()) {
-                                    merged_lines.push(domain.to_string());
+                            if filename == "list-google.txt" {
+                                if seen.insert("dl.google.com".to_string()) {
+                                    merged_lines.push("dl.google.com".to_string());
+                                }
+                            } else if filename == "list-general.txt" {
+                                let discord_gif_essentials = [
+                                    "tenor.com", "media.tenor.com", "c.tenor.com", "t.tenor.com", "api.tenor.com",
+                                    "tenor.co", "gifdeliverynetwork.com", "giphy.com", "media.giphy.com",
+                                    "api.giphy.com", "i.giphy.com",
+                                ];
+                                for domain in discord_gif_essentials {
+                                    if seen.insert(domain.to_string()) {
+                                        merged_lines.push(domain.to_string());
+                                    }
                                 }
                             }
 
@@ -429,6 +434,29 @@ mod tests {
 
         // Clean up
         let _ = fs::remove_file(&test_path);
+    }
+
+    #[test]
+    fn test_google_and_general_list_separation() {
+        let lists_dir = get_lists_dir().expect("lists dir must resolve");
+        let google_path = lists_dir.join("list-google.txt");
+        let general_path = lists_dir.join("list-general.txt");
+
+        if google_path.exists() {
+            let google_content = fs::read_to_string(&google_path).unwrap();
+            assert!(!google_content.contains("tenor.com"), "list-google.txt must not contain tenor.com");
+            assert!(!google_content.contains("giphy.com"), "list-google.txt must not contain giphy.com");
+            assert!(!google_content.contains("discordapp.net"), "list-google.txt must not contain discordapp.net");
+            assert!(google_content.contains("googlevideo.com"), "list-google.txt must contain googlevideo.com");
+            assert!(google_content.contains("youtube.com"), "list-google.txt must contain youtube.com");
+        }
+
+        if general_path.exists() {
+            let general_content = fs::read_to_string(&general_path).unwrap();
+            assert!(general_content.contains("tenor.com"), "list-general.txt must contain tenor.com");
+            assert!(general_content.contains("giphy.com"), "list-general.txt must contain giphy.com");
+            assert!(general_content.contains("discord.com"), "list-general.txt must contain discord.com");
+        }
     }
 }
 
