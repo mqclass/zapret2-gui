@@ -54,7 +54,6 @@ jobs:
           New-Item -ItemType Directory -Path $pkgDir -Force | Out-Null
           
           Copy-Item src-tauri/target/release/zapret2-supervisor.exe "$pkgDir/zapret2.exe" -Force
-          Copy-Item src-tauri/target/release/zapret2-supervisor.exe "$pkgDir/zapret2-gui.exe" -Force
           Copy-Item -Path ./bin -Destination "$pkgDir/bin" -Recurse -Force
           Copy-Item -Path ./lists -Destination "$pkgDir/lists" -Recurse -Force
           if (Test-Path "strategies") { Copy-Item -Path ./strategies -Destination "$pkgDir/strategies" -Recurse -Force }
@@ -76,13 +75,12 @@ jobs:
 
           $ver = if ("${{ github.ref_name }}") { "${{ github.ref_name }}" } else { "latest" }
           Compress-Archive -Path "$pkgDir/*" -DestinationPath "./zapret2-${ver}-windows-x64.zip" -CompressionLevel Optimal
-          Copy-Item "./zapret2-${ver}-windows-x64.zip" "./zapret2-windows-x64.zip" -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: zapret2-${{ github.ref_name }}-windows-x64
-          path: ./zapret2-*.zip
+          path: ./zapret2-*-windows-x64.zip
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -90,7 +88,7 @@ jobs:
         with:
           name: zapret2 ${{ github.ref_name }}
           files: |
-            ./zapret2-*.zip
+            ./zapret2-*-windows-x64.zip
           draft: false
           prerelease: false
           generate_release_notes: true
