@@ -3,6 +3,7 @@
 //! Provides inspection, manipulation, domain addition/removal,
 //! and Windows DNS cache flush for zapret hostlists.
 
+use std::collections::HashSet;
 use std::fs;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -287,11 +288,73 @@ pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
                             let _ = fs::copy(&target_path, &bak_path);
                         }
 
-                        let lines_count = text.lines().count();
-                        if fs::write(&target_path, &text).is_ok() {
+                        let merged_text = if target_path.exists() {
+                            let existing_content = fs::read_to_string(&target_path).unwrap_or_default();
+                            let mut seen: HashSet<String> = HashSet::new();
+                            let mut merged_lines = Vec::new();
+
+                            // 1. Add upstream lines
+                            for line in text.lines() {
+                                let trimmed = line.trim();
+                                if trimmed.is_empty() {
+                                    continue;
+                                }
+                                if trimmed.starts_with('#') {
+                                    merged_lines.push(trimmed.to_string());
+                                } else {
+                                    let key = trimmed.trim_start_matches('^').to_lowercase();
+                                    if seen.insert(key) {
+                                        merged_lines.push(trimmed.to_string());
+                                    }
+                                }
+                            }
+
+                            // 2. Preserve existing user-added entries
+                            for line in existing_content.lines() {
+                                let trimmed = line.trim();
+                                if trimmed.is_empty() || trimmed.starts_with('#') {
+                                    continue;
+                                }
+                                let key = trimmed.trim_start_matches('^').to_lowercase();
+                                if seen.insert(key) {
+                                    merged_lines.push(trimmed.to_string());
+                                }
+                            }
+
+                            // 3. Ensure essential Discord GIF domains and Google CDN are never lost
+                            let essentials = [
+                                "tenor.com", "media.tenor.com", "c.tenor.com", "t.tenor.com", "api.tenor.com",
+                                "tenor.co", "gifdeliverynetwork.com", "giphy.com", "media.giphy.com",
+                                "api.giphy.com", "i.giphy.com", "dl.google.com",
+                            ];
+                            for domain in essentials {
+                                if (filename == "list-general.txt" || filename == "list-google.txt") && seen.insert(domain.to_string()) {
+                                    merged_lines.push(domain.to_string());
+                                }
+                            }
+
+                            let mut res = merged_lines.join("\r\n");
+                            res.push_str("\r\n");
+                            res
+                        } else {
+                            text.clone()
+                        };
+
+                        let lines_count = merged_text.lines().count();
+                        if fs::write(&target_path, &merged_text).is_ok() {
+                            // Also mirror to bin/lists if it exists
+                            if let Ok(exe_path) = std::env::current_exe() {
+                                if let Some(parent) = exe_path.parent() {
+                                    let bin_list = parent.join("bin/lists").join(filename);
+                                    if bin_list.parent().map_or(false, |p| p.is_dir()) {
+                                        let _ = fs::write(bin_list, &merged_text);
+                                    }
+                                }
+                            }
+
                             files_updated += 1;
                             total_domains += lines_count;
-                            details.push(format!("{}: обновлено {} записей", filename, lines_count));
+                            details.push(format!("{}: актуализировано {} записей (с сохранением пользовательских)", filename, lines_count));
                             files.push(ListSyncItem {
                                 filename: filename.to_string(),
                                 lines_count,

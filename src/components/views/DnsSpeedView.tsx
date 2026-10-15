@@ -167,6 +167,29 @@ export const DnsSpeedView: React.FC = React.memo(() => {
           </div>
         )}
 
+        {/* Educational Scope & Synergy Card */}
+        <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.05] p-3.5 space-y-2 text-xs">
+          <div className="flex items-center gap-2 text-blue-300 font-medium">
+            <ShieldCheck className="h-4 w-4 text-blue-400 shrink-0" />
+            <span>{t.dns.scopeBannerTitle}</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-300">
+            <div className="rounded-lg bg-[#10131a]/80 border border-white/[0.04] p-2 space-y-1">
+              <span className="font-semibold text-slate-200 block">{t.dns.scopeBannerScope}</span>
+              <p className="text-slate-400 leading-relaxed">{t.dns.scopeBannerScopeDesc}</p>
+            </div>
+            <div className="rounded-lg bg-[#10131a]/80 border border-white/[0.04] p-2 space-y-1">
+              <span className="font-semibold text-slate-200 block">{t.dns.scopeBannerSynergy}</span>
+              <p className="text-slate-400 leading-relaxed">{t.dns.scopeBannerSynergyDesc}</p>
+            </div>
+          </div>
+
+          <p className="text-[10px] text-blue-300/80 italic pt-0.5">
+            💡 {t.dns.scopeBannerHint}
+          </p>
+        </div>
+
         {/* Current DNS Status Card */}
         {dnsStatus && (
           <div className="rounded-xl border border-[#202534] bg-[#12151d] p-3 space-y-1.5">

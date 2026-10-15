@@ -44,6 +44,7 @@ logs/
 .agents/
 *.log
 *.tmp
+*.bak
 out.txt
 err.txt
 Логиtxt.txt

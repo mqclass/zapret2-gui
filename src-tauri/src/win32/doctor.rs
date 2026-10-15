@@ -9,6 +9,7 @@
 //! 6. Verifies outbound gateway connectivity to Cloudflare/Google DNS.
 
 use std::net::SocketAddr;
+use std::os::windows::process::CommandExt;
 use std::process::Command;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,8 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use crate::win32::process::{cleanup_windivert_driver, kill_stray_winws2_processes};
+
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DoctorStepResult {
@@ -68,7 +71,10 @@ pub async fn run_auto_doctor(active_pid: Option<u32>) -> DoctorReport {
     });
 
     // 3. Flush DNS Cache
-    let dns_res = Command::new("ipconfig").arg("/flushdns").output();
+    let dns_res = Command::new("ipconfig")
+        .creation_flags(CREATE_NO_WINDOW)
+        .arg("/flushdns")
+        .output();
     let dns_ok = dns_res.map(|o| o.status.success()).unwrap_or(false);
     let dns_msg = if dns_ok {
         "Кэш сопоставления DNS Windows успешно очищен".to_string()
@@ -86,6 +92,7 @@ pub async fn run_auto_doctor(active_pid: Option<u32>) -> DoctorReport {
 
     // 4. Purge ARP table cache
     let arp_res = Command::new("netsh")
+        .creation_flags(CREATE_NO_WINDOW)
         .args(["interface", "ip", "delete", "arpcache"])
         .output();
     let arp_ok = arp_res.map(|o| o.status.success()).unwrap_or(false);
@@ -105,6 +112,7 @@ pub async fn run_auto_doctor(active_pid: Option<u32>) -> DoctorReport {
 
     // 5. Enforce TCP Timestamps
     let ts_res = Command::new("netsh")
+        .creation_flags(CREATE_NO_WINDOW)
         .args(["interface", "tcp", "set", "global", "timestamps=enabled"])
         .output();
     let ts_ok = ts_res.map(|o| o.status.success()).unwrap_or(false);

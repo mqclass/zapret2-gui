@@ -57,3 +57,14 @@ betterttv.net
 localizeapi.com
 klipy.com
 live-video.net
+tenor.com
+media.tenor.com
+c.tenor.com
+t.tenor.com
+api.tenor.com
+tenor.co
+gifdeliverynetwork.com
+giphy.com
+media.giphy.com
+api.giphy.com
+i.giphy.com

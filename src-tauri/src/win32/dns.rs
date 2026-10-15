@@ -8,9 +8,12 @@
 //! - Comss.one (92.223.109.31, 91.217.137.37)
 //! - Default DHCP / ISP DNS
 
+use std::os::windows::process::CommandExt;
 use std::process::Command;
 use serde::{Deserialize, Serialize};
 use crate::win32::settings::{load_settings, save_settings};
+
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DnsProviderInfo {
@@ -71,35 +74,57 @@ pub fn get_available_providers() -> Vec<DnsProviderInfo> {
     ]
 }
 
-/// Detects the primary active network adapter name (Ethernet or Wi-Fi) by lowest RouteMetric default gateway.
-pub fn detect_primary_adapter() -> Result<String, String> {
+/// Queries the primary active network adapter and its active DNS servers in a single silent PowerShell execution.
+pub fn get_adapter_and_dns() -> (String, Vec<String>) {
     let script = r#"
         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
         $r = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1;
-        if ($r) {
+        $alias = if ($r) {
             $a = Get-NetAdapter -InterfaceIndex $r.InterfaceIndex -ErrorAction SilentlyContinue;
             if ($a) { $a.Name } else { $r.InterfaceAlias }
         } else {
             $a = Get-NetAdapter | Where-Object Status -eq 'Up' | Sort-Object LinkSpeed -Descending | Select-Object -First 1;
             if ($a) { $a.Name } else { 'Ethernet' }
-        }
+        };
+        $dns = (Get-DnsClientServerAddress -InterfaceAlias $alias -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses;
+        $dnsStr = if ($dns) { $dns -join ',' } else { '' };
+        [string]::Format('{0}::{1}', $alias, $dnsStr)
     "#;
-    
-    let output = Command::new("powershell")
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
-        .output()
-        .map_err(|e| format!("Failed to query network adapters: {}", e))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let name = stdout.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").trim().to_string();
-    if name.is_empty() {
-        Ok("Ethernet".into())
-    } else {
-        Ok(name)
+    let output = Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
+        .output();
+
+    if let Ok(out) = output {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let line = stdout.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").trim();
+        if let Some((adapter, dns_csv)) = line.split_once("::") {
+            let adapter_name = if adapter.trim().is_empty() {
+                "Ethernet".to_string()
+            } else {
+                adapter.trim().to_string()
+            };
+            let servers = dns_csv
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            return (adapter_name, servers);
+        }
     }
+
+    ("Ethernet".into(), Vec::new())
+}
+
+/// Detects the primary active network adapter name (Ethernet or Wi-Fi).
+pub fn detect_primary_adapter() -> Result<String, String> {
+    let (adapter, _) = get_adapter_and_dns();
+    Ok(adapter)
 }
 
 /// Queries active DNS server addresses on the primary adapter.
+#[allow(dead_code)]
 pub fn get_active_dns_servers(adapter: &str) -> Vec<String> {
     let script = format!(
         "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $d = (Get-DnsClientServerAddress -InterfaceAlias '{}' -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses; if ($d) {{ $d -join ',' }} else {{ '' }}",
@@ -107,7 +132,8 @@ pub fn get_active_dns_servers(adapter: &str) -> Vec<String> {
     );
 
     let output = Command::new("powershell")
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .output();
 
     match output {
@@ -124,11 +150,10 @@ pub fn get_active_dns_servers(adapter: &str) -> Vec<String> {
     }
 }
 
-/// Retrieves the comprehensive DNS configuration status.
+/// Retrieves the comprehensive DNS configuration status silently without console popup windows.
 pub fn get_dns_status() -> Result<DnsStatus, String> {
     let settings = load_settings();
-    let adapter = detect_primary_adapter().unwrap_or_else(|_| "Ethernet".into());
-    let active_servers = get_active_dns_servers(&adapter);
+    let (adapter, active_servers) = get_adapter_and_dns();
 
     Ok(DnsStatus {
         current_provider: settings.dns_provider.clone(),
@@ -140,7 +165,7 @@ pub fn get_dns_status() -> Result<DnsStatus, String> {
     })
 }
 
-/// Sets the DNS resolver on the primary adapter and flushes DNS cache.
+/// Sets the DNS resolver on the primary adapter and flushes DNS cache silently.
 pub fn set_system_dns(provider_id: &str) -> Result<DnsStatus, String> {
     let adapter = detect_primary_adapter().unwrap_or_else(|_| "Ethernet".into());
     let providers = get_available_providers();
@@ -152,7 +177,8 @@ pub fn set_system_dns(provider_id: &str) -> Result<DnsStatus, String> {
             adapter
         );
         let _ = Command::new("powershell")
-            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
             .output();
     } else if let Some(target) = providers.iter().find(|p| p.id == provider_id) {
         let script = format!(
@@ -160,7 +186,8 @@ pub fn set_system_dns(provider_id: &str) -> Result<DnsStatus, String> {
             adapter, target.primary, target.secondary
         );
         let output = Command::new("powershell")
-            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
             .output()
             .map_err(|e| format!("Failed to apply DNS settings: {}", e))?;
 
@@ -172,8 +199,11 @@ pub fn set_system_dns(provider_id: &str) -> Result<DnsStatus, String> {
         return Err(format!("Unknown DNS provider ID: {}", provider_id));
     }
 
-    // Flush Windows DNS resolver cache immediately
-    let _ = Command::new("ipconfig").arg("/flushdns").output();
+    // Flush Windows DNS resolver cache immediately and silently
+    let _ = Command::new("ipconfig")
+        .creation_flags(CREATE_NO_WINDOW)
+        .arg("/flushdns")
+        .output();
 
     // Persist choice in settings
     let mut settings = load_settings();

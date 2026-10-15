@@ -228,6 +228,12 @@ export interface Translations {
     dohBadge: string;
     successApplied: string;
     closeBtn: string;
+    scopeBannerTitle: string;
+    scopeBannerScope: string;
+    scopeBannerScopeDesc: string;
+    scopeBannerSynergy: string;
+    scopeBannerSynergyDesc: string;
+    scopeBannerHint: string;
   };
   speedtest: {
     title: string;

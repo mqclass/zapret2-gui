@@ -19,7 +19,13 @@ export const ListsView: React.FC = React.memo(() => {
   const { t } = useI18n();
 
   const [files, setFiles] = useState<string[]>([]);
-  const [selectedFile, setSelectedFile] = useState<string>("list-general-user.txt");
+  const [selectedFile, setSelectedFile] = useState<string>(() => {
+    try {
+      return localStorage.getItem("zapret2_selected_host_list") || "list-general.txt";
+    } catch {
+      return "list-general.txt";
+    }
+  });
   const [domains, setDomains] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [newDomain, setNewDomain] = useState("");
@@ -29,6 +35,15 @@ export const ListsView: React.FC = React.memo(() => {
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(
     null
   );
+
+  const changeSelectedFile = useCallback((file: string) => {
+    setSelectedFile(file);
+    try {
+      localStorage.setItem("zapret2_selected_host_list", file);
+    } catch {
+      // Ignore storage errors
+    }
+  }, []);
 
   useEffect(() => {
     if (feedback) {
@@ -42,9 +57,11 @@ export const ListsView: React.FC = React.memo(() => {
       const fileList = await invoke<string[]>("list_domain_files");
       setFiles(fileList);
       if (fileList.length > 0 && !fileList.includes(selectedFile)) {
+        const saved = localStorage.getItem("zapret2_selected_host_list");
         const preferred =
-          fileList.find((f) => f === "list-general-user.txt") ||
+          (saved && fileList.includes(saved) ? saved : null) ||
           fileList.find((f) => f === "list-general.txt") ||
+          fileList.find((f) => f === "list-general-user.txt") ||
           fileList[0];
         setSelectedFile(preferred);
       }
@@ -231,7 +248,7 @@ export const ListsView: React.FC = React.memo(() => {
             return (
               <button
                 key={file}
-                onClick={() => setSelectedFile(file)}
+                onClick={() => changeSelectedFile(file)}
                 className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer shrink-0 ${
                   isSelected
                     ? "bg-blue-600 text-white shadow-md shadow-blue-600/20"

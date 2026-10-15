@@ -21,3 +21,14 @@ fonts.googleapis.com
 www.gstatic.com
 google.ru
 dl.google.com
+tenor.com
+media.tenor.com
+c.tenor.com
+t.tenor.com
+api.tenor.com
+tenor.co
+gifdeliverynetwork.com
+giphy.com
+media.giphy.com
+api.giphy.com
+i.giphy.com

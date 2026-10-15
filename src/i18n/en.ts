@@ -231,6 +231,12 @@ export const en: Translations = {
     dohBadge: "DoH / DoT",
     successApplied: "DNS configured on network adapter successfully",
     closeBtn: "Close",
+    scopeBannerTitle: "How DNS works in zapret2 & What it affects",
+    scopeBannerScope: "Scope: Entire Windows System",
+    scopeBannerScopeDesc: "DNS is updated directly on your primary network adapter (Ethernet / Wi-Fi). This affects ALL apps on your PC: Discord, YouTube in any browser, Telegram, X (Twitter), Steam, and online games.",
+    scopeBannerSynergy: "Synergy with DPI Bypass",
+    scopeBannerSynergyDesc: "Clean DNS resolves genuine IP addresses without ISP censorship, while zapret2 desynchronizes packets to bypass DPI / TSPU blocks.",
+    scopeBannerHint: "Recommendation: Choose Cloudflare (1.1.1.1) for lowest ping & Discord voice, or Comss.one for regional anti-blocking.",
   },
   speedtest: {
     title: "YouTube 4K Stream Speedtest",

@@ -231,6 +231,12 @@ export const uk: Translations = {
     dohBadge: "DoH / DoT",
     successApplied: "DNS успішно оновлено на адаптері",
     closeBtn: "Закрити",
+    scopeBannerTitle: "Як працює DNS у zapret2 та на що він впливає?",
+    scopeBannerScope: "Зона дії: Уся система Windows",
+    scopeBannerScopeDesc: "DNS змінюється на вашому активному мережевому адаптері (Ethernet / Wi-Fi). Це впливає на ВСІ додатки на ПК: Discord, YouTube у браузерах, Telegram, X (Twitter), Steam та ігри.",
+    scopeBannerSynergy: "Зв'язка з обходом блокувань",
+    scopeBannerSynergyDesc: "DNS переводить назви сайтів у справжні IP-адреси без цензури провайдера, а zapret2 десинхронізує пакети для обходу фільтрів.",
+    scopeBannerHint: "Рекомендація: Для Discord та ігор обирайте Cloudflare (1.1.1.1), для максимального обходу — Comss.one.",
   },
   speedtest: {
     title: "Тест швидкості YouTube 4K Stream",
