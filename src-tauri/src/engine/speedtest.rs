@@ -28,16 +28,27 @@ pub async fn run_youtube_speedtest() -> Result<SpeedtestResult, String> {
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    // Use high-capacity Cloudflare/Global CDN stream chunk (10 Megabytes)
-    let test_url = "https://speed.cloudflare.com/__down?bytes=10000000";
+    // Primary: Google Global Cache (GGC / YouTube Video Edge) 10 Megabyte stream chunk
+    // Fallback: Cloudflare Global CDN speed node
+    let google_url = "https://dl.google.com/chrome/install/ChromeStandaloneSetup64.exe";
+    let cloudflare_url = "https://speed.cloudflare.com/__down?bytes=10000000";
 
     let start = Instant::now();
-    let resp = client
-        .get(test_url)
+    let resp = match client
+        .get(google_url)
+        .header("Range", "bytes=0-10485759")
         .header("Cache-Control", "no-cache")
         .send()
         .await
-        .map_err(|e| format!("Speedtest download request failed: {}", e))?;
+    {
+        Ok(r) if r.status().is_success() => r,
+        _ => client
+            .get(cloudflare_url)
+            .header("Cache-Control", "no-cache")
+            .send()
+            .await
+            .map_err(|e| format!("Speedtest download request failed: {}", e))?,
+    };
 
     if !resp.status().is_success() {
         return Err(format!("Speedtest server returned HTTP status {}", resp.status()));

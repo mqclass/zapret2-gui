@@ -19,7 +19,7 @@ export const ListsView: React.FC = React.memo(() => {
   const { t } = useI18n();
 
   const [files, setFiles] = useState<string[]>([]);
-  const [selectedFile, setSelectedFile] = useState<string>("list-general.txt");
+  const [selectedFile, setSelectedFile] = useState<string>("list-general-user.txt");
   const [domains, setDomains] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [newDomain, setNewDomain] = useState("");
@@ -43,8 +43,8 @@ export const ListsView: React.FC = React.memo(() => {
       setFiles(fileList);
       if (fileList.length > 0 && !fileList.includes(selectedFile)) {
         const preferred =
-          fileList.find((f) => f === "list-general.txt") ||
           fileList.find((f) => f === "list-general-user.txt") ||
+          fileList.find((f) => f === "list-general.txt") ||
           fileList[0];
         setSelectedFile(preferred);
       }

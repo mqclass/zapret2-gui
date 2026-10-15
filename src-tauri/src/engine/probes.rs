@@ -289,7 +289,7 @@ impl DiagnosticsService {
     pub async fn probe_discord_voice(&self) -> ProbeMetric {
         self.measure_endpoint(
             "Discord Voice",
-            "voice.discord.gg",
+            "discord.media",
             443,
             "https://discord.com/api/v10/voice/regions",
         ).await

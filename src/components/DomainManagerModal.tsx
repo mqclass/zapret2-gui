@@ -28,7 +28,7 @@ export const DomainManagerModal: React.FC<DomainManagerModalProps> = ({
   const { t } = useI18n();
 
   const [files, setFiles] = useState<string[]>([]);
-  const [selectedFile, setSelectedFile] = useState<string>("list-general.txt");
+  const [selectedFile, setSelectedFile] = useState<string>("list-general-user.txt");
   const [domains, setDomains] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [newDomain, setNewDomain] = useState("");
@@ -52,10 +52,10 @@ export const DomainManagerModal: React.FC<DomainManagerModalProps> = ({
       const fileList = await invoke<string[]>("list_domain_files");
       setFiles(fileList);
       if (fileList.length > 0 && !fileList.includes(selectedFile)) {
-        // Prefer list-general.txt or list-general-user.txt
+        // Prefer list-general-user.txt over list-general.txt
         const preferred =
-          fileList.find((f) => f === "list-general.txt") ||
           fileList.find((f) => f === "list-general-user.txt") ||
+          fileList.find((f) => f === "list-general.txt") ||
           fileList[0];
         setSelectedFile(preferred);
       }

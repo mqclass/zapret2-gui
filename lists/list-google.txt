@@ -20,3 +20,4 @@ play.google.com
 fonts.googleapis.com
 www.gstatic.com
 google.ru
+dl.google.com

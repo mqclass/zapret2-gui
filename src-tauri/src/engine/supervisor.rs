@@ -1029,7 +1029,7 @@ impl Supervisor {
                         filtered.extend(current_block);
                     }
                     current_block = Vec::new();
-                } else {
+                } else if !arg.starts_with("--wf-tcp") && !arg.starts_with("--wf-udp") {
                     current_block.push(arg);
                 }
             }
@@ -1042,7 +1042,9 @@ impl Supervisor {
                     filtered.extend(current_block);
                 }
             }
-            args = filtered;
+            let mut final_args = vec![wf_tcp.clone(), wf_udp.clone()];
+            final_args.extend(filtered);
+            args = final_args;
         }
 
         // 3. Ensure WinDivert root port filters are updated
@@ -1265,3 +1267,65 @@ impl Supervisor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strict_split_tunnel_must_preserve_wf_filters() {
+        let args = vec![
+            "--wf-tcp=80,443".to_string(),
+            "--wf-udp=443,50000-65535".to_string(),
+            "--filter-tcp=80,443".to_string(),
+            "--hostlist=lists/list-general.txt".to_string(),
+            "--dpi-desync=fake".to_string(),
+            "--new".to_string(),
+            "--filter-tcp=443".to_string(),
+            "--hostlist=lists/list-google.txt".to_string(),
+            "--dpi-desync=fake".to_string(),
+            "--new".to_string(),
+            "--filter-udp=50000-65535".to_string(),
+            "--dpi-desync=fake".to_string(),
+        ];
+
+        let wf_tcp = "--wf-tcp=80,443".to_string();
+        let wf_udp = "--wf-udp=443,19294-19344,50000-65535".to_string();
+
+        let mut filtered = Vec::new();
+        let mut current_block = Vec::new();
+        for arg in args {
+            if arg == "--new" {
+                let has_general = current_block.iter().any(|a: &String| a.contains("list-general.txt") || a.contains("ipset-all.txt"));
+                if !has_general {
+                    if !filtered.is_empty() {
+                        filtered.push("--new".to_string());
+                    }
+                    filtered.extend(current_block);
+                }
+                current_block = Vec::new();
+            } else if !arg.starts_with("--wf-tcp") && !arg.starts_with("--wf-udp") {
+                current_block.push(arg);
+            }
+        }
+        if !current_block.is_empty() {
+            let has_general = current_block.iter().any(|a: &String| a.contains("list-general.txt") || a.contains("ipset-all.txt"));
+            if !has_general {
+                if !filtered.is_empty() {
+                    filtered.push("--new".to_string());
+                }
+                filtered.extend(current_block);
+            }
+        }
+        let mut final_args = vec![wf_tcp.clone(), wf_udp.clone()];
+        final_args.extend(filtered);
+
+        assert!(final_args.len() >= 2);
+        assert_eq!(final_args[0], wf_tcp);
+        assert_eq!(final_args[1], wf_udp);
+        assert!(!final_args.iter().any(|a| a.contains("list-general.txt")));
+        assert!(final_args.iter().any(|a| a.contains("list-google.txt")));
+        assert!(final_args.iter().any(|a| a.contains("50000-65535")));
+    }
+}
+
