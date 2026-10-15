@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LuaStrategy } from "../types";
 import { useI18n } from "../i18n";
 import { X, Sparkles, Terminal, Check, AlertCircle, Tv, Mic, Globe, Zap, Lightbulb } from "lucide-react";
+import { formatErrorMessage } from "../utils/error";
 
 interface CustomProfileModalProps {
   isOpen: boolean;
@@ -91,7 +92,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
       setParsedTokens(tokens);
     } catch (err: any) {
       console.error("Failed to parse args:", err);
-      setError(typeof err === "string" ? err : JSON.stringify(err));
+      setError(formatErrorMessage(err));
     } finally {
       setIsParsing(false);
     }
@@ -134,7 +135,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error("Failed to save custom profile:", err);
-      setError(typeof err === "string" ? err : JSON.stringify(err));
+      setError(formatErrorMessage(err));
     } finally {
       setIsSaving(false);
     }

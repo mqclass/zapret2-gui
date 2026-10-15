@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { SpeedtestResult } from "../types";
 import { useI18n } from "../i18n";
+import { formatErrorMessage } from "../utils/error";
 
 interface SpeedtestModalProps {
   isOpen: boolean;
@@ -40,7 +41,7 @@ export const SpeedtestModal: React.FC<SpeedtestModalProps> = ({
       setResult(res);
     } catch (err: any) {
       console.error("YouTube speedtest failed:", err);
-      setError(typeof err === "string" ? err : JSON.stringify(err));
+      setError(formatErrorMessage(err));
     } finally {
       setIsRunning(false);
     }

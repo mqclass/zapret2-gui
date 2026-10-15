@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { DoctorReport } from "../types";
 import { useI18n } from "../i18n";
+import { formatErrorMessage } from "../utils/error";
 
 interface NetworkDoctorModalProps {
   isOpen: boolean;
@@ -45,7 +46,7 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
       }
     } catch (err: any) {
       console.error("Auto-Doctor execution failed:", err);
-      setError(typeof err === "string" ? err : JSON.stringify(err));
+      setError(formatErrorMessage(err));
     } finally {
       setIsRunning(false);
     }

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { DnsStatus } from "../types";
 import { useI18n } from "../i18n";
+import { formatErrorMessage } from "../utils/error";
 
 interface DnsManagerModalProps {
   isOpen: boolean;
@@ -43,7 +44,7 @@ export const DnsManagerModal: React.FC<DnsManagerModalProps> = ({
       setDnsStatus(res);
     } catch (err: any) {
       console.error("Failed to load DNS status:", err);
-      setError(typeof err === "string" ? err : JSON.stringify(err));
+      setError(formatErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
@@ -62,7 +63,7 @@ export const DnsManagerModal: React.FC<DnsManagerModalProps> = ({
       setTimeout(() => setMessage(null), 4000);
     } catch (err: any) {
       console.error("Failed to set system DNS:", err);
-      setError(typeof err === "string" ? err : JSON.stringify(err));
+      setError(formatErrorMessage(err));
     } finally {
       setApplyingId(null);
     }

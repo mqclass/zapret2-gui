@@ -24,6 +24,7 @@ import { LogsView } from "./components/views/LogsView";
 import { SettingsView } from "./components/views/SettingsView";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
+import { formatErrorMessage } from "./utils/error";
 
 const AppContent: React.FC = () => {
   const { t } = useI18n();
@@ -81,7 +82,7 @@ const AppContent: React.FC = () => {
       }
     } catch (err: any) {
       console.error("Failed to set split tunnel mode:", err);
-      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+      setErrorAlert(formatErrorMessage(err));
     }
   }, [status.state]);
 
@@ -96,7 +97,7 @@ const AppContent: React.FC = () => {
       );
     } catch (err: any) {
       console.error("Failed to toggle autostart:", err);
-      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+      setErrorAlert(formatErrorMessage(err));
     } finally {
       setIsTogglingAutostart(false);
     }
@@ -283,7 +284,7 @@ const AppContent: React.FC = () => {
       }, 1000);
     } catch (err: any) {
       console.error("Failed to start bypass:", err);
-      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+      setErrorAlert(formatErrorMessage(err));
       setStatus((prev) => ({ ...prev, state: "stopped" }));
     }
   }, [selectedStrategyId, handleRefreshProbes]);
@@ -303,7 +304,7 @@ const AppContent: React.FC = () => {
       }, 1000);
     } catch (err: any) {
       console.error("Failed to start strategy:", err);
-      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+      setErrorAlert(formatErrorMessage(err));
       setStatus((prev) => ({ ...prev, state: "stopped" }));
     }
   }, [handleRefreshProbes]);
@@ -319,7 +320,7 @@ const AppContent: React.FC = () => {
       }, 1000);
     } catch (err: any) {
       console.error("Failed to stop bypass:", err);
-      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+      setErrorAlert(formatErrorMessage(err));
       setStatus((prev) => ({ ...prev, state: "stopped" }));
     }
   }, [handleRefreshProbes]);
@@ -369,7 +370,7 @@ const AppContent: React.FC = () => {
       await invoke("relaunch_elevated");
     } catch (err: any) {
       console.error("Failed to relaunch elevated:", err);
-      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+      setErrorAlert(formatErrorMessage(err));
     }
   }, []);
 
@@ -405,7 +406,7 @@ const AppContent: React.FC = () => {
       setConflicts(refreshed);
     } catch (err: any) {
       console.error("Failed to resolve conflicts:", err);
-      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+      setErrorAlert(formatErrorMessage(err));
     } finally {
       setIsResolvingConflicts(false);
     }
@@ -420,7 +421,7 @@ const AppContent: React.FC = () => {
       setSuccessAlert(`${t.alerts.configSaved}: "${strategy.name}"`);
     } catch (err: any) {
       console.error("Failed to save custom profile:", err);
-      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+      setErrorAlert(formatErrorMessage(err));
     }
   }, [t.alerts.configSaved]);
 
@@ -438,7 +439,7 @@ const AppContent: React.FC = () => {
       setSuccessAlert(t.alerts.configDeleted);
     } catch (err: any) {
       console.error("Failed to delete custom profile:", err);
-      setErrorAlert(typeof err === "string" ? err : JSON.stringify(err));
+      setErrorAlert(formatErrorMessage(err));
     }
   }, [selectedStrategyId, t.alerts.configDeleted]);
 
