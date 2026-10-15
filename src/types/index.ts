@@ -136,6 +136,9 @@ export interface DnsStatus {
   active_provider_id: string;
   current_provider?: string;
   available_providers: DnsProvider[];
+  dns_scope?: "full" | "split";
+  split_dns_active?: boolean;
+  split_dns_servers?: string[];
 }
 
 export interface SpeedtestResult {

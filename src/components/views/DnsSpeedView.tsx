@@ -26,6 +26,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
   const [applyingDnsId, setApplyingDnsId] = useState<string | null>(null);
   const [dnsMessage, setDnsMessage] = useState<string | null>(null);
   const [dnsError, setDnsError] = useState<string | null>(null);
+  const [dnsScope, setDnsScope] = useState<"full" | "split">("full");
 
   // Speedtest State
   const [isSpeedRunning, setIsSpeedRunning] = useState<boolean>(false);
@@ -43,6 +44,9 @@ export const DnsSpeedView: React.FC = React.memo(() => {
     try {
       const res = await invoke<DnsStatus>("get_dns_status");
       setDnsStatus(res);
+      if (res.dns_scope) {
+        setDnsScope(res.dns_scope);
+      }
     } catch (err: any) {
       console.error("Failed to load DNS status:", err);
       setDnsError(typeof err === "string" ? err : JSON.stringify(err));
@@ -51,13 +55,20 @@ export const DnsSpeedView: React.FC = React.memo(() => {
     }
   };
 
-  const handleApplyDns = async (providerId: string) => {
+  const handleApplyDns = async (providerId: string, scopeToUse?: "full" | "split") => {
     setApplyingDnsId(providerId);
     setDnsError(null);
     setDnsMessage(null);
+    const targetScope = scopeToUse || dnsScope;
     try {
-      const updated = await invoke<DnsStatus>("set_system_dns", { providerId });
+      const updated = await invoke<DnsStatus>("set_system_dns", {
+        providerId,
+        scope: targetScope,
+      });
       setDnsStatus(updated);
+      if (updated.dns_scope) {
+        setDnsScope(updated.dns_scope);
+      }
       setDnsMessage(t.dns.successApplied);
       setTimeout(() => setDnsMessage(null), 4000);
     } catch (err: any) {
@@ -65,6 +76,14 @@ export const DnsSpeedView: React.FC = React.memo(() => {
       setDnsError(typeof err === "string" ? err : JSON.stringify(err));
     } finally {
       setApplyingDnsId(null);
+    }
+  };
+
+  const handleScopeChange = async (newScope: "full" | "split") => {
+    setDnsScope(newScope);
+    const currentId = dnsStatus?.active_provider_id || dnsStatus?.current_provider;
+    if (currentId && currentId !== "system" && currentId !== "dhcp") {
+      await handleApplyDns(currentId, newScope);
     }
   };
 
@@ -134,8 +153,8 @@ export const DnsSpeedView: React.FC = React.memo(() => {
       <div className="rounded-2xl border border-[#212635] bg-[#141720] p-5 space-y-4">
         <div className="flex items-center justify-between border-b border-[#202534] pb-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
-              <Globe2 className="h-4 w-4" />
+            <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-600/5 border border-blue-500/25 text-blue-400 shadow-sm shadow-blue-500/5">
+              <Globe2 className="h-4 w-4 shrink-0" />
             </div>
             <div>
               <h3 className="text-xs font-semibold text-white">{t.dns.title}</h3>
@@ -146,10 +165,10 @@ export const DnsSpeedView: React.FC = React.memo(() => {
             type="button"
             onClick={loadDns}
             disabled={isLoadingDns}
-            className="p-1.5 rounded-lg border border-[#252b3b] bg-[#161a22] text-slate-400 hover:text-white hover:bg-[#1b212c] transition-all cursor-pointer disabled:opacity-50"
+            className="p-1.5 rounded-lg border border-[#252b3b] bg-[#161a22] text-slate-400 hover:text-white hover:bg-[#1b212c] transition-all cursor-pointer disabled:opacity-50 shrink-0"
             title="Обновить текущий DNS"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isLoadingDns ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${isLoadingDns ? "animate-spin" : ""}`} />
           </button>
         </div>
 
@@ -166,6 +185,48 @@ export const DnsSpeedView: React.FC = React.memo(() => {
             <span>{dnsMessage}</span>
           </div>
         )}
+
+        {/* DNS Scope Selector (Whole Windows vs Selective Split-DNS) */}
+        <div className="rounded-xl border border-[#202534] bg-[#10131a] p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium text-slate-300">{t.dns.scopeLabel}</span>
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full font-mono ${
+              dnsStatus?.split_dns_active
+                ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+                : "bg-blue-500/15 border border-blue-500/30 text-blue-300"
+            }`}>
+              {dnsStatus?.split_dns_active ? t.dns.splitActiveBadge : "ADAPTER"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => handleScopeChange("full")}
+              className={`flex flex-col text-left p-2.5 rounded-lg border transition-all cursor-pointer ${
+                dnsScope === "full"
+                  ? "border-blue-500/50 bg-blue-500/15 text-white ring-1 ring-blue-500/30 shadow-sm"
+                  : "border-[#1e2432] bg-[#141720] text-slate-400 hover:text-slate-200 hover:bg-[#181d28]"
+              }`}
+            >
+              <span className="text-xs font-semibold">{t.dns.scopeFullTitle}</span>
+              <span className="text-[10px] text-slate-400 mt-1 leading-tight">{t.dns.scopeFullDesc}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleScopeChange("split")}
+              className={`flex flex-col text-left p-2.5 rounded-lg border transition-all cursor-pointer ${
+                dnsScope === "split"
+                  ? "border-emerald-500/50 bg-emerald-500/15 text-white ring-1 ring-emerald-500/30 shadow-sm"
+                  : "border-[#1e2432] bg-[#141720] text-slate-400 hover:text-slate-200 hover:bg-[#181d28]"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold">{t.dns.scopeSplitTitle}</span>
+              </div>
+              <span className="text-[10px] text-slate-400 mt-1 leading-tight">{t.dns.scopeSplitDesc}</span>
+            </button>
+          </div>
+        </div>
 
         {/* Educational Scope & Synergy Card */}
         <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.05] p-3.5 space-y-2 text-xs">
@@ -201,8 +262,12 @@ export const DnsSpeedView: React.FC = React.memo(() => {
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400">{t.dns.currentDnsLabel}</span>
-              <span className="text-blue-400 font-mono text-[11px] font-semibold">
-                {dnsStatus.current_dns && dnsStatus.current_dns.length > 0
+              <span className={`font-mono text-[11px] font-semibold ${
+                dnsStatus.split_dns_active ? "text-emerald-400" : "text-blue-400"
+              }`}>
+                {dnsStatus.split_dns_active
+                  ? `Split NRPT: ${dnsStatus.split_dns_servers?.join(", ") || dnsStatus.current_dns.join(", ")}`
+                  : dnsStatus.current_dns && dnsStatus.current_dns.length > 0
                   ? dnsStatus.current_dns.join(", ")
                   : dnsStatus.active_servers && dnsStatus.active_servers.length > 0
                   ? dnsStatus.active_servers.join(", ")
@@ -231,8 +296,12 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-white">{p.name}</span>
                     {isCurrent && (
-                      <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-blue-300 uppercase">
-                        {t.dns.activeBadge}
+                      <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
+                        dnsStatus.split_dns_active
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                          : "bg-blue-500/20 text-blue-300"
+                      }`}>
+                        {dnsStatus.split_dns_active ? t.dns.splitActiveBadge : t.dns.activeBadge}
                       </span>
                     )}
                     {p.is_doh_capable && (
@@ -255,7 +324,9 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                   disabled={isCurrent || isApplying}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:cursor-not-allowed shrink-0 ${
                     isCurrent
-                      ? "bg-blue-500/15 text-blue-300 border border-blue-500/30"
+                      ? dnsStatus.split_dns_active
+                        ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                        : "bg-blue-500/15 text-blue-300 border border-blue-500/30"
                       : "bg-[#181d28] hover:bg-[#2563eb] hover:text-white text-slate-300 border border-[#2b3345]"
                   }`}
                 >
@@ -264,7 +335,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                   ) : isCurrent ? (
                     <>
                       <Check className="h-3.5 w-3.5" />
-                      <span>{t.dns.activeBadge}</span>
+                      <span>{dnsStatus.split_dns_active ? t.dns.splitActiveBadge : t.dns.activeBadge}</span>
                     </>
                   ) : (
                     <span>{t.dns.applyBtn}</span>
@@ -280,8 +351,8 @@ export const DnsSpeedView: React.FC = React.memo(() => {
       <div className="rounded-2xl border border-[#212635] bg-[#141720] p-5 space-y-4">
         <div className="flex items-center justify-between border-b border-[#202534] pb-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-500/10 border border-red-500/20 text-red-400">
-              <Tv className="h-4 w-4" />
+            <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-500/20 to-red-600/5 border border-red-500/25 text-red-400 shadow-sm shadow-red-500/5">
+              <Tv className="h-4 w-4 shrink-0" />
             </div>
             <div>
               <h3 className="text-xs font-semibold text-white">{t.speedtest.title}</h3>

@@ -32,6 +32,9 @@ pub struct DnsStatus {
     pub current_dns: Vec<String>,
     pub adapter_name: String,
     pub available_providers: Vec<DnsProviderInfo>,
+    pub dns_scope: String,
+    pub split_dns_active: bool,
+    pub split_dns_servers: Vec<String>,
 }
 
 pub fn get_available_providers() -> Vec<DnsProviderInfo> {
@@ -150,28 +153,170 @@ pub fn get_active_dns_servers(adapter: &str) -> Vec<String> {
     }
 }
 
+/// Target domain namespaces for Windows NRPT Split-DNS rules.
+pub const SPLIT_DNS_NAMESPACES: &[&str] = &[
+    ".discord.gg",
+    ".discord.com",
+    ".discord.media",
+    ".discordapp.com",
+    ".discordapp.net",
+    ".discordcdn.com",
+    ".dis.gd",
+    ".tenor.com",
+    ".tenor.co",
+    ".giphy.com",
+    ".youtube.com",
+    ".googlevideo.com",
+    ".ytimg.com",
+    ".ggpht.com",
+    ".youtu.be",
+    ".gvt1.com",
+    ".instagram.com",
+    ".cdninstagram.com",
+    ".facebook.com",
+    ".fbcdn.net",
+    ".x.com",
+    ".twitter.com",
+    ".t.co",
+    ".twimg.com",
+    ".t.me",
+    ".telegram.org",
+    ".rutracker.org",
+    ".ntc.party",
+];
+
+/// Checks if Windows NRPT Split-DNS rule for Zapret2 is currently active.
+pub fn check_split_dns_status() -> (bool, Vec<String>) {
+    let script = r#"
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
+        $r = Get-DnsClientNrptRule -ErrorAction SilentlyContinue | Where-Object { $_.Comment -eq 'Zapret2_SplitDNS' };
+        if ($r) {
+            $servers = if ($r.NameServers) { $r.NameServers -join ',' } else { '' };
+            [string]::Format('ACTIVE::{0}', $servers)
+        } else {
+            'INACTIVE::'
+        }
+    "#;
+
+    let output = Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
+        .output();
+
+    if let Ok(out) = output {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let line = stdout.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").trim();
+        if let Some((status, srv_csv)) = line.split_once("::") {
+            if status == "ACTIVE" {
+                let servers: Vec<String> = srv_csv
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                return (true, servers);
+            }
+        }
+    }
+
+    (false, Vec::new())
+}
+
+/// Applies selective Split-DNS using Windows Name Resolution Policy Table (NRPT).
+pub fn apply_split_dns_nrpt(primary: &str, secondary: &str) -> Result<(), String> {
+    let ns_list = SPLIT_DNS_NAMESPACES
+        .iter()
+        .map(|ns| format!("'{}'", ns))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let script = format!(
+        r#"
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
+        $existing = Get-DnsClientNrptRule -ErrorAction SilentlyContinue | Where-Object {{ $_.Comment -eq 'Zapret2_SplitDNS' }};
+        if ($existing) {{
+            $existing | Remove-DnsClientNrptRule -Force -ErrorAction SilentlyContinue;
+        }}
+        $ns = @({});
+        Add-DnsClientNrptRule -Namespace $ns -NameServers @('{}', '{}') -Comment 'Zapret2_SplitDNS' -ErrorAction Stop;
+        "#,
+        ns_list, primary, secondary
+    );
+
+    let output = Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+        .output()
+        .map_err(|e| format!("Failed to apply Split-DNS NRPT rule: {}", e))?;
+
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("PowerShell NRPT Split-DNS error: {}", err_msg.trim()));
+    }
+
+    Ok(())
+}
+
+/// Clears Zapret2 Split-DNS NRPT rule.
+pub fn clear_split_dns_nrpt() -> Result<(), String> {
+    let script = r#"
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
+        $existing = Get-DnsClientNrptRule -ErrorAction SilentlyContinue | Where-Object { $_.Comment -eq 'Zapret2_SplitDNS' };
+        if ($existing) {
+            $existing | Remove-DnsClientNrptRule -Force -ErrorAction SilentlyContinue;
+        }
+    "#;
+
+    let _ = Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
+        .output();
+
+    Ok(())
+}
+
 /// Retrieves the comprehensive DNS configuration status silently without console popup windows.
 pub fn get_dns_status() -> Result<DnsStatus, String> {
     let settings = load_settings();
     let (adapter, active_servers) = get_adapter_and_dns();
+    let (split_active, split_servers) = check_split_dns_status();
+
+    let scope_str = match settings.dns_scope {
+        crate::win32::settings::DnsScope::Split => "split",
+        crate::win32::settings::DnsScope::Full => "full",
+    };
 
     Ok(DnsStatus {
         current_provider: settings.dns_provider.clone(),
         active_provider_id: settings.dns_provider,
         active_servers: active_servers.clone(),
-        current_dns: active_servers,
+        current_dns: if split_active && !split_servers.is_empty() {
+            split_servers.clone()
+        } else {
+            active_servers
+        },
         adapter_name: adapter,
         available_providers: get_available_providers(),
+        dns_scope: scope_str.into(),
+        split_dns_active: split_active,
+        split_dns_servers: split_servers,
     })
 }
 
-/// Sets the DNS resolver on the primary adapter and flushes DNS cache silently.
-pub fn set_system_dns(provider_id: &str) -> Result<DnsStatus, String> {
+/// Sets the DNS resolver on the primary adapter or selective Split-DNS via NRPT and flushes DNS cache silently.
+pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatus, String> {
+    let mut settings = load_settings();
     let adapter = detect_primary_adapter().unwrap_or_else(|_| "Ethernet".into());
     let providers = get_available_providers();
 
+    let effective_scope = match scope {
+        Some("split") => crate::win32::settings::DnsScope::Split,
+        Some("full") => crate::win32::settings::DnsScope::Full,
+        _ => settings.dns_scope,
+    };
+
     if provider_id == "system" || provider_id == "dhcp" {
-        // Reset to automatic DHCP assignment
+        // Reset adapter to automatic DHCP and remove Split-DNS
+        let _ = clear_split_dns_nrpt();
         let script = format!(
             "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ResetServerAddresses -ErrorAction Stop",
             adapter
@@ -181,19 +326,38 @@ pub fn set_system_dns(provider_id: &str) -> Result<DnsStatus, String> {
             .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
             .output();
     } else if let Some(target) = providers.iter().find(|p| p.id == provider_id) {
-        let script = format!(
-            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}', '{}') -ErrorAction Stop",
-            adapter, target.primary, target.secondary
-        );
-        let output = Command::new("powershell")
-            .creation_flags(CREATE_NO_WINDOW)
-            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
-            .output()
-            .map_err(|e| format!("Failed to apply DNS settings: {}", e))?;
+        match effective_scope {
+            crate::win32::settings::DnsScope::Split => {
+                // In Split mode: ensure adapter uses DHCP for everything else, and route bypass domains via NRPT
+                let reset_script = format!(
+                    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ResetServerAddresses -ErrorAction SilentlyContinue",
+                    adapter
+                );
+                let _ = Command::new("powershell")
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &reset_script])
+                    .output();
 
-        if !output.status.success() {
-            let err_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("PowerShell DNS configuration error: {}", err_msg));
+                apply_split_dns_nrpt(&target.primary, &target.secondary)?;
+            }
+            crate::win32::settings::DnsScope::Full => {
+                // In Full mode: clear any Split NRPT rules and set adapter DNS
+                let _ = clear_split_dns_nrpt();
+                let script = format!(
+                    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}', '{}') -ErrorAction Stop",
+                    adapter, target.primary, target.secondary
+                );
+                let output = Command::new("powershell")
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+                    .output()
+                    .map_err(|e| format!("Failed to apply DNS settings: {}", e))?;
+
+                if !output.status.success() {
+                    let err_msg = String::from_utf8_lossy(&output.stderr);
+                    return Err(format!("PowerShell DNS configuration error: {}", err_msg));
+                }
+            }
         }
     } else {
         return Err(format!("Unknown DNS provider ID: {}", provider_id));
@@ -206,8 +370,8 @@ pub fn set_system_dns(provider_id: &str) -> Result<DnsStatus, String> {
         .output();
 
     // Persist choice in settings
-    let mut settings = load_settings();
     settings.dns_provider = provider_id.to_string();
+    settings.dns_scope = effective_scope;
     let _ = save_settings(settings);
 
     get_dns_status()

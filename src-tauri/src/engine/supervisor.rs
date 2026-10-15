@@ -553,6 +553,9 @@ impl Supervisor {
         Ok(())
     }
 
+    /// Comprehensive list of domains for Discord media, gateway, CDNs, and GIF search providers (Tenor, Giphy).
+    pub const DISCORD_MEDIA_DOMAINS: &str = "discord.media,gateway.discord.gg,discord.com,discordapp.com,discordapp.net,discordcdn.com,discord.gg,dis.gd,discord.co,discord.app,tenor.com,tenor.co,giphy.com";
+
     /// Builds Flowseal preset command-line arguments.
     fn build_flowseal_args(preset_id: &str, bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
         let settings = crate::win32::settings::load_settings();
@@ -612,7 +615,7 @@ impl Supervisor {
                 "--dpi-desync-repeats=6".into(),
                 "--new".into(),
                 "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
-                "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
+                format!("--hostlist-domains={}", Self::DISCORD_MEDIA_DOMAINS),
                 "--dpi-desync=fake,multisplit".into(),
                 "--dpi-desync-split-seqovl=681".into(),
                 "--dpi-desync-split-pos=1".into(),
@@ -699,7 +702,7 @@ impl Supervisor {
                 "--dpi-desync-repeats=6".into(),
                 "--new".into(),
                 "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
-                "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
+                format!("--hostlist-domains={}", Self::DISCORD_MEDIA_DOMAINS),
                 "--dpi-desync=fake,multisplit".into(),
                 "--dpi-desync-split-pos=1".into(),
                 "--dpi-desync-repeats=6".into(),
@@ -778,7 +781,7 @@ impl Supervisor {
                 "--dpi-desync-repeats=6".into(),
                 "--new".into(),
                 "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
-                "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
+                format!("--hostlist-domains={}", Self::DISCORD_MEDIA_DOMAINS),
                 "--dpi-desync=fake,multidisorder".into(),
                 "--dpi-desync-split-pos=1,midsld".into(),
                 "--dpi-desync-repeats=11".into(),
@@ -863,7 +866,7 @@ impl Supervisor {
                 "--dpi-desync-repeats=6".into(),
                 "--new".into(),
                 "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
-                "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
+                format!("--hostlist-domains={}", Self::DISCORD_MEDIA_DOMAINS),
                 "--dpi-desync=fake".into(),
                 "--dpi-desync-repeats=6".into(),
                 "--dpi-desync-fooling=ts".into(),
@@ -935,7 +938,7 @@ impl Supervisor {
                 "--dpi-desync-repeats=6".into(),
                 "--new".into(),
                 "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
-                "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
+                format!("--hostlist-domains={}", Self::DISCORD_MEDIA_DOMAINS),
                 "--dpi-desync=multisplit".into(),
                 "--dpi-desync-split-seqovl=681".into(),
                 "--dpi-desync-split-pos=1".into(),
@@ -1097,7 +1100,7 @@ impl Supervisor {
             // 3. Discord Media & Voice Gateway TCP (443, 2053, 2083, 2087, 2096, 8443)
             "--new=discord_media".into(),
             "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
-            "--hostlist-domains=discord.media,gateway.discord.gg,discord.com,discordapp.com".into(),
+            format!("--hostlist-domains={}", Self::DISCORD_MEDIA_DOMAINS),
             "--payload=tls_client_hello".into(),
             "--out-range=n1-n4".into(),
             "--lua-desync=fake:blob=tls_google:repeats=8:tcp_ts=1000".into(),

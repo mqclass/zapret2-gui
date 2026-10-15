@@ -400,12 +400,13 @@ pub async fn get_dns_status() -> Result<crate::win32::dns::DnsStatus, String> {
     crate::win32::dns::get_dns_status()
 }
 
-/// Configures system DNS on the active network adapter.
+/// Configures system DNS on the active network adapter or selective Split-DNS via NRPT.
 #[tauri::command]
 pub async fn set_system_dns(
     provider_id: String,
+    scope: Option<String>,
 ) -> Result<crate::win32::dns::DnsStatus, String> {
-    crate::win32::dns::set_system_dns(&provider_id)
+    crate::win32::dns::set_system_dns(&provider_id, scope.as_deref())
 }
 
 /// Runs a real YouTube 4K stream download speedtest.

@@ -228,6 +228,12 @@ export interface Translations {
     dohBadge: string;
     successApplied: string;
     closeBtn: string;
+    scopeLabel: string;
+    scopeFullTitle: string;
+    scopeFullDesc: string;
+    scopeSplitTitle: string;
+    scopeSplitDesc: string;
+    splitActiveBadge: string;
     scopeBannerTitle: string;
     scopeBannerScope: string;
     scopeBannerScopeDesc: string;

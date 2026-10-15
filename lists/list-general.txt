@@ -42,6 +42,9 @@ discord-activities.com
 discordactivities.com
 discordapp.com
 discordapp.net
+media.discordapp.net
+images-ext-1.discordapp.net
+images-ext-2.discordapp.net
 discordcdn.com
 discordmerch.com
 discordpartygames.com
@@ -59,12 +62,17 @@ klipy.com
 live-video.net
 tenor.com
 media.tenor.com
+media1.tenor.com
+media2.tenor.com
 c.tenor.com
 t.tenor.com
 api.tenor.com
+images.tenor.com
+gif.tenor.com
 tenor.co
 gifdeliverynetwork.com
 giphy.com
 media.giphy.com
 api.giphy.com
 i.giphy.com
+dl.google.com
