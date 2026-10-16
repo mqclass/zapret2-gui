@@ -110,6 +110,7 @@ export interface AppSettings {
   last_strategy_id?: string | null;
   auto_start_bypass?: boolean;
   auto_doctor_on_start?: boolean;
+  notifications_enabled?: boolean;
 }
 
 export interface DoctorStep {

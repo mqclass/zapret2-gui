@@ -41,6 +41,8 @@ async fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Intercept close button and hide to system tray instead of terminating
@@ -205,6 +207,8 @@ async fn main() {
             commands::estimate_strategies,
             commands::get_app_settings,
             commands::save_app_settings,
+            commands::set_notifications_enabled,
+            commands::export_diagnostics_bundle,
             commands::set_split_tunnel_mode,
             commands::run_auto_doctor,
             commands::get_dns_status,

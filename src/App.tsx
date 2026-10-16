@@ -26,6 +26,8 @@ import { SettingsView } from "./components/views/SettingsView";
 import { AlertCircle, CheckCircle2, ShieldAlert, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
 import { formatErrorMessage } from "./utils/error";
+import { notifyUser, setNotificationsEnabled } from "./utils/notify";
+import { save } from "@tauri-apps/plugin-dialog";
 
 const AppContent: React.FC = () => {
   const { t } = useI18n();
@@ -72,6 +74,9 @@ const AppContent: React.FC = () => {
   const [isRefreshingProbes, setIsRefreshingProbes] = useState<boolean>(false);
   const [isAutostart, setIsAutostart] = useState<boolean>(false);
   const [isTogglingAutostart, setIsTogglingAutostart] = useState<boolean>(false);
+  const [notificationsOn, setNotificationsOn] = useState<boolean>(true);
+  const [isTogglingNotifications, setIsTogglingNotifications] = useState<boolean>(false);
+  const [isExportingDiag, setIsExportingDiag] = useState<boolean>(false);
   const [splitTunnelMode, setSplitTunnelMode] = useState<SplitTunnelMode>("full");
   // Admin gate: shown when the app runs without Administrator privileges.
   const [showAdminGate, setShowAdminGate] = useState<boolean>(false);
@@ -112,6 +117,45 @@ const AppContent: React.FC = () => {
       setIsTogglingAutostart(false);
     }
   }, [isAutostart, t]);
+
+  const handleToggleNotifications = useCallback(async () => {
+    setIsTogglingNotifications(true);
+    try {
+      const res = await invoke<boolean>("set_notifications_enabled", {
+        enable: !notificationsOn,
+      });
+      setNotificationsOn(res);
+      setNotificationsEnabled(res);
+    } catch (err: any) {
+      console.error("Failed to toggle notifications:", err);
+      setErrorAlert(formatErrorMessage(err));
+    } finally {
+      setIsTogglingNotifications(false);
+    }
+  }, [notificationsOn]);
+
+  const handleExportDiagnostics = useCallback(async () => {
+    setIsExportingDiag(true);
+    try {
+      const stamp = new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[:T]/g, "-");
+      const filePath = await save({
+        defaultPath: `zapret2-diagnostics-${stamp}.txt`,
+        filters: [{ name: "Text", extensions: ["txt"] }],
+      });
+      if (!filePath) return; // user cancelled the dialog
+      await invoke<string>("export_diagnostics_bundle", { path: filePath });
+      setSuccessAlert(t.settingsTab.exportDiagSuccess);
+      notifyUser(t.settingsTab.exportDiagTitle, t.settingsTab.exportDiagSuccess);
+    } catch (err: any) {
+      console.error("Failed to export diagnostics:", err);
+      setErrorAlert(`${t.settingsTab.exportDiagError}: ${formatErrorMessage(err)}`);
+    } finally {
+      setIsExportingDiag(false);
+    }
+  }, [t]);
 
   const handleRefreshProbes = useCallback(async () => {
     setIsRefreshingProbes(true);
@@ -186,6 +230,9 @@ const AppContent: React.FC = () => {
       .then((cfg) => {
         if (cfg) {
           setSplitTunnelMode(cfg.split_tunnel_mode);
+          const notifEnabled = cfg.notifications_enabled ?? true;
+          setNotificationsOn(notifEnabled);
+          setNotificationsEnabled(notifEnabled);
         }
       })
       .catch((err) => console.error("Failed to fetch app settings:", err));
@@ -305,6 +352,12 @@ const AppContent: React.FC = () => {
         strategy_id: selectedStrategyId || null,
         custom_args: customArgs || null,
       });
+      const stratName =
+        strategies.find((s) => s.id === selectedStrategyId)?.name || selectedStrategyId || "";
+      notifyUser(
+        t.notify.engineStartedTitle,
+        stratName ? `${t.notify.engineStartedBody}: ${stratName}` : t.notify.engineStartedBody
+      );
       setTimeout(() => {
         handleRefreshProbes();
       }, 1000);
@@ -312,12 +365,13 @@ const AppContent: React.FC = () => {
       console.error("Failed to start bypass:", err);
       const msg = formatErrorMessage(err);
       setErrorAlert(msg);
+      notifyUser(t.notify.engineErrorTitle, msg);
       if (msg.includes("ADMIN_REQUIRED")) {
         setShowAdminGate(true);
       }
       setStatus((prev) => ({ ...prev, state: "stopped" }));
     }
-  }, [selectedStrategyId, handleRefreshProbes]);
+  }, [selectedStrategyId, handleRefreshProbes, strategies, t]);
 
   const handleStartStrategy = useCallback(async (strategyId: string) => {
     setSelectedStrategyId(strategyId);
@@ -329,6 +383,11 @@ const AppContent: React.FC = () => {
         strategy_id: strategyId,
         custom_args: null,
       });
+      const stratName = strategies.find((s) => s.id === strategyId)?.name || strategyId;
+      notifyUser(
+        t.notify.engineStartedTitle,
+        `${t.notify.engineStartedBody}: ${stratName}`
+      );
       setTimeout(() => {
         handleRefreshProbes();
       }, 1000);
@@ -336,12 +395,13 @@ const AppContent: React.FC = () => {
       console.error("Failed to start strategy:", err);
       const msg = formatErrorMessage(err);
       setErrorAlert(msg);
+      notifyUser(t.notify.engineErrorTitle, msg);
       if (msg.includes("ADMIN_REQUIRED")) {
         setShowAdminGate(true);
       }
       setStatus((prev) => ({ ...prev, state: "stopped" }));
     }
-  }, [handleRefreshProbes]);
+  }, [handleRefreshProbes, strategies, t]);
 
   const handleStop = useCallback(async () => {
     setErrorAlert(null);
@@ -349,6 +409,7 @@ const AppContent: React.FC = () => {
     setStatus((prev) => ({ ...prev, state: "stopping" }));
     try {
       await invoke("stop_supervisor");
+      notifyUser(t.notify.engineStoppedTitle, t.notify.engineStoppedBody);
       setTimeout(() => {
         handleRefreshProbes();
       }, 1000);
@@ -357,7 +418,7 @@ const AppContent: React.FC = () => {
       setErrorAlert(formatErrorMessage(err));
       setStatus((prev) => ({ ...prev, state: "stopped" }));
     }
-  }, [handleRefreshProbes]);
+  }, [handleRefreshProbes, t]);
 
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
 
@@ -607,6 +668,11 @@ const AppContent: React.FC = () => {
               isStrayCleaning={isStrayCleaning}
               onResolveConflicts={handleResolveConflicts}
               isResolvingConflicts={isResolvingConflicts}
+              notificationsOn={notificationsOn}
+              onToggleNotifications={handleToggleNotifications}
+              isTogglingNotifications={isTogglingNotifications}
+              onExportDiagnostics={handleExportDiagnostics}
+              isExportingDiag={isExportingDiag}
             />
           )}
         </main>

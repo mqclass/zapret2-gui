@@ -351,6 +351,28 @@ export const uk: Translations = {
     warningFakesBody:
       "Я не веду жодні інші сторінки/групи в Telegram і не створюю YouTube каналів. Якщо ви натрапили на щось за межами офіційного GitHub репозиторію, поширюване від мого імені — це ФЕЙК. Програма розповсюджується виключно на офіційному GitHub. Не завантажуйте ZapretGUI з інших сайтів.",
     originalRepos: "Оригінальні репозиторії та подяка авторам",
+    notificationsTitle: "Сповіщення Windows",
+    notificationsDesc:
+      "Спливаючі сповіщення про запуск і зупинку рушія, зміну стратегії та оновлення списків.",
+    notificationsOn: "Увімкнено",
+    notificationsOff: "Вимкнено",
+    notificationsBtnEnable: "Увімкнути сповіщення",
+    notificationsBtnDisable: "Вимкнути сповіщення",
+    exportDiagTitle: "Діагностичний пакет",
+    exportDiagDesc:
+      "Збере логи рушія, налаштування, активну стратегію та звіт проб в один файл — зручно для багрепорту.",
+    exportDiagBtn: "Експорт діагностики",
+    exportDiagSuccess: "Діагностичний пакет збережено",
+    exportDiagError: "Не вдалося зберегти діагностичний пакет",
+  },
+  notify: {
+    engineStartedTitle: "Обхід увімкнено",
+    engineStartedBody: "Рушій запущено",
+    engineStoppedTitle: "Обхід вимкнено",
+    engineStoppedBody: "Рушій зупинено",
+    engineErrorTitle: "Помилка запуску рушія",
+    listsUpdatedTitle: "Списки оновлено",
+    listsUpdatedBody: "Синхронізацію списків завершено",
   },
   adminGate: {
     title: "Потрібні права адміністратора",

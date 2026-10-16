@@ -47,6 +47,13 @@ pub struct AppSettings {
     pub dns_scope: DnsScope,
     pub last_strategy_id: Option<String>,
     pub auto_start_bypass: bool,
+    /// Whether Windows toast notifications are shown for engine events.
+    #[serde(default = "default_true")]
+    pub notifications_enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppSettings {
@@ -59,6 +66,7 @@ impl Default for AppSettings {
             dns_scope: DnsScope::Full,
             last_strategy_id: Some("flowseal-alt".into()),
             auto_start_bypass: true,
+            notifications_enabled: true,
         }
     }
 }

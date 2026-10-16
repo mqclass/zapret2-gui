@@ -351,6 +351,28 @@ export const ru: Translations = {
     warningFakesBody:
       "Я не веду никакие другие страницы/группы в Telegram и не создаю YouTube каналов. Если вы наткнулись на что-то вне официального GitHub репозитория, распространяемое от моего лица — это ФЕЙК. Программа распространяется только на официальном GitHub. Не качайте ZapretGUI с других сайтов, это могут быть вирусные сборки.",
     originalRepos: "Оригинальные репозитории и благодарности авторам",
+    notificationsTitle: "Уведомления Windows",
+    notificationsDesc:
+      "Всплывающие уведомления о запуске и остановке движка, смене стратегии и обновлении списков.",
+    notificationsOn: "Включены",
+    notificationsOff: "Отключены",
+    notificationsBtnEnable: "Включить уведомления",
+    notificationsBtnDisable: "Отключить уведомления",
+    exportDiagTitle: "Диагностический пакет",
+    exportDiagDesc:
+      "Соберёт логи движка, настройки, активную стратегию и отчёт проб в один файл — удобно приложить к багрепорту.",
+    exportDiagBtn: "Экспорт диагностики",
+    exportDiagSuccess: "Диагностический пакет сохранён",
+    exportDiagError: "Не удалось сохранить диагностический пакет",
+  },
+  notify: {
+    engineStartedTitle: "Обход включён",
+    engineStartedBody: "Движок запущен",
+    engineStoppedTitle: "Обход выключен",
+    engineStoppedBody: "Движок остановлен",
+    engineErrorTitle: "Ошибка запуска движка",
+    listsUpdatedTitle: "Списки обновлены",
+    listsUpdatedBody: "Синхронизация списков завершена",
   },
   adminGate: {
     title: "Требуются права администратора",

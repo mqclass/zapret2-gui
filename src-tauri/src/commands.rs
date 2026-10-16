@@ -424,6 +424,128 @@ pub async fn save_app_settings(
     crate::win32::settings::save_settings(settings)
 }
 
+/// Toggles Windows toast notifications for engine events.
+#[tauri::command]
+pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
+    let mut settings = crate::win32::settings::load_settings();
+    settings.notifications_enabled = enable;
+    crate::win32::settings::save_settings(settings).map_err(|e| e.to_string())?;
+    Ok(enable)
+}
+
+/// Exports a diagnostic bundle for bug reports: app/system info, settings,
+/// active strategy, recent engine logs and the latest probe report.
+/// Writes a single UTF-8 text file to `path` and returns the path on success.
+#[tauri::command]
+pub async fn export_diagnostics_bundle(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "================================================");
+    let _ = writeln!(out, "zapret2-gui diagnostic bundle");
+    let _ = writeln!(out, "================================================");
+    let _ = writeln!(out, "app_version: {}", env!("CARGO_PKG_VERSION"));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let _ = writeln!(out, "generated_unix: {}", now);
+    let _ = writeln!(
+        out,
+        "os: {} / {}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    let _ = writeln!(
+        out,
+        "elevated: {}",
+        crate::win32::privileges::is_elevated().unwrap_or(false)
+    );
+    let _ = writeln!(out);
+
+    // 1. Settings (no secrets are stored in AppSettings).
+    let _ = writeln!(out, "----- settings -----");
+    match serde_json::to_string_pretty(&crate::win32::settings::load_settings()) {
+        Ok(json) => {
+            let _ = writeln!(out, "{}", json);
+        }
+        Err(e) => {
+            let _ = writeln!(out, "<failed to serialize settings: {}>", e);
+        }
+    }
+    let _ = writeln!(out);
+
+    // 2. Active strategy details.
+    let _ = writeln!(out, "----- active strategy -----");
+    let settings = crate::win32::settings::load_settings();
+    let active_id = settings.last_strategy_id.clone().unwrap_or_default();
+    let _ = writeln!(
+        out,
+        "last_strategy_id: {}",
+        if active_id.is_empty() {
+            "<none>"
+        } else {
+            &active_id
+        }
+    );
+    match crate::win32::process::discover_strategies() {
+        Ok(strategies) => {
+            if let Some(s) = strategies.iter().find(|s| s.id == active_id) {
+                let _ = writeln!(out, "name: {}", s.name);
+                let _ = writeln!(out, "engine: {}", s.engine);
+                let _ = writeln!(out, "category: {}", s.category);
+                let _ = writeln!(out, "file: {}", s.filename);
+                let _ = writeln!(out, "description: {}", s.description);
+            } else {
+                let _ = writeln!(out, "<strategy not found among discovered>");
+            }
+            let _ = writeln!(out, "discovered_count: {}", strategies.len());
+        }
+        Err(e) => {
+            let _ = writeln!(out, "<failed to discover strategies: {}>", e);
+        }
+    }
+    let _ = writeln!(out);
+
+    // 3. Supervisor state.
+    let _ = writeln!(out, "----- supervisor -----");
+    let status = state.supervisor.get_status();
+    let _ = writeln!(out, "state: {:?}", status.state);
+    let _ = writeln!(out, "pid: {:?}", status.pid);
+    let _ = writeln!(out);
+
+    // 4. Latest probe report (cached; does not trigger a new probe run).
+    let _ = writeln!(out, "----- probes (cached) -----");
+    match serde_json::to_string_pretty(&state.diagnostics.get_report()) {
+        Ok(json) => {
+            let _ = writeln!(out, "{}", json);
+        }
+        Err(e) => {
+            let _ = writeln!(out, "<failed to serialize probe report: {}>", e);
+        }
+    }
+    let _ = writeln!(out);
+
+    // 5. Recent engine logs (last 200 entries).
+    let _ = writeln!(out, "----- engine logs (last 200) -----");
+    let logs = state.supervisor.get_all_logs();
+    let tail: Vec<_> = logs.iter().rev().take(200).collect();
+    if tail.is_empty() {
+        let _ = writeln!(out, "<no logs buffered>");
+    } else {
+        for entry in tail.iter().rev() {
+            let single_line = entry.message.replace('\n', " ");
+            let _ = writeln!(out, "[{}] [{}] {}", entry.timestamp, entry.level, single_line);
+        }
+    }
+
+    std::fs::write(&path, out).map_err(|e| format!("Failed to write bundle: {}", e))?;
+    Ok(path)
+}
+
 /// Changes the active Split-Tunneling mode.
 #[tauri::command]
 pub async fn set_split_tunnel_mode(

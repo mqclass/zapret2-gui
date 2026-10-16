@@ -11,6 +11,9 @@ import {
   Shield,
   Palette,
   Check,
+  Bell,
+  BellOff,
+  FileDown,
 } from "lucide-react";
 import { ZapretLogo } from "../ZapretLogo";
 import { useI18n } from "../../i18n";
@@ -83,6 +86,11 @@ interface SettingsViewProps {
   isStrayCleaning: boolean;
   onResolveConflicts: () => void;
   isResolvingConflicts: boolean;
+  notificationsOn: boolean;
+  onToggleNotifications: () => void;
+  isTogglingNotifications: boolean;
+  onExportDiagnostics: () => void;
+  isExportingDiag: boolean;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = React.memo(
@@ -96,6 +104,11 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     isStrayCleaning,
     onResolveConflicts,
     isResolvingConflicts,
+    notificationsOn,
+    onToggleNotifications,
+    isTogglingNotifications,
+    onExportDiagnostics,
+    isExportingDiag,
   }) => {
     const { language, setLanguage, t } = useI18n();
     const { theme, setTheme } = useTheme();
@@ -251,6 +264,79 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               >
                 <AlertTriangle className={`h-3.5 w-3.5 ${isResolvingConflicts ? "animate-spin" : ""}`} />
                 <span>{t.settingsTab.conflictsBtn}</span>
+              </button>
+            </div>
+
+            {/* Windows Notifications Card */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  {notificationsOn ? (
+                    <Bell className="h-4 w-4 text-accent" />
+                  ) : (
+                    <BellOff className="h-4 w-4 text-ink4" />
+                  )}
+                  <span className="text-xs font-semibold text-ink">{t.settingsTab.notificationsTitle}</span>
+                  <span
+                    className={`rounded-chip px-1.5 py-0.5 text-[10px] font-medium ${
+                      notificationsOn
+                        ? "bg-accent-wash text-accent-soft border border-accent-line"
+                        : "bg-hovert text-ink4"
+                    }`}
+                  >
+                    {notificationsOn ? t.settingsTab.notificationsOn : t.settingsTab.notificationsOff}
+                  </span>
+                </div>
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
+                  {t.settingsTab.notificationsDesc}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onToggleNotifications}
+                disabled={isTogglingNotifications}
+                className="flex items-center justify-center gap-2 rounded-control px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 border border-line bg-hovert hover:bg-raise text-ink2"
+              >
+                {isTogglingNotifications ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent" />
+                ) : notificationsOn ? (
+                  <BellOff className="h-3.5 w-3.5 text-accent" />
+                ) : (
+                  <Bell className="h-3.5 w-3.5 text-accent" />
+                )}
+                <span>
+                  {notificationsOn
+                    ? t.settingsTab.notificationsBtnDisable
+                    : t.settingsTab.notificationsBtnEnable}
+                </span>
+              </button>
+            </div>
+
+            {/* Diagnostic Bundle Export Card */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <FileDown className="h-4 w-4 text-accent" />
+                  <span className="text-xs font-semibold text-ink">{t.settingsTab.exportDiagTitle}</span>
+                </div>
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
+                  {t.settingsTab.exportDiagDesc}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onExportDiagnostics}
+                disabled={isExportingDiag}
+                className="flex items-center justify-center gap-2 rounded-control px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 border border-line bg-hovert hover:bg-raise text-ink2"
+              >
+                {isExportingDiag ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent" />
+                ) : (
+                  <FileDown className="h-3.5 w-3.5 text-accent" />
+                )}
+                <span>{t.settingsTab.exportDiagBtn}</span>
               </button>
             </div>
           </div>

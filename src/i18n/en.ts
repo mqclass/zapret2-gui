@@ -351,6 +351,28 @@ export const en: Translations = {
     warningFakesBody:
       "I do not maintain any Telegram groups or YouTube channels. If you encounter anything outside of the official GitHub repository distributed under my name — it is a FAKE. The program is exclusively released on official GitHub. Never download ZapretGUI from third-party sites.",
     originalRepos: "Original Repositories & Upstream Acknowledgements",
+    notificationsTitle: "Windows notifications",
+    notificationsDesc:
+      "Toast notifications for engine start/stop, strategy switches and list updates.",
+    notificationsOn: "Enabled",
+    notificationsOff: "Disabled",
+    notificationsBtnEnable: "Enable notifications",
+    notificationsBtnDisable: "Disable notifications",
+    exportDiagTitle: "Diagnostic bundle",
+    exportDiagDesc:
+      "Collects engine logs, settings, the active strategy and the probe report into one file — handy for bug reports.",
+    exportDiagBtn: "Export diagnostics",
+    exportDiagSuccess: "Diagnostic bundle saved",
+    exportDiagError: "Failed to save diagnostic bundle",
+  },
+  notify: {
+    engineStartedTitle: "Bypass enabled",
+    engineStartedBody: "Engine started",
+    engineStoppedTitle: "Bypass disabled",
+    engineStoppedBody: "Engine stopped",
+    engineErrorTitle: "Engine start failed",
+    listsUpdatedTitle: "Lists updated",
+    listsUpdatedBody: "List synchronization finished",
   },
   adminGate: {
     title: "Administrator privileges required",

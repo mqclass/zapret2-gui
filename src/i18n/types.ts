@@ -347,6 +347,26 @@ export interface Translations {
     warningFakesTitle: string;
     warningFakesBody: string;
     originalRepos: string;
+    notificationsTitle: string;
+    notificationsDesc: string;
+    notificationsOn: string;
+    notificationsOff: string;
+    notificationsBtnEnable: string;
+    notificationsBtnDisable: string;
+    exportDiagTitle: string;
+    exportDiagDesc: string;
+    exportDiagBtn: string;
+    exportDiagSuccess: string;
+    exportDiagError: string;
+  };
+  notify: {
+    engineStartedTitle: string;
+    engineStartedBody: string;
+    engineStoppedTitle: string;
+    engineStoppedBody: string;
+    engineErrorTitle: string;
+    listsUpdatedTitle: string;
+    listsUpdatedBody: string;
   };
   adminGate: {
     title: string;

@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { ListSyncReport } from "../../types";
+import { notifyUser } from "../../utils/notify";
+import { formatErrorMessage } from "../../utils/error";
 
 export const ListsView: React.FC = React.memo(() => {
   const { t } = useI18n();
@@ -117,7 +119,7 @@ export const ListsView: React.FC = React.memo(() => {
       setFeedback({ type: "success", text: `${t.domainManager.domainAdded}: ${domainToAdd}` });
       await loadDomains(selectedFile);
     } catch (err) {
-      setFeedback({ type: "error", text: String(err) });
+      setFeedback({ type: "error", text: formatErrorMessage(err) });
     }
   };
 
@@ -130,7 +132,7 @@ export const ListsView: React.FC = React.memo(() => {
       setFeedback({ type: "success", text: `${t.domainManager.domainRemoved}: ${domainToRemove}` });
       await loadDomains(selectedFile);
     } catch (err) {
-      setFeedback({ type: "error", text: String(err) });
+      setFeedback({ type: "error", text: formatErrorMessage(err) });
     }
   };
 
@@ -140,7 +142,7 @@ export const ListsView: React.FC = React.memo(() => {
       await invoke("flush_dns_cache");
       setFeedback({ type: "success", text: t.domainManager.flushDnsSuccess });
     } catch (err) {
-      setFeedback({ type: "error", text: String(err) });
+      setFeedback({ type: "error", text: formatErrorMessage(err) });
     } finally {
       setIsFlushingDns(false);
     }
@@ -155,10 +157,14 @@ export const ListsView: React.FC = React.memo(() => {
         type: "success",
         text: `${t.syncLists.successTitle}: ${updatedCount} ${t.syncLists.filesUpdated}`,
       });
+      notifyUser(
+        t.notify.listsUpdatedTitle,
+        `${t.notify.listsUpdatedBody}: ${updatedCount} ${t.syncLists.filesUpdated}`
+      );
       await loadFiles();
       if (selectedFile) await loadDomains(selectedFile);
     } catch (err) {
-      setFeedback({ type: "error", text: String(err) });
+      setFeedback({ type: "error", text: formatErrorMessage(err) });
     } finally {
       setIsSyncing(false);
     }
@@ -168,7 +174,7 @@ export const ListsView: React.FC = React.memo(() => {
     try {
       await invoke("open_lists_folder");
     } catch (err) {
-      setFeedback({ type: "error", text: String(err) });
+      setFeedback({ type: "error", text: formatErrorMessage(err) });
     }
   };
 
