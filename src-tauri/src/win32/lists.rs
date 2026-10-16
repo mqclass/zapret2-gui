@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::win32::process::resolve_binaries;
+use crate::win32::settings::atomic_write;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -169,7 +170,7 @@ pub fn add_domain_to_list(filename: &str, raw_domain: &str) -> Result<Vec<String
     file_content.push_str(&domain);
     file_content.push_str("\r\n");
 
-    fs::write(&file_path, file_content).map_err(|e| format!("Ошибка записи файла: {}", e))?;
+    atomic_write(&file_path, file_content.as_bytes()).map_err(|e| format!("Ошибка записи файла: {}", e))?;
 
     read_domains(filename)
 }
@@ -205,7 +206,7 @@ pub fn remove_domain_from_list(filename: &str, raw_domain: &str) -> Result<Vec<S
     }
 
     let updated_content = new_lines.join("\r\n") + "\r\n";
-    fs::write(&file_path, updated_content).map_err(|e| format!("Ошибка записи файла: {}", e))?;
+    atomic_write(&file_path, updated_content.as_bytes()).map_err(|e| format!("Ошибка записи файла: {}", e))?;
 
     read_domains(filename)
 }
@@ -346,13 +347,13 @@ pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
                         };
 
                         let lines_count = merged_text.lines().count();
-                        if fs::write(&target_path, &merged_text).is_ok() {
+                        if atomic_write(&target_path, merged_text.as_bytes()).is_ok() {
                             // Also mirror to bin/lists if it exists
                             if let Ok(exe_path) = std::env::current_exe() {
                                 if let Some(parent) = exe_path.parent() {
                                     let bin_list = parent.join("bin/lists").join(filename);
                                     if bin_list.parent().map_or(false, |p| p.is_dir()) {
-                                        let _ = fs::write(bin_list, &merged_text);
+                                        let _ = atomic_write(&bin_list, merged_text.as_bytes());
                                     }
                                 }
                             }

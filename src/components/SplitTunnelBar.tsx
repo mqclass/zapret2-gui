@@ -27,19 +27,19 @@ export const SplitTunnelBar: React.FC<SplitTunnelBarProps> = ({
     {
       id: "full",
       label: t.splitTunnel.badgeFull,
-      desc: "Все сайты и сервисы через WinWS",
+      desc: t.splitTunnel.modeFullDesc,
       icon: <Shield className="h-3.5 w-3.5" />,
     },
     {
       id: "strict",
       label: t.splitTunnel.badgeStrict,
-      desc: "Только списки блокировок",
+      desc: t.splitTunnel.modeStrictDesc,
       icon: <Filter className="h-3.5 w-3.5" />,
     },
     {
       id: "game_mode",
       label: t.splitTunnel.badgeGame,
-      desc: "Мин. пинг: игры в обход фильтра",
+      desc: t.splitTunnel.modeGameDesc,
       icon: <Gamepad2 className="h-3.5 w-3.5" />,
     },
   ];

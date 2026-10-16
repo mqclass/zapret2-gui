@@ -2,7 +2,8 @@
 //!
 //! Automatically diagnoses and repairs common network stack, driver, and caching issues:
 //! 1. Cleans orphaned winws/winws2 background processes.
-//! 2. Resets and unhooks the WinDivert kernel driver service.
+//! 2. Resets and unhooks the WinDivert kernel driver service
+//!    (skipped with a warning while the bypass engine is running).
 //! 3. Flushes Windows DNS client cache (`ipconfig /flushdns`).
 //! 4. Purges local ARP address cache (`netsh interface ip delete arpcache`).
 //! 5. Enables TCP Timestamps (`netsh int tcp set global timestamps=enabled`) required for packet desync.
@@ -38,7 +39,7 @@ pub struct DoctorReport {
     pub message: String,
 }
 
-pub async fn run_auto_doctor(active_pid: Option<u32>) -> DoctorReport {
+pub async fn run_auto_doctor(active_pid: Option<u32>, engine_running: bool) -> DoctorReport {
     let mut steps = Vec::new();
     let mut all_ok = true;
 
@@ -58,17 +59,31 @@ pub async fn run_auto_doctor(active_pid: Option<u32>) -> DoctorReport {
         details: p_msg,
     });
 
-    // 2. Reset WinDivert driver registration
-    cleanup_windivert_driver().await;
-    let wd_msg = "Служба WinDivert успешно сброшена и готова к работе".to_string();
-    steps.push(DoctorStepResult {
-        id: "windivert_reset".into(),
-        title: "Сброс драйвера ядра WinDivert".into(),
-        name: "Сброс драйвера ядра WinDivert".into(),
-        status: "ok".into(),
-        message: wd_msg.clone(),
-        details: wd_msg,
-    });
+    // 2. Reset WinDivert driver registration — SKIPPED while the engine is running.
+    //    Tearing the driver service down from under an active winws would blackhole
+    //    traffic; the user should stop the bypass first and re-run the doctor.
+    if engine_running {
+        let wd_msg = "Сброс драйвера пропущен: движок обхода запущен. Остановите обход и повторите диагностику для сброса WinDivert.".to_string();
+        steps.push(DoctorStepResult {
+            id: "windivert_reset".into(),
+            title: "Сброс драйвера ядра WinDivert".into(),
+            name: "Сброс драйвера ядра WinDivert".into(),
+            status: "warn".into(),
+            message: wd_msg.clone(),
+            details: wd_msg,
+        });
+    } else {
+        cleanup_windivert_driver().await;
+        let wd_msg = "Служба WinDivert успешно сброшена и готова к работе".to_string();
+        steps.push(DoctorStepResult {
+            id: "windivert_reset".into(),
+            title: "Сброс драйвера ядра WinDivert".into(),
+            name: "Сброс драйвера ядра WinDivert".into(),
+            status: "ok".into(),
+            message: wd_msg.clone(),
+            details: wd_msg,
+        });
+    }
 
     // 3. Flush DNS Cache
     let dns_res = Command::new("ipconfig")

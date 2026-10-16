@@ -5,9 +5,9 @@
 //! 2. Spawns `winws2.exe` with selected Lua strategies and WFP filter rules.
 //! 3. Binds process to the Windows Job Object immediately.
 //! 4. Asynchronously reads stdout/stderr line-by-line via `AsyncBufReadExt`.
-//! 5. Ring Buffer + Micro-Batching Engine: Buffers lines and flushes batches every 50ms
+//! 5. Ring Buffer + Micro-Batching Engine: Buffers lines and flushes batches every 150 ms
 //!    over Tauri channel `"log-batch"` using `tauri::Emitter::emit`.
-//! 6. Enforces strict memory footprint (< 20 MB total) by capping ring buffer to 5,000 entries.
+//! 6. Enforces strict memory footprint by capping the ring buffer to 1,000 entries.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -120,6 +120,17 @@ impl Supervisor {
         // Spawn high-throughput micro-batching engine
         supervisor.spawn_micro_batching_worker(log_rx);
 
+        // Periodically flush OS-buffered log data to disk (file writes are buffered,
+        // not flushed per line — see FileLogger).
+        let file_logger_flush = file_logger.clone();
+        tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_secs(5));
+            loop {
+                ticker.tick().await;
+                file_logger_flush.flush();
+            }
+        });
+
         supervisor.log("info", "zapret2 v1.0.9 initialized. WinDivert and WFP subsystem ready.");
         supervisor.log("info", "Ready to start DPI bypass. Select a strategy to begin.");
 
@@ -137,7 +148,7 @@ impl Supervisor {
         });
     }
 
-    /// Spawns the dedicated Tokio micro-batching worker running every 50ms.
+    /// Spawns the dedicated Tokio micro-batching worker running every 150 ms.
     fn spawn_micro_batching_worker(&self, mut log_rx: Receiver<LogEntry>) {
         let ring_buffer = self.ring_buffer.clone();
         let app_handle = self.app_handle.clone();
@@ -514,6 +525,10 @@ impl Supervisor {
                                 }
                                 *supervisor_clone.active_pid.write() = None;
                                 *supervisor_clone.start_time.write() = None;
+                                // The engine is gone — drop stale strategy/binary or the UI
+                                // would keep advertising a configuration that no longer runs.
+                                *supervisor_clone.active_strategy.write() = None;
+                                *supervisor_clone.binary_path.write() = None;
                             }
 
                             supervisor_clone.emit_state_change(SupervisorState::Stopped);
@@ -564,6 +579,9 @@ impl Supervisor {
         // Clean WinDivert driver service registrations to guarantee clean kernel state
         cleanup_windivert_driver().await;
 
+        // Persist any buffered log data before reporting the stopped state.
+        self.file_logger.flush();
+
         {
             *self.state.write() = SupervisorState::Stopped;
             *self.active_pid.write() = None;
@@ -581,19 +599,36 @@ impl Supervisor {
     pub const DISCORD_MEDIA_DOMAINS: &str = "discord.media,gateway.discord.gg,discord.com,discordapp.com,discordapp.net,discordcdn.com,discord.gg,dis.gd,discord.co,discord.app,tenor.com,tenor.co,giphy.com";
 
     /// Builds Flowseal preset command-line arguments.
+    /// Validates a user-supplied port range spec (e.g. `1024-65535`, `80,443`).
+    /// Falls back to the safe default on any unexpected characters so arbitrary
+    /// settings content can never leak into the winws command line.
+    fn sanitize_port_spec(raw: &str) -> String {
+        let ok = !raw.is_empty()
+            && raw.len() <= 64
+            && raw.chars().all(|c| c.is_ascii_digit() || c == ',' || c == '-');
+        if ok {
+            raw.to_string()
+        } else {
+            "1024-65535".to_string()
+        }
+    }
+
     fn build_flowseal_args(preset_id: &str, bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
         let settings = crate::win32::settings::load_settings();
         let is_game = settings.split_tunnel_mode == crate::win32::settings::SplitTunnelMode::GameMode;
         let is_strict = settings.split_tunnel_mode == crate::win32::settings::SplitTunnelMode::Strict;
 
+        let game_tcp = Self::sanitize_port_spec(&settings.game_filter_tcp);
+        let game_udp = Self::sanitize_port_spec(&settings.game_filter_udp);
+
         let wf_tcp = if is_game {
-            format!("--wf-tcp=80,443,2053,2083,2087,2096,8443,{}", settings.game_filter_tcp)
+            format!("--wf-tcp=80,443,2053,2083,2087,2096,8443,{}", game_tcp)
         } else {
             "--wf-tcp=80,443,2053,2083,2087,2096,8443".into()
         };
 
         let wf_udp = if is_game {
-            format!("--wf-udp=443,19294-19344,50000-65535,{}", settings.game_filter_udp)
+            format!("--wf-udp=443,19294-19344,50000-65535,{}", game_udp)
         } else {
             "--wf-udp=443,19294-19344,50000-65535".into()
         };

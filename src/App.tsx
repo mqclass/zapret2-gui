@@ -7,6 +7,7 @@ import {
   LuaStrategy,
   LogEntry,
   SystemStatusResponse,
+  SupervisorStatusResponse,
   ConflictItem,
   SplitTunnelMode,
   AppSettings,
@@ -22,7 +23,7 @@ import { DnsSpeedView } from "./components/views/DnsSpeedView";
 import { ListsView } from "./components/views/ListsView";
 import { LogsView } from "./components/views/LogsView";
 import { SettingsView } from "./components/views/SettingsView";
-import { AlertCircle, CheckCircle2, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, ShieldAlert, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
 import { formatErrorMessage } from "./utils/error";
 
@@ -72,13 +73,22 @@ const AppContent: React.FC = () => {
   const [isAutostart, setIsAutostart] = useState<boolean>(false);
   const [isTogglingAutostart, setIsTogglingAutostart] = useState<boolean>(false);
   const [splitTunnelMode, setSplitTunnelMode] = useState<SplitTunnelMode>("full");
+  // Admin gate: shown when the app runs without Administrator privileges.
+  const [showAdminGate, setShowAdminGate] = useState<boolean>(false);
+
+  // Surface the admin gate once the real elevation state is known.
+  useEffect(() => {
+    if (!isElevated) {
+      setShowAdminGate(true);
+    }
+  }, [isElevated]);
 
   const handleModeChange = useCallback(async (mode: SplitTunnelMode) => {
     try {
       const updated = await invoke<AppSettings>("set_split_tunnel_mode", { mode });
       setSplitTunnelMode(updated.split_tunnel_mode);
       if (status.state === "running") {
-        setSuccessAlert("Режим туннелирования изменен. Перезапустите обход для применения настроек.");
+        setSuccessAlert(t.alerts.tunnelModeChanged);
       }
     } catch (err: any) {
       console.error("Failed to set split tunnel mode:", err);
@@ -118,14 +128,23 @@ const AppContent: React.FC = () => {
   // Buffer ref to throttle log updates and prevent high-frequency re-renders
   const pendingLogsRef = useRef<LogEntry[]>([]);
 
+  // Monotonic client-side ids for stable React keys (backend entries have none).
+  const logSeqRef = useRef(0);
+  const assignLogIds = useCallback((entries: LogEntry[]): LogEntry[] => {
+    return entries.map((e) =>
+      e.id != null ? e : { ...e, id: logSeqRef.current++ }
+    );
+  }, []);
+
   // Flush pending log items to state every 200ms
   useEffect(() => {
     const timer = setInterval(() => {
       if (pendingLogsRef.current.length > 0) {
         const chunk = pendingLogsRef.current;
         pendingLogsRef.current = [];
+        const withIds = assignLogIds(chunk);
         setLogs((prev) => {
-          const next = [...prev, ...chunk];
+          const next = [...prev, ...withIds];
           if (next.length > 1000) {
             return next.slice(next.length - 1000);
           }
@@ -135,7 +154,7 @@ const AppContent: React.FC = () => {
     }, 200);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [assignLogIds]);
 
   // Initial data loading and event subscriptions
   useEffect(() => {
@@ -161,8 +180,9 @@ const AppContent: React.FC = () => {
       })
       .catch((err) => console.error("Failed to fetch initial probes:", err));
 
-    // Load saved settings (Split-Tunneling / Game Mode)
-    invoke<AppSettings>("get_app_settings")
+    // Load saved settings once and reuse the promise (Split-Tunneling / Game Mode)
+    const settingsPromise = invoke<AppSettings>("get_app_settings");
+    settingsPromise
       .then((cfg) => {
         if (cfg) {
           setSplitTunnelMode(cfg.split_tunnel_mode);
@@ -175,7 +195,7 @@ const AppContent: React.FC = () => {
       .then((strats) => {
         setStrategies(strats);
         if (strats.length > 0) {
-          invoke<AppSettings>("get_app_settings")
+          settingsPromise
             .then((cfg) => {
               if (cfg?.last_strategy_id) {
                 const matched = strats.find((s) => s.id === cfg.last_strategy_id);
@@ -204,7 +224,7 @@ const AppContent: React.FC = () => {
     // 3. Initial logs query
     invoke<LogEntry[]>("get_logs")
       .then((initialLogs) => {
-        setLogs(initialLogs);
+        setLogs(assignLogIds(initialLogs));
       })
       .catch((err) => console.error("Failed to fetch initial logs:", err));
 
@@ -232,28 +252,34 @@ const AppContent: React.FC = () => {
       setLogs([]);
     });
 
-    // Periodic heartbeat to refresh uptime, PID, and conflicts
+    // Lightweight heartbeat: supervisor state + elevation only (no process snapshot).
+    // Conflict scanning is expensive (full process enumeration) — poll it rarely.
     const heartbeat = setInterval(() => {
-      invoke<SystemStatusResponse>("get_system_status")
+      invoke<SupervisorStatusResponse>("get_supervisor_status")
         .then((res) => {
           setIsElevated(res.is_elevated);
           setStatus(res.supervisor);
-          setConflicts(res.conflicts || []);
-          if (res.diagnostics) {
-            setDiagnostics(res.diagnostics);
-          }
         })
         .catch(() => {});
     }, 2500);
 
+    const conflictsTimer = setInterval(() => {
+      invoke<ConflictItem[]>("scan_conflicts")
+        .then((res) => {
+          setConflicts(res || []);
+        })
+        .catch(() => {});
+    }, 60000);
+
     return () => {
       clearInterval(heartbeat);
+      clearInterval(conflictsTimer);
       unlistenLogsPromise.then((unlisten) => unlisten());
       unlistenStatePromise.then((unlisten) => unlisten());
       unlistenProbesPromise.then((unlisten) => unlisten());
       unlistenClearPromise.then((unlisten) => unlisten());
     };
-  }, []);
+  }, [assignLogIds]);
 
   // Auto-dismiss alerts after timeout
   useEffect(() => {
@@ -284,7 +310,11 @@ const AppContent: React.FC = () => {
       }, 1000);
     } catch (err: any) {
       console.error("Failed to start bypass:", err);
-      setErrorAlert(formatErrorMessage(err));
+      const msg = formatErrorMessage(err);
+      setErrorAlert(msg);
+      if (msg.includes("ADMIN_REQUIRED")) {
+        setShowAdminGate(true);
+      }
       setStatus((prev) => ({ ...prev, state: "stopped" }));
     }
   }, [selectedStrategyId, handleRefreshProbes]);
@@ -304,7 +334,11 @@ const AppContent: React.FC = () => {
       }, 1000);
     } catch (err: any) {
       console.error("Failed to start strategy:", err);
-      setErrorAlert(formatErrorMessage(err));
+      const msg = formatErrorMessage(err);
+      setErrorAlert(msg);
+      if (msg.includes("ADMIN_REQUIRED")) {
+        setShowAdminGate(true);
+      }
       setStatus((prev) => ({ ...prev, state: "stopped" }));
     }
   }, [handleRefreshProbes]);
@@ -326,34 +360,25 @@ const AppContent: React.FC = () => {
   }, [handleRefreshProbes]);
 
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
+
+  // Manual log refresh (user-initiated): the live `log-batch` event stream is the
+  // single continuous source — no competing poller (that caused lost/duplicated lines).
   const handleRefreshLogs = useCallback(async () => {
     setIsRefreshingLogs(true);
     try {
       const refreshed = await invoke<LogEntry[]>("get_logs");
       if (refreshed) {
-        setLogs(refreshed);
+        // Buffered entries are a subset of the ring buffer: drop them to avoid dupes.
+        pendingLogsRef.current = [];
+        setLogs(assignLogIds(refreshed));
       }
     } catch (err: any) {
       console.error("Failed to refresh logs:", err);
+      setErrorAlert(formatErrorMessage(err));
     } finally {
       setIsRefreshingLogs(false);
     }
-  }, []);
-
-  // Proactive live log polling while viewing the logs tab
-  useEffect(() => {
-    if (activeTab === "logs") {
-      handleRefreshLogs();
-      const interval = setInterval(() => {
-        invoke<LogEntry[]>("get_logs")
-          .then((latest) => {
-            if (latest && latest.length > 0) setLogs(latest);
-          })
-          .catch(() => {});
-      }, 1500);
-      return () => clearInterval(interval);
-    }
-  }, [activeTab, handleRefreshLogs]);
+  }, [assignLogIds]);
 
   const handleClearLogs = useCallback(async () => {
     try {
@@ -379,18 +404,18 @@ const AppContent: React.FC = () => {
     try {
       const count = await invoke<number>("kill_stray_processes");
       if (count > 0) {
+        const entry: LogEntry = {
+          id: logSeqRef.current++,
+          timestamp: Math.floor(Date.now() / 1000),
+          level: "warn",
+          message: `Terminated ${count} orphaned winws2.exe process(es)`,
+        };
         setSuccessAlert(`${t.alerts.strayTerminated} ${count}`);
-        setLogs((prev) => [
-          ...prev,
-          {
-            timestamp: Math.floor(Date.now() / 1000),
-            level: "warn",
-            message: `Terminated ${count} orphaned winws2.exe process(es)`,
-          },
-        ]);
+        setLogs((prev) => [...prev, entry]);
       }
     } catch (err: any) {
       console.error("Failed to kill stray processes:", err);
+      setErrorAlert(formatErrorMessage(err));
     } finally {
       setIsStrayCleaning(false);
     }
@@ -586,6 +611,38 @@ const AppContent: React.FC = () => {
           )}
         </main>
       </div>
+
+      {/* Admin gate: shown when the app runs without Administrator privileges */}
+      {showAdminGate && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-[#141821] p-6 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10">
+                <ShieldAlert className="h-5 w-5 text-amber-400" />
+              </div>
+              <h2 className="text-base font-bold text-white">{t.adminGate.title}</h2>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed text-slate-300">
+              {t.adminGate.message}
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                onClick={handleRelaunchElevated}
+                className="flex h-10 items-center justify-center gap-2 rounded-xl bg-amber-500/90 px-4 text-sm font-semibold text-black transition-colors hover:bg-amber-400 cursor-pointer"
+              >
+                <ShieldAlert className="h-4 w-4" />
+                {t.adminGate.relaunch}
+              </button>
+              <button
+                onClick={() => setShowAdminGate(false)}
+                className="flex h-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-medium text-slate-300 transition-colors hover:bg-white/[0.07] cursor-pointer"
+              >
+                {t.adminGate.continueAnyway}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

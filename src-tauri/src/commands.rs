@@ -9,10 +9,11 @@
 //! - Third-party DPI software conflict detection and resolution
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::State;
 
 use crate::engine::probes::{DiagnosticsReport, DiagnosticsService};
-use crate::engine::supervisor::{LogEntry, Supervisor, SupervisorStatus};
+use crate::engine::supervisor::{LogEntry, Supervisor, SupervisorState, SupervisorStatus};
 use crate::win32::conflicts::{
     resolve_all_conflicts_excluding as win32_resolve_all_conflicts,
     scan_conflicts_excluding as win32_scan_conflicts, ConflictItem,
@@ -37,7 +38,18 @@ pub struct SystemStatusResponse {
 pub struct AppState {
     pub supervisor: Arc<Supervisor>,
     pub diagnostics: Arc<DiagnosticsService>,
-    pub cached_binaries: Arc<parking_lot::RwLock<Option<ZapretBinaries>>>,
+    pub cached_binaries: Arc<parking_lot::RwLock<CachedBinaries>>,
+}
+
+/// TTL for the resolved-binaries cache: binaries are re-discovered at most this often,
+/// so a newly installed/updated winws2.exe is picked up without an app restart.
+const BINARIES_CACHE_TTL: Duration = Duration::from_secs(300);
+
+/// Cached binary discovery result with its resolution timestamp.
+#[derive(Debug, Clone)]
+pub struct CachedBinaries {
+    pub resolved: Option<ZapretBinaries>,
+    pub resolved_at: Option<Instant>,
 }
 
 /// Retrieves the complete status snapshot of the application.
@@ -47,15 +59,23 @@ pub async fn get_system_status(state: State<'_, AppState>) -> Result<SystemStatu
     let supervisor_status = state.supervisor.get_status();
     let diag = state.diagnostics.get_report();
 
-    // Cache resolved binaries in memory to eliminate repeated disk traversals
+    // Cache resolved binaries in memory to eliminate repeated disk traversals,
+    // re-resolving when the cache entry is older than BINARIES_CACHE_TTL.
     let binaries = {
-        let read_guard = state.cached_binaries.read();
-        if read_guard.is_some() {
-            read_guard.clone()
+        let guard = state.cached_binaries.read();
+        let fresh = match (&guard.resolved, guard.resolved_at) {
+            (Some(b), Some(at)) if at.elapsed() < BINARIES_CACHE_TTL => Some(b.clone()),
+            _ => None,
+        };
+        if let Some(b) = fresh {
+            Some(b)
         } else {
-            drop(read_guard);
+            drop(guard);
             let resolved = resolve_binaries().ok();
-            *state.cached_binaries.write() = resolved.clone();
+            *state.cached_binaries.write() = CachedBinaries {
+                resolved: resolved.clone(),
+                resolved_at: Some(Instant::now()),
+            };
             resolved
         }
     };
@@ -91,6 +111,25 @@ pub async fn list_strategies() -> Result<Vec<LuaStrategy>, String> {
     discover_strategies().map_err(|e| e.to_string())
 }
 
+/// Lightweight heartbeat response: supervisor state + elevation only.
+///
+/// Unlike `get_system_status`, this performs no process snapshot, service queries or
+/// registry reads — safe to poll every few seconds from the UI heartbeat.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SupervisorStatusResponse {
+    pub is_elevated: bool,
+    pub supervisor: SupervisorStatus,
+}
+
+/// Retrieves the lightweight supervisor heartbeat (state + elevation).
+#[tauri::command]
+pub async fn get_supervisor_status(state: State<'_, AppState>) -> Result<SupervisorStatusResponse, String> {
+    Ok(SupervisorStatusResponse {
+        is_elevated: is_elevated().unwrap_or(false),
+        supervisor: state.supervisor.get_status(),
+    })
+}
+
 /// Starts `winws2.exe` using the specified strategy and options.
 #[tauri::command]
 pub async fn start_supervisor(
@@ -98,6 +137,12 @@ pub async fn start_supervisor(
     custom_args: Option<Vec<String>>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    // The WinDivert driver and system DNS changes strictly require Administrator
+    // privileges. Refuse to start the engine unprivileged instead of silently
+    // running in a broken state; the UI surfaces an admin gate for this error.
+    if !is_elevated().unwrap_or(false) {
+        return Err("ADMIN_REQUIRED: для запуска движка нужны права администратора. Перезапустите приложение с правами администратора.".into());
+    }
     state
         .supervisor
         .clone()
@@ -264,13 +309,18 @@ pub async fn ping_custom_target(
     Ok(state.diagnostics.probe_custom(&target).await)
 }
 
-/// Evaluates and benchmarks top strategies for automated ISP tuning.
+/// Estimates per-strategy effectiveness from live probe latency (no engine restarts).
+///
+/// NOTE: this is a heuristic estimator, not a real benchmark — it deliberately does not
+/// restart winws with each strategy, which would drop the user's active TCP connections,
+/// Discord voice channels and streaming downloads. Named accordingly.
 #[tauri::command]
-pub async fn benchmark_strategies(
-    _state: State<'_, AppState>,
+pub async fn estimate_strategies(
+    state: State<'_, AppState>,
 ) -> Result<Vec<crate::engine::probes::StrategyBenchmarkResult>, String> {
     let strategies = discover_strategies().unwrap_or_default();
-    let diag = crate::engine::probes::DiagnosticsService::new();
+    // Reuse the shared diagnostics service instead of spawning a throwaway one.
+    let diag = state.diagnostics.clone();
 
     // Probe real live network latency across YouTube and Discord
     let yt_metric = diag.probe_youtube().await;
@@ -393,8 +443,10 @@ pub async fn set_split_tunnel_mode(
 pub async fn run_auto_doctor(
     state: State<'_, AppState>,
 ) -> Result<crate::win32::doctor::DoctorReport, String> {
-    let pid = state.supervisor.get_status().pid;
-    Ok(crate::win32::doctor::run_auto_doctor(pid).await)
+    let status = state.supervisor.get_status();
+    // Never let the doctor tear the WinDivert driver down from under a running engine.
+    let engine_running = status.state == SupervisorState::Running;
+    Ok(crate::win32::doctor::run_auto_doctor(status.pid, engine_running).await)
 }
 
 /// Retrieves DNS status and available providers.

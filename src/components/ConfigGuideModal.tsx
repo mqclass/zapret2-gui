@@ -28,7 +28,7 @@ export const ConfigGuideModal: React.FC<ConfigGuideModalProps> = ({
                 {t.modal.guideTitle}
               </h3>
               <p className="text-xs text-slate-400">
-                Полное руководство по выбору режима обхода
+                {t.modal.guideSubtitle}
               </p>
             </div>
           </div>
@@ -87,7 +87,7 @@ export const ConfigGuideModal: React.FC<ConfigGuideModalProps> = ({
                 YouTube 4K 60FPS
               </span>
               <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300 border border-slate-700">
-                Строгие фильтры ТСПУ
+                {t.modal.guideTagStrict}
               </span>
             </div>
           </div>
@@ -97,11 +97,11 @@ export const ConfigGuideModal: React.FC<ConfigGuideModalProps> = ({
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="h-4 w-4 text-cyan-400" />
               <h4 className="font-semibold text-cyan-300 text-sm">
-                ⚡ zapret2 РФ Ultimate (Флагман на winws2 v2)
+                {t.modal.guideUltimateTitle}
               </h4>
             </div>
             <p className="text-slate-300">
-              Лучший гибридный режим под РФ на новейшем ядре winws2 v2! Объединяет проверенные бинарные payload-пакеты Flowseal, точные смещения TCP (seqovl=681 для Google/YouTube и seqovl=664 для сайтов), обход голосовых каналов Discord (UDP) и эксклюзивную фишку winws2 — conntrack out-range (n1-4). Видеопотоки YouTube 4K 60FPS воспроизводятся без малейших задержек на полной скорости канала!
+              {t.modal.guideUltimateText}
             </p>
             <div className="mt-2.5 flex flex-wrap gap-1.5 font-mono text-[10px]">
               <span className="rounded bg-cyan-500/20 px-2 py-0.5 text-cyan-300 border border-cyan-500/30">
@@ -135,10 +135,10 @@ export const ConfigGuideModal: React.FC<ConfigGuideModalProps> = ({
                 winws2.exe v2
               </span>
               <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300 border border-slate-700">
-                Lua скрипты
+                {t.modal.guideTagLua}
               </span>
               <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300 border border-slate-700">
-                Модульный стенд
+                {t.modal.guideTagModular}
               </span>
             </div>
           </div>

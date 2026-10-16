@@ -7,6 +7,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use crate::win32::process::LuaStrategy;
+use crate::win32::settings::atomic_write;
 
 /// Returns the path to the custom profiles JSON storage.
 pub fn get_custom_profiles_path() -> PathBuf {
@@ -48,7 +49,7 @@ pub fn save_custom_profile(mut strategy: LuaStrategy) -> Result<(), String> {
 
     let path = get_custom_profiles_path();
     let json = serde_json::to_string_pretty(&profiles).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())?;
+    atomic_write(&path, json.as_bytes()).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -59,7 +60,7 @@ pub fn delete_custom_profile(id: &str) -> Result<(), String> {
 
     let path = get_custom_profiles_path();
     let json = serde_json::to_string_pretty(&profiles).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())?;
+    atomic_write(&path, json.as_bytes()).map_err(|e| e.to_string())?;
     Ok(())
 }
 

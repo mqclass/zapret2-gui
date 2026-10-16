@@ -3,6 +3,7 @@
 //! Downloads a 10MB streaming payload through the active desynchronization pipeline,
 //! measuring real-time throughput (Mbps), latency jitter, and video quality tier readiness.
 
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
@@ -20,13 +21,23 @@ pub struct SpeedtestResult {
     pub message: String,
 }
 
+/// Shared HTTP client for speedtests: built once and reused across runs so connection
+/// pools and TLS sessions survive instead of paying a full handshake per measurement.
+static SPEEDTEST_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn http_client() -> &'static reqwest::Client {
+    SPEEDTEST_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(12))
+            .connect_timeout(Duration::from_secs(4))
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
+}
+
 pub async fn run_youtube_speedtest() -> Result<SpeedtestResult, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(12))
-        .connect_timeout(Duration::from_secs(4))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let client = http_client();
 
     // Primary: Google Global Cache (GGC / YouTube Video Edge) 10 Megabyte stream chunk
     // Fallback: Cloudflare Global CDN speed node
@@ -54,14 +65,22 @@ pub async fn run_youtube_speedtest() -> Result<SpeedtestResult, String> {
         return Err(format!("Speedtest server returned HTTP status {}", resp.status()));
     }
 
-    let bytes = resp
-        .bytes()
+    // Stream the body in chunks instead of buffering the whole 10 MB in RAM at once.
+    let mut bytes_len: u64 = 0;
+    while let Some(chunk) = resp
+        .chunk()
         .await
-        .map_err(|e| format!("Failed reading response stream: {}", e))?;
+        .map_err(|e| format!("Failed reading response stream: {}", e))?
+    {
+        bytes_len += chunk.len() as u64;
+        // Safety cap: never count more than ~24 MB even if the server ignores Range.
+        if bytes_len > 24 * 1024 * 1024 {
+            break;
+        }
+    }
 
     let elapsed = start.elapsed();
     let elapsed_ms = elapsed.as_millis() as u64;
-    let bytes_len = bytes.len() as u64;
 
     if elapsed_ms == 0 || bytes_len == 0 {
         return Err("Speedtest duration was too short to calculate bandwidth".into());

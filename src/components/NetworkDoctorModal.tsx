@@ -80,7 +80,7 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
             <div className="flex items-start gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300">
               <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
               <div>
-                <span className="font-semibold text-rose-200">Ошибка выполнения:</span>
+                <span className="font-semibold text-rose-200">{t.doctor.errorTitle}</span>
                 <p className="mt-0.5 leading-relaxed">{error}</p>
               </div>
             </div>
@@ -90,15 +90,15 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
           <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4 text-xs text-slate-300 leading-relaxed space-y-2">
             <div className="flex items-center gap-2 font-semibold text-white">
               <Activity className="h-4 w-4 text-amber-400" />
-              <span>Что делает Авто-Доктор?</span>
+              <span>{t.doctor.introTitle}</span>
             </div>
             <ul className="list-disc list-inside space-y-1 text-slate-400 pl-1">
-              <li>Принудительно закрывает зависшие процессы <code className="text-amber-300">winws2.exe</code> и <code className="text-amber-300">winws.exe</code></li>
-              <li>Сбрасывает системную службу драйвера перехвата <code className="text-blue-300">WinDivert</code></li>
-              <li>Очищает системный кэш DNS (<code className="text-indigo-300">ipconfig /flushdns</code>)</li>
-              <li>Сбрасывает таблицу ARP для устранения локальных сетевых петель</li>
-              <li>Активирует TCP Timestamps (<code className="text-emerald-300">netsh int tcp set global timestamps=enabled</code>)</li>
-              <li>Проверяет сквозную доступность интернета и шлюза</li>
+              <li>{t.doctor.introItem1a} <code className="text-amber-300">winws2.exe</code> {t.doctor.introItem1b} <code className="text-amber-300">winws.exe</code></li>
+              <li>{t.doctor.introItem2} <code className="text-blue-300">WinDivert</code></li>
+              <li>{t.doctor.introItem3} (<code className="text-indigo-300">ipconfig /flushdns</code>)</li>
+              <li>{t.doctor.introItem4}</li>
+              <li>{t.doctor.introItem5} (<code className="text-emerald-300">netsh int tcp set global timestamps=enabled</code>)</li>
+              <li>{t.doctor.introItem6}</li>
             </ul>
           </div>
 
@@ -161,7 +161,7 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
                     statusBadge = (
                       <span className="flex items-center gap-1 text-[11px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md">
                         <AlertTriangle className="h-3 w-3" />
-                        Предупреждение
+                        {t.doctor.warnBadge}
                       </span>
                     );
                   } else if (step.status === "failed" || step.status === "error") {

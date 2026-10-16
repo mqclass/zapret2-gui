@@ -55,7 +55,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
     }
   };
 
-  const handleApplyDns = async (providerId: string, scopeToUse?: "full" | "split") => {
+  const handleApplyDns = async (providerId: string, scopeToUse?: "full" | "split"): Promise<boolean> => {
     setApplyingDnsId(providerId);
     setDnsError(null);
     setDnsMessage(null);
@@ -71,19 +71,26 @@ export const DnsSpeedView: React.FC = React.memo(() => {
       }
       setDnsMessage(t.dns.successApplied);
       setTimeout(() => setDnsMessage(null), 4000);
+      return true;
     } catch (err: any) {
       console.error("Failed to set system DNS:", err);
       setDnsError(typeof err === "string" ? err : JSON.stringify(err));
+      return false;
     } finally {
       setApplyingDnsId(null);
     }
   };
 
   const handleScopeChange = async (newScope: "full" | "split") => {
+    const prevScope = dnsScope;
     setDnsScope(newScope);
     const currentId = dnsStatus?.active_provider_id || dnsStatus?.current_provider;
     if (currentId && currentId !== "system" && currentId !== "dhcp") {
-      await handleApplyDns(currentId, newScope);
+      // Roll back the optimistic scope switch if the apply fails.
+      const ok = await handleApplyDns(currentId, newScope);
+      if (!ok) {
+        setDnsScope(prevScope);
+      }
     }
   };
 
@@ -118,27 +125,27 @@ export const DnsSpeedView: React.FC = React.memo(() => {
       return {
         label: "4K Ultra HD (2160p 60fps)",
         badgeClass: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
-        desc: "Идеально: моментальная буферизация 4K HDR",
+        desc: t.speedtest.tier4kDesc,
       };
     }
     if (speedMbps >= 15) {
       return {
         label: "2K Quad HD (1440p)",
         badgeClass: "text-blue-400 bg-blue-500/10 border-blue-500/30",
-        desc: "Отлично: быстрая загрузка 1440p и 1080p60",
+        desc: t.speedtest.tier2kDesc,
       };
     }
     if (speedMbps >= 6) {
       return {
         label: "Full HD (1080p)",
         badgeClass: "text-amber-400 bg-amber-500/10 border-amber-500/30",
-        desc: "Хорошо: стабильное воспроизведение 1080p",
+        desc: t.speedtest.tierFhdDesc,
       };
     }
     return {
       label: "HD (720p / 480p)",
       badgeClass: "text-rose-400 bg-rose-500/10 border-rose-500/30",
-      desc: "Низкая скорость: возможны задержки в 1080p",
+      desc: t.speedtest.tierHdDesc,
     };
   };
 
@@ -166,7 +173,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
             onClick={loadDns}
             disabled={isLoadingDns}
             className="p-1.5 rounded-lg border border-[#252b3b] bg-[#161a22] text-slate-400 hover:text-white hover:bg-[#1b212c] transition-all cursor-pointer disabled:opacity-50 shrink-0"
-            title="Обновить текущий DNS"
+            title={t.dns.refreshCurrentTitle}
           >
             <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${isLoadingDns ? "animate-spin" : ""}`} />
           </button>
@@ -271,7 +278,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                   ? dnsStatus.current_dns.join(", ")
                   : dnsStatus.active_servers && dnsStatus.active_servers.length > 0
                   ? dnsStatus.active_servers.join(", ")
-                  : "DHCP (Автоматически)"}
+                  : t.dns.dhcpAuto}
               </span>
             </div>
           </div>
@@ -279,7 +286,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
 
         {/* DNS Providers List */}
         <div className="space-y-2">
-          {dnsStatus?.available_providers.map((p) => {
+          {dnsStatus?.available_providers?.map((p) => {
             const isCurrent = (dnsStatus.active_provider_id || dnsStatus.current_provider) === p.id;
             const isApplying = applyingDnsId === p.id;
 
@@ -311,7 +318,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                     )}
                   </div>
                   <p className="text-[11px] text-slate-400 font-mono">
-                    {p.primary ? `${p.primary} / ${p.secondary}` : "DHCP (Провайдер)"}
+                    {p.primary ? `${p.primary} / ${p.secondary}` : t.dns.dhcpProvider}
                   </p>
                   <p className="text-[10px] text-slate-500 leading-tight">
                     {p.description}

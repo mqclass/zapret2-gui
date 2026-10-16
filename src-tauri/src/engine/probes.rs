@@ -1,7 +1,7 @@
 //! Asynchronous High-Precision Network Diagnostics & DPI Evasion Probes
 //!
 //! # Architecture
-//! Continuously evaluates real-time latency (DNS lookup, TCP handshake, TLS/HTTP TTFB)
+//! Continuously evaluates real-time latency (DNS lookup, TLS/HTTP TTFB)
 //! across critical services without saturating network connections:
 //! 1. YouTube Web & 4K Streaming (`youtube.com:443`, `googlevideo.com:443`)
 //! 2. Discord Gateway API (`discord.com:443`, `gateway.discord.gg:443`)
@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tokio::net::{lookup_host, TcpStream};
+use tokio::net::lookup_host;
 use tokio::time::{sleep, timeout};
 
 /// Operational status of a probed endpoint.
@@ -178,43 +178,9 @@ impl DiagnosticsService {
 
         let ip_str = target_addr.ip().to_string();
 
-        // 2. TCP 3-Way Handshake Phase (SYN -> SYN/ACK)
-        let tcp_start = Instant::now();
-        let tcp_connect_res = timeout(Duration::from_millis(2500), TcpStream::connect(target_addr)).await;
-
-        let tcp_time_ms = match tcp_connect_res {
-            Ok(Ok(_stream)) => Some(tcp_start.elapsed().as_millis() as u64),
-            Ok(Err(e)) => {
-                return ProbeMetric {
-                    target: name.into(),
-                    status: ProbeStatus::Blocked,
-                    latency_ms: None,
-                    dns_ms: dns_time_ms,
-                    tcp_ms: None,
-                    http_status: None,
-                    packet_loss_pct: 100.0,
-                    last_checked_epoch: now_epoch,
-                    ip_address: Some(ip_str),
-                    message: format!("Сброс соединения TCP RST (блокировка ТСПУ): {}", e),
-                };
-            }
-            Err(_) => {
-                return ProbeMetric {
-                    target: name.into(),
-                    status: ProbeStatus::Blocked,
-                    latency_ms: None,
-                    dns_ms: dns_time_ms,
-                    tcp_ms: None,
-                    http_status: None,
-                    packet_loss_pct: 100.0,
-                    last_checked_epoch: now_epoch,
-                    ip_address: Some(ip_str),
-                    message: "Таймаут TCP соединения (пакеты отброшены провайдером / Blackhole)".into(),
-                };
-            }
-        };
-
-        // 3. HTTP / TLS Handshake Phase (GET / HEAD)
+        // 2. HTTPS Phase — a single connection (TCP + TLS + HTTP) via the pooled client.
+        //    NOTE: the previous explicit raw TcpStream::connect phase was removed — it
+        //    doubled every probe connection for marginal diagnostic value.
         let http_start = Instant::now();
         let http_res = self.client.get(url).send().await;
         let http_time_ms = http_start.elapsed().as_millis() as u64;
@@ -223,13 +189,13 @@ impl DiagnosticsService {
             Ok(resp) => {
                 let status_code = resp.status().as_u16();
                 let is_ok = resp.status().is_success() || status_code == 204 || status_code == 301 || status_code == 302;
-                let total_rtt = tcp_time_ms.unwrap_or(0) + http_time_ms;
+                let total_rtt = http_time_ms;
 
                 let (status, msg) = if is_ok {
                     if total_rtt > 450 {
                         (ProbeStatus::Degraded, format!("Работает с задержкой (RTT: {}мс, HTTP {})", total_rtt, status_code))
                     } else {
-                        (ProbeStatus::Operational, format!("Отличный отклик (RTT: {}мс, TCP: {}мс)", total_rtt, tcp_time_ms.unwrap_or(0)))
+                        (ProbeStatus::Operational, format!("Отличный отклик (RTT: {}мс)", total_rtt))
                     }
                 } else {
                     (ProbeStatus::Degraded, format!("Ответ HTTP {} (RTT: {}мс)", status_code, total_rtt))
@@ -240,7 +206,7 @@ impl DiagnosticsService {
                     status,
                     latency_ms: Some(total_rtt),
                     dns_ms: dns_time_ms,
-                    tcp_ms: tcp_time_ms,
+                    tcp_ms: None,
                     http_status: Some(status_code),
                     packet_loss_pct: if is_ok { 0.0 } else { 20.0 },
                     last_checked_epoch: now_epoch,
@@ -254,12 +220,12 @@ impl DiagnosticsService {
                     status: ProbeStatus::Blocked,
                     latency_ms: None,
                     dns_ms: dns_time_ms,
-                    tcp_ms: tcp_time_ms,
+                    tcp_ms: None,
                     http_status: None,
                     packet_loss_pct: 100.0,
                     last_checked_epoch: now_epoch,
                     ip_address: Some(ip_str),
-                    message: format!("TLS/DPI блокировка: {}", e),
+                    message: format!("Соединение отклонено или заблокировано (TCP/TLS/DPI): {}", e),
                 }
             }
         }
@@ -334,8 +300,9 @@ impl DiagnosticsService {
             let p = parsed.port_or_known_default().unwrap_or(443);
             (h, p, clean.to_string())
         } else {
-            let h = clean.split('/').next().unwrap_or(clean).to_string();
-            (h.clone(), 443, format!("https://{}", h))
+            let hostport = clean.split('/').next().unwrap_or(clean);
+            let (h, p) = parse_host_port(hostport);
+            (h, p, format!("https://{}", hostport))
         };
 
         self.measure_endpoint(&host, &host, port, &url).await
@@ -371,7 +338,7 @@ impl DiagnosticsService {
         new_report
     }
 
-    /// Starts the continuous background polling loop (every 7 seconds).
+    /// Starts the continuous background polling loop (every 30 seconds).
     pub fn start_polling_loop<F>(self: Arc<Self>, emit_callback: F)
     where
         F: Fn(DiagnosticsReport) + Send + Sync + 'static,
@@ -380,8 +347,57 @@ impl DiagnosticsService {
             loop {
                 let report = self.run_probes_now().await;
                 emit_callback(report);
-                sleep(Duration::from_secs(7)).await;
+                sleep(Duration::from_secs(30)).await;
             }
         });
+    }
+}
+
+/// Splits a `host`, `host:port`, `[::1]` or `[::1]:port` input into (host, port).
+/// IPv6-aware: a bare IPv6 literal (multiple colons, no brackets) is never split.
+fn parse_host_port(input: &str) -> (String, u16) {
+    let input = input.trim();
+    if input.is_empty() {
+        return ("google.com".to_string(), 443);
+    }
+    if let Some(rest) = input.strip_prefix('[') {
+        // Bracketed IPv6 literal, optionally followed by :port
+        if let Some(end) = rest.find(']') {
+            let host = format!("[{}]", &rest[..end]);
+            let port = rest[end + 1..]
+                .strip_prefix(':')
+                .and_then(|p| p.parse::<u16>().ok())
+                .unwrap_or(443);
+            return (host, port);
+        }
+        return (input.to_string(), 443);
+    }
+    // Only split on ':' when there is exactly one (hostname / IPv4 + port)
+    if input.matches(':').count() == 1 {
+        if let Some((h, p)) = input.split_once(':') {
+            if !h.is_empty() {
+                if let Ok(port) = p.parse::<u16>() {
+                    return (h.to_string(), port);
+                }
+            }
+        }
+    }
+    (input.to_string(), 443)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_host_port;
+
+    #[test]
+    fn test_parse_host_port() {
+        assert_eq!(parse_host_port("example.com"), ("example.com".to_string(), 443));
+        assert_eq!(parse_host_port("example.com:8080"), ("example.com".to_string(), 8080));
+        assert_eq!(parse_host_port("1.2.3.4:53"), ("1.2.3.4".to_string(), 53));
+        assert_eq!(parse_host_port("[::1]"), ("[::1]".to_string(), 443));
+        assert_eq!(parse_host_port("[::1]:5353"), ("[::1]".to_string(), 5353));
+        // Bare IPv6 literal must not be split on colons
+        assert_eq!(parse_host_port("::1"), ("::1".to_string(), 443));
+        assert_eq!(parse_host_port("example.com:notaport"), ("example.com:notaport".to_string(), 443));
     }
 }
