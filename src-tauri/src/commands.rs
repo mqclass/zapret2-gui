@@ -479,6 +479,7 @@ pub async fn set_tgproxy_config(
 #[tauri::command]
 pub async fn regenerate_tgproxy_secret(state: State<'_, AppState>) -> Result<String, String> {
     state.tgproxy.regenerate_secret().map_err(|e| e.to_string())
+}
 
 /// Lists all registered camouflage transports with live availability for the UI.
 ///
