@@ -60,7 +60,6 @@ pub struct AppSettings {
     /// Whether Windows toast notifications are shown for engine events.
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
-<<<<<<< HEAD
     /// Whether the app periodically checks GitHub for new releases.
     #[serde(default = "default_true")]
     pub auto_update_enabled: bool,
@@ -75,8 +74,7 @@ pub struct AppSettings {
     pub tgproxy_secret: String,
     /// Whether the Telegram proxy was left enabled (auto-start on app launch).
     #[serde(default)]
-    pub tgproxy_enabled: bool,}
-=======
+    pub tgproxy_enabled: bool,
     /// Active camouflage transport id (see engine::transport). `None` means
     /// the legacy direct launch — the only fully working mode today.
     pub active_transport_id: Option<String>,
@@ -86,7 +84,6 @@ pub struct AppSettings {
     #[serde(default)]
     pub transport_configs: HashMap<String, TransportConfig>,
 }
->>>>>>> feature/transport-framework
 
 fn default_true() -> bool {
     true
@@ -107,18 +104,15 @@ impl Default for AppSettings {
             last_strategy_id: Some("flowseal-alt".into()),
             auto_start_bypass: true,
             notifications_enabled: true,
-<<<<<<< HEAD
             auto_update_enabled: true,
             last_update_check: None,
             tgproxy_port: 1443,
             tgproxy_secret: String::new(),
-            tgproxy_enabled: false,        }
-=======
+            tgproxy_enabled: false,        
             active_transport_id: None,
             transport_configs: HashMap::new(),
-        }
->>>>>>> feature/transport-framework
-    }
+        
+}    }
 }
 
 static CACHED_SETTINGS: RwLock<Option<AppSettings>> = RwLock::new(None);

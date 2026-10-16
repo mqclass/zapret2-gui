@@ -21,19 +21,12 @@ tokio = { version = "1.38", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 parking_lot = "0.12"
 thiserror = "1.0"
-<<<<<<< HEAD
-sha2 = "1.0"
+# tgproxy.rs needs rand (OsRng secret generation) and sha2 (download
+# integrity). NOTE: sha2 is "0.10" — there is no sha2 1.x on crates.io.
+sha2 = "0.10"
 hex = "0.4"
 zip = "2"
-=======
-# T1 (review): tgproxy.rs needs rand (OsRng secret generation), sha2 (download
-# integrity) and reqwest's "stream" feature (resp.chunk()).
-# NOTE: sha2 is "0.10", not "1.0" — there is no sha2 1.x on crates.io
-# (max is 0.11.1; 0.10.9 is the most compatible, edition-2018 build).
 rand = "0.8"
-sha2 = "0.10"
->>>>>>> feature/tg-proxy-mode
-
 [dependencies.windows]
 version = "0.58"
 features = [

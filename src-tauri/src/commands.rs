@@ -438,7 +438,6 @@ pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
     Ok(enable)
 }
 
-<<<<<<< HEAD
 /// Returns the Telegram MTProxy-mode sidecar status snapshot.
 #[tauri::command]
 pub async fn get_tgproxy_status(state: State<'_, AppState>) -> Result<TgProxyStatus, String> {
@@ -480,7 +479,7 @@ pub async fn set_tgproxy_config(
 #[tauri::command]
 pub async fn regenerate_tgproxy_secret(state: State<'_, AppState>) -> Result<String, String> {
     state.tgproxy.regenerate_secret().map_err(|e| e.to_string())
-=======
+
 /// Lists all registered camouflage transports with live availability for the UI.
 ///
 /// The registry is the single source of truth: the frontend never hardcodes
@@ -599,9 +598,7 @@ pub async fn validate_transport_config(
     config_json: String,
 ) -> Result<(), String> {
     crate::engine::transport::validate_transport_config_json(&transport_id, &config_json)
-        .map_err(|e| e.to_string())
->>>>>>> feature/transport-framework
-}
+        .map_err(|e| e.to_string())}
 
 /// Exports a diagnostic bundle for bug reports: app/system info, settings,
 /// active strategy, recent engine logs and the latest probe report.
