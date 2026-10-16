@@ -68,11 +68,11 @@ function Test-Authenticode {
         }
         "NotSigned" {
             # Upstream does not sign every binary; a missing signature is a warning,
-            # not a build break — the pinned SHA256 above is the hard guarantee.
+            # not a build break - the pinned SHA256 above is the hard guarantee.
             Write-Warning "Authenticode: $fileName is not signed by upstream."
         }
         default {
-            throw "SECURITY: Authenticode check failed for $fileName — status: $($sig.Status). Aborting build."
+            throw ("SECURITY: Authenticode check failed for {0} (status: {1}). Aborting build." -f $fileName, $sig.Status)
         }
     }
 }
@@ -181,7 +181,7 @@ $w2 = Join-Path $BinDir "winws2.exe"
 if ((Test-Path $w1) -and (Test-Path $w2)) {
     $s1 = (Get-Item $w1).Length
     $s2 = (Get-Item $w2).Length
-    Write-Host "==> Verified winws.exe ($s1 bytes) and winws2.exe ($s2 bytes)" -ForegroundColor Green
+    Write-Host ("==> Verified winws.exe ({0} bytes) and winws2.exe ({1} bytes)" -f $s1, $s2) -ForegroundColor Green
     if ($s1 -eq $s2) {
         Write-Warning "winws.exe and winws2.exe have identical sizes! winws2 should be distinct bol-van/zapret2 binary."
     }
