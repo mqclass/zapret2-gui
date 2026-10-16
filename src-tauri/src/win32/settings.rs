@@ -50,6 +50,12 @@ pub struct AppSettings {
     /// Whether Windows toast notifications are shown for engine events.
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
+    /// Whether the app periodically checks GitHub for new releases.
+    #[serde(default = "default_true")]
+    pub auto_update_enabled: bool,
+    /// Unix timestamp of the last *successful* update check (scheduler bookkeeping).
+    #[serde(default)]
+    pub last_update_check: Option<u64>,
 }
 
 fn default_true() -> bool {
@@ -67,6 +73,8 @@ impl Default for AppSettings {
             last_strategy_id: Some("flowseal-alt".into()),
             auto_start_bypass: true,
             notifications_enabled: true,
+            auto_update_enabled: true,
+            last_update_check: None,
         }
     }
 }

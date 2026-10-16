@@ -595,6 +595,52 @@ pub async fn sync_remote_lists() -> Result<crate::win32::lists::ListSyncReport, 
     crate::win32::lists::update_remote_lists().await
 }
 
+/// Checks GitHub for a newer release and compares it with the running version.
+///
+/// A transport failure (blocked GitHub, no network) returns an error — the
+/// frontend scheduler swallows those silently and retries on schedule, while
+/// the manual "check" button surfaces them.
+#[tauri::command]
+pub async fn check_for_updates() -> Result<crate::win32::updater::UpdateInfo, String> {
+    crate::win32::updater::check_for_updates().await
+}
+
+/// Downloads the latest release asset with streaming SHA256 verification.
+///
+/// Emits `update-download-progress` events for the UI progress bar and returns
+/// the staging directory. Refuses to proceed when the asset metadata carries
+/// no sha256 digest; deletes the temp file on hash mismatch.
+#[tauri::command]
+pub async fn download_update(app: tauri::AppHandle) -> Result<String, String> {
+    crate::win32::updater::download_update(app)
+        .await
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+/// Atomically installs a previously staged update and restarts the app.
+///
+/// Fail-closed: refuses while the bypass engine is running (the frontend stops
+/// it first, with the user's explicit consent from the update dialog). Backs
+/// the current installation up via rename, swaps in the new tree, restores
+/// user settings, then launches the new version and exits. Rolls back to the
+/// backup on any failure.
+#[tauri::command]
+pub async fn install_update(state: State<'_, AppState>) -> Result<(), String> {
+    crate::win32::updater::install_update(&state.supervisor)
+}
+
+/// Returns the auto-update toggle and the last successful check timestamp.
+#[tauri::command]
+pub async fn get_update_prefs() -> Result<crate::win32::updater::UpdatePrefs, String> {
+    Ok(crate::win32::updater::get_update_prefs())
+}
+
+/// Enables or disables the scheduled update check.
+#[tauri::command]
+pub async fn set_auto_update_enabled(enable: bool) -> Result<bool, String> {
+    crate::win32::updater::set_auto_update_enabled(enable)
+}
+
 /// Minimizes the application window.
 #[tauri::command]
 pub fn window_minimize(window: tauri::Window) -> Result<(), String> {
