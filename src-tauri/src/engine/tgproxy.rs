@@ -207,7 +207,8 @@ impl TgProxyManager {
         // changing bridge behavior behind the user's back. Nothing else in
         // this app consumes TG_*, so drop them before parsing.
         let tg_keys: Vec<String> = std::env::vars()
-            .filter_map(|(k, _)| k.strip_prefix("TG_").map(|_| k))
+            .map(|(k, _)| k)
+            .filter(|k| k.starts_with("TG_"))
             .collect();
         for k in tg_keys {
             std::env::remove_var(k);
