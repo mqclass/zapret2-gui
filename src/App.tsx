@@ -12,10 +12,14 @@ import {
   SplitTunnelMode,
   AppSettings,
   ListSyncReport,
+  UpdateInfo,
+  UpdateProgress,
+  UpdatePrefs,
 } from "./types";
 import { Sidebar, NavTab } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { ConflictBanner } from "./components/ConflictBanner";
+import { UpdateDialog, UpdatePhase } from "./components/UpdateDialog";
 import { DashboardView } from "./components/views/DashboardView";
 import { StrategiesView } from "./components/views/StrategiesView";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
@@ -80,6 +84,19 @@ const AppContent: React.FC = () => {
   const [splitTunnelMode, setSplitTunnelMode] = useState<SplitTunnelMode>("full");
   // Admin gate: shown when the app runs without Administrator privileges.
   const [showAdminGate, setShowAdminGate] = useState<boolean>(false);
+  // Self-update state.
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
+  const [autoUpdateOn, setAutoUpdateOn] = useState<boolean>(true);
+  const [isTogglingAutoUpdate, setIsTogglingAutoUpdate] = useState<boolean>(false);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState<boolean>(false);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState<boolean>(false);
+  const [updatePhase, setUpdatePhase] = useState<UpdatePhase>("confirm");
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  // Tracks the last version we already toasted about, so the 6h schedule
+  // does not re-notify for the same release.
+  const notifiedUpdateVersionRef = useRef<string | null>(null);
 
   // Surface the admin gate once the real elevation state is known.
   useEffect(() => {
@@ -133,6 +150,167 @@ const AppContent: React.FC = () => {
       setIsTogglingNotifications(false);
     }
   }, [notificationsOn]);
+
+  // ---- Self-update ----------------------------------------------------
+
+  /**
+   * Runs a release check against GitHub.
+   *
+   * `manual=true` (the "Check for updates" button) surfaces errors and results
+   * in the UI. `manual=false` (the 6h schedule) is quiet by design: a blocked
+   * GitHub or missing network only logs to the console and retries on the
+   * next tick — no error spam.
+   */
+  const runUpdateCheck = useCallback(
+    async (manual: boolean) => {
+      if (manual) setIsCheckingUpdates(true);
+      try {
+        const info = await invoke<UpdateInfo>("check_for_updates");
+        setUpdateInfo(info);
+        if (info.update_available) {
+          // A newer release than the dismissed one re-arms the banner.
+          if (notifiedUpdateVersionRef.current !== info.latest_version) {
+            notifiedUpdateVersionRef.current = info.latest_version;
+            notifyUser(
+              t.update.notifyAvailableTitle,
+              t.update.notifyAvailableBody.replace("{v}", info.latest_version)
+            );
+          }
+          if (manual) setSuccessAlert(t.update.availableTitle.replace("{v}", info.latest_version));
+        } else if (manual) {
+          setSuccessAlert(t.update.upToDate);
+        }
+      } catch (err: any) {
+        if (manual) {
+          console.error("Update check failed:", err);
+          setErrorAlert(`${t.update.checkFailed}: ${formatErrorMessage(err)}`);
+        } else {
+          // Quiet scheduled failure (GitHub blocked / offline): retry later.
+          console.debug("Scheduled update check failed (will retry):", err);
+        }
+      } finally {
+        if (manual) setIsCheckingUpdates(false);
+      }
+    },
+    [t]
+  );
+
+  const handleCheckUpdates = useCallback(() => {
+    setDismissedUpdateVersion(null);
+    void runUpdateCheck(true);
+  }, [runUpdateCheck]);
+
+  const handleToggleAutoUpdate = useCallback(async () => {
+    setIsTogglingAutoUpdate(true);
+    try {
+      const res = await invoke<boolean>("set_auto_update_enabled", {
+        enable: !autoUpdateOn,
+      });
+      setAutoUpdateOn(res);
+    } catch (err: any) {
+      console.error("Failed to toggle auto-update:", err);
+      setErrorAlert(formatErrorMessage(err));
+    } finally {
+      setIsTogglingAutoUpdate(false);
+    }
+  }, [autoUpdateOn]);
+
+  const handleOpenUpdateDialog = useCallback(() => {
+    setUpdatePhase("confirm");
+    setUpdateProgress(null);
+    setUpdateError(null);
+    setUpdateDialogOpen(true);
+  }, []);
+
+  const handleDismissUpdate = useCallback(() => {
+    setDismissedUpdateVersion(updateInfo?.latest_version ?? null);
+  }, [updateInfo]);
+
+  /**
+   * Confirmed update flow: download (with progress + SHA256 verification),
+   * then stop the engine — only now, with the user's explicit consent from
+   * the dialog and the verified payload on disk — then atomic install and
+   * restart. On success the backend spawns the new version and terminates
+   * this process, so this function never returns.
+   */
+  const handleConfirmUpdate = useCallback(async () => {
+    if (!updateInfo) return;
+    setUpdateError(null);
+    setUpdateProgress(null);
+    setUpdatePhase("downloading");
+
+    let unlisten: (() => void) | undefined;
+    let stage: "download" | "install" = "download";
+    try {
+      unlisten = await listen<UpdateProgress>("update-download-progress", (e) => {
+        setUpdateProgress(e.payload);
+      });
+
+      await invoke<string>("download_update");
+
+      // Fresh engine state (no stale React state): stop only if really running.
+      const st = await invoke<SupervisorStatusResponse>("get_supervisor_status");
+      if (st.supervisor.state === "running") {
+        await invoke("stop_supervisor");
+      }
+
+      stage = "install";
+      setUpdatePhase("installing");
+      await invoke("install_update");
+
+      // Reached only if the backend returned without installing or restarting.
+      setUpdateError(t.update.installFailed);
+      setUpdatePhase("error");
+    } catch (err: any) {
+      const raw = formatErrorMessage(err);
+      let msg: string;
+      if (/sha256|checksum/i.test(raw)) {
+        msg = t.update.hashMismatch;
+      } else if (/ENGINE_RUNNING/.test(raw)) {
+        msg = t.update.engineRunning;
+      } else {
+        msg =
+          stage === "install"
+            ? `${t.update.installFailed}: ${raw}`
+            : `${t.update.downloadFailed}: ${raw}`;
+      }
+      console.error("Update failed:", err);
+      setUpdateError(msg);
+      setUpdatePhase("error");
+    } finally {
+      if (unlisten) unlisten();
+    }
+  }, [updateInfo, t]);
+
+  // Scheduled update checks: first run ~90s after startup (network settles),
+  // then every 30 minutes — each tick only checks when the backend reports
+  // the last *successful* check is older than 6h and the toggle is on.
+  useEffect(() => {
+    let cancelled = false;
+    const UPDATE_CHECK_INTERVAL_MS = 6 * 3600 * 1000;
+
+    const maybeScheduledCheck = async () => {
+      try {
+        const prefs = await invoke<UpdatePrefs>("get_update_prefs");
+        if (cancelled) return;
+        setAutoUpdateOn(prefs.auto_check_enabled);
+        const stale =
+          prefs.auto_check_enabled &&
+          Date.now() / 1000 - prefs.last_check_epoch >= UPDATE_CHECK_INTERVAL_MS / 1000;
+        if (stale) await runUpdateCheck(false);
+      } catch (err) {
+        if (!cancelled) console.debug("Scheduled update check skipped:", err);
+      }
+    };
+
+    const timeoutId = window.setTimeout(maybeScheduledCheck, 90_000);
+    const intervalId = window.setInterval(maybeScheduledCheck, 30 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, [runUpdateCheck]);
 
   const handleExportDiagnostics = useCallback(async () => {
     setIsExportingDiag(true);
@@ -616,6 +794,13 @@ const AppContent: React.FC = () => {
               onRefreshProbes={handleRefreshProbes}
               isRefreshingProbes={isRefreshingProbes}
               onNavigateTab={setActiveTab}
+              updateInfo={
+                dismissedUpdateVersion && updateInfo?.latest_version === dismissedUpdateVersion
+                  ? null
+                  : updateInfo
+              }
+              onOpenUpdateDialog={handleOpenUpdateDialog}
+              onDismissUpdate={handleDismissUpdate}
             />
           )}
 
@@ -673,6 +858,12 @@ const AppContent: React.FC = () => {
               isTogglingNotifications={isTogglingNotifications}
               onExportDiagnostics={handleExportDiagnostics}
               isExportingDiag={isExportingDiag}
+              autoUpdateOn={autoUpdateOn}
+              onToggleAutoUpdate={handleToggleAutoUpdate}
+              isTogglingAutoUpdate={isTogglingAutoUpdate}
+              onCheckUpdates={handleCheckUpdates}
+              isCheckingUpdates={isCheckingUpdates}
+              updateInfo={updateInfo}
             />
           )}
         </main>
@@ -708,6 +899,19 @@ const AppContent: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Update confirmation / progress dialog */}
+      {updateDialogOpen && updateInfo && (
+        <UpdateDialog
+          info={updateInfo}
+          engineRunning={status.state === "running"}
+          phase={updatePhase}
+          progress={updateProgress}
+          error={updateError}
+          onConfirm={handleConfirmUpdate}
+          onClose={() => setUpdateDialogOpen(false)}
+        />
       )}
     </div>
   );

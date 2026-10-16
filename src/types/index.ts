@@ -111,6 +111,34 @@ export interface AppSettings {
   auto_start_bypass?: boolean;
   auto_doctor_on_start?: boolean;
   notifications_enabled?: boolean;
+  auto_update_enabled?: boolean;
+  last_update_check?: number | null;
+}
+
+/** Release information returned by the `check_for_updates` IPC command. */
+export interface UpdateInfo {
+  current_version: string;
+  latest_version: string;
+  update_available: boolean;
+  release_notes: string;
+  release_url: string;
+  asset_name: string;
+  asset_size: number;
+  published_at: string;
+  prerelease: boolean;
+}
+
+/** Download progress snapshot emitted over the `update-download-progress` event. */
+export interface UpdateProgress {
+  downloaded_bytes: number;
+  total_bytes: number;
+  percent: number;
+}
+
+/** Scheduler preferences returned by the `get_update_prefs` IPC command. */
+export interface UpdatePrefs {
+  auto_check_enabled: boolean;
+  last_check_epoch: number;
 }
 
 export interface DoctorStep {

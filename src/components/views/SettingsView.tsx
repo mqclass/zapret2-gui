@@ -14,12 +14,15 @@ import {
   Bell,
   BellOff,
   FileDown,
+  ArrowDownToLine,
+  BadgeCheck,
 } from "lucide-react";
 import { ZapretLogo } from "../ZapretLogo";
 import { useI18n } from "../../i18n";
 import { Language } from "../../i18n/types";
 import { useTheme, ThemeId } from "../../theme/ThemeContext";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { UpdateInfo } from "../../types";
 
 /** External links opened via the opener plugin (L-2). The capability allowlist
  *  restricts this to https://github.com/* — no webview navigation is enabled. */
@@ -91,6 +94,12 @@ interface SettingsViewProps {
   isTogglingNotifications: boolean;
   onExportDiagnostics: () => void;
   isExportingDiag: boolean;
+  autoUpdateOn: boolean;
+  onToggleAutoUpdate: () => void;
+  isTogglingAutoUpdate: boolean;
+  onCheckUpdates: () => void;
+  isCheckingUpdates: boolean;
+  updateInfo: UpdateInfo | null;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = React.memo(
@@ -109,6 +118,12 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     isTogglingNotifications,
     onExportDiagnostics,
     isExportingDiag,
+    autoUpdateOn,
+    onToggleAutoUpdate,
+    isTogglingAutoUpdate,
+    onCheckUpdates,
+    isCheckingUpdates,
+    updateInfo,
   }) => {
     const { language, setLanguage, t } = useI18n();
     const { theme, setTheme } = useTheme();
@@ -313,8 +328,93 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               </button>
             </div>
 
-            {/* Diagnostic Bundle Export Card */}
+            {/* Application Updates Subsection */}
+            <div className="flex items-center gap-2 pt-2">
+              <ArrowDownToLine className="h-4 w-4 text-accent" />
+              <span className="text-xs font-semibold text-ink">{t.update.sectionTitle}</span>
+            </div>
+            <p className="-mt-1 text-[11px] text-ink4 leading-relaxed">{t.update.sectionDesc}</p>
+
+            {/* Auto-Update Check Toggle Card */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  {autoUpdateOn ? (
+                    <RefreshCw className="h-4 w-4 text-accent" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 text-ink4" />
+                  )}
+                  <span className="text-xs font-semibold text-ink">{t.update.autoCheckTitle}</span>
+                  <span
+                    className={`rounded-chip px-1.5 py-0.5 text-[10px] font-medium ${
+                      autoUpdateOn
+                        ? "bg-accent-wash text-accent-soft border border-accent-line"
+                        : "bg-hovert text-ink4"
+                    }`}
+                  >
+                    {autoUpdateOn ? t.update.autoCheckOn : t.update.autoCheckOff}
+                  </span>
+                </div>
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
+                  {t.update.autoCheckDesc}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onToggleAutoUpdate}
+                disabled={isTogglingAutoUpdate}
+                className="flex items-center justify-center gap-2 rounded-control px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 border border-line bg-hovert hover:bg-raise text-ink2"
+              >
+                {isTogglingAutoUpdate ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent" />
+                ) : autoUpdateOn ? (
+                  <BellOff className="h-3.5 w-3.5 text-accent" />
+                ) : (
+                  <Bell className="h-3.5 w-3.5 text-accent" />
+                )}
+                <span>
+                  {autoUpdateOn ? t.update.autoCheckOff : t.update.autoCheckOn}
+                </span>
+              </button>
+            </div>
+
+            {/* Version & Manual Check Card */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  {updateInfo?.update_available ? (
+                    <AlertTriangle className="h-4 w-4 text-amber-400" />
+                  ) : (
+                    <BadgeCheck className="h-4 w-4 text-accent" />
+                  )}
+                  <span className="text-xs font-semibold text-ink">{t.update.versionTitle}</span>
+                  <span className="rounded-chip px-1.5 py-0.5 text-[10px] font-mono bg-hovert text-ink4">
+                    v{updateInfo?.current_version ?? t.header.version.replace(/^v/, "")}                  </span>
+                </div>
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
+                  {updateInfo
+                    ? updateInfo.update_available
+                      ? t.update.availableTitle.replace("{v}", updateInfo.latest_version)
+                      : t.update.upToDate
+                    : t.update.versionDesc}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onCheckUpdates}
+                disabled={isCheckingUpdates}
+                className="flex items-center justify-center gap-2 rounded-control px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 border border-line bg-hovert hover:bg-raise text-ink2"
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 text-accent ${isCheckingUpdates ? "animate-spin" : ""}`}
+                />
+                <span>{isCheckingUpdates ? t.update.checking : t.update.checkBtn}</span>
+              </button>
+            </div>
+
+            {/* Diagnostic Bundle Export Card */}            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <FileDown className="h-4 w-4 text-accent" />

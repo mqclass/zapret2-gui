@@ -17,9 +17,11 @@ import {
   DiagnosticsReport,
   LuaStrategy,
   SplitTunnelMode,
+  UpdateInfo,
 } from "../../types";
 import { useI18n } from "../../i18n";
 import { SplitTunnelBar } from "../SplitTunnelBar";
+import { UpdateBanner } from "../UpdateBanner";
 import { NavTab } from "../Sidebar";
 
 interface DashboardViewProps {
@@ -36,6 +38,9 @@ interface DashboardViewProps {
   onRefreshProbes: () => void;
   isRefreshingProbes: boolean;
   onNavigateTab: (tab: NavTab) => void;
+  updateInfo: UpdateInfo | null;
+  onOpenUpdateDialog: () => void;
+  onDismissUpdate: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = React.memo(
@@ -53,6 +58,9 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
     onRefreshProbes,
     isRefreshingProbes,
     onNavigateTab,
+    updateInfo,
+    onOpenUpdateDialog,
+    onDismissUpdate,
   }) => {
     const { t } = useI18n();
 
@@ -75,6 +83,14 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
 
     return (
       <div className="space-y-4 pb-4">
+        {/* Update availability banner (announces only — no silent downloads) */}
+        {updateInfo?.update_available && (
+          <UpdateBanner
+            info={updateInfo}
+            onOpenDialog={onOpenUpdateDialog}
+            onDismiss={onDismissUpdate}
+          />
+        )}
         {/* Hero Control Card */}
         <div className="rounded-card border border-line bg-card p-6 shadow-sm">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
