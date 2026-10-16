@@ -276,8 +276,8 @@ const AppContent: React.FC = () => {
     setStatus((prev) => ({ ...prev, state: "starting" }));
     try {
       await invoke("start_supervisor", {
-        strategyId: selectedStrategyId || null,
-        customArgs: customArgs || null,
+        strategy_id: selectedStrategyId || null,
+        custom_args: customArgs || null,
       });
       setTimeout(() => {
         handleRefreshProbes();
@@ -296,8 +296,8 @@ const AppContent: React.FC = () => {
     setStatus((prev) => ({ ...prev, state: "starting" }));
     try {
       await invoke("start_supervisor", {
-        strategyId: strategyId,
-        customArgs: null,
+        strategy_id: strategyId,
+        custom_args: null,
       });
       setTimeout(() => {
         handleRefreshProbes();

@@ -56,7 +56,7 @@ export const DnsManagerModal: React.FC<DnsManagerModalProps> = ({
     setMessage(null);
     try {
       const updated = await invoke<DnsStatus>("set_system_dns", {
-        providerId,
+        provider_id: providerId,
       });
       setDnsStatus(updated);
       setMessage(t.dns.successApplied);

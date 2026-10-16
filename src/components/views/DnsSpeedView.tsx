@@ -62,7 +62,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
     const targetScope = scopeToUse || dnsScope;
     try {
       const updated = await invoke<DnsStatus>("set_system_dns", {
-        providerId,
+        provider_id: providerId,
         scope: targetScope,
       });
       setDnsStatus(updated);
