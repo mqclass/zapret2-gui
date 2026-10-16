@@ -94,7 +94,7 @@ pub fn get_adapter_and_dns() -> (String, Vec<String>) {
         [string]::Format('{0}::{1}', $alias, $dnsStr)
     "#;
 
-    let output = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
+    let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output();
@@ -137,7 +137,7 @@ pub fn get_active_dns_servers(adapter: &str) -> Vec<String> {
         escape_ps(adapter)
     );
 
-    let output = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
+    let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .output();
@@ -165,7 +165,7 @@ fn escape_ps(value: &str) -> String {
 /// Runs a PowerShell script silently, returning an error when PowerShell itself
 /// fails to launch or the script exits with a non-zero status.
 fn run_powershell(script: &str) -> Result<(), String> {
-    let output = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
+    let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output()
@@ -261,7 +261,7 @@ pub fn check_split_dns_status() -> (bool, Vec<String>) {
         }
     "#;
 
-    let output = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
+    let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output();
@@ -311,7 +311,7 @@ pub fn apply_split_dns_nrpt(primary: &str, secondary: &str) -> Result<(), String
         ns_list, primary, secondary
     );
 
-    let output = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
+    let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .output()
@@ -335,7 +335,7 @@ pub fn clear_split_dns_nrpt() -> Result<(), String> {
         }
     "#;
 
-    let _ = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
+    let _ = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output();

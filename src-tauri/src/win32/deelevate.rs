@@ -320,10 +320,10 @@ pub fn spawn_deelevated(
     args: &[&str],
     workdir: &Path,
 ) -> Result<RawChild, DeelevateError> {
-    enable_privilege(*w!("SeAssignPrimaryTokenPrivilege")).map_err(|e| {
+    enable_privilege(w!("SeAssignPrimaryTokenPrivilege")).map_err(|e| {
         DeelevateError::msg(format!("cannot enable SeAssignPrimaryTokenPrivilege: {e}"))
     })?;
-    enable_privilege(*w!("SeIncreaseQuotaPrivilege")).map_err(|e| {
+    enable_privilege(w!("SeIncreaseQuotaPrivilege")).map_err(|e| {
         DeelevateError::msg(format!("cannot enable SeIncreaseQuotaPrivilege: {e}"))
     })?;
     let token = duplicated_shell_token()?;

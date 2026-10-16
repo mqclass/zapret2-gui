@@ -45,7 +45,7 @@ pub async fn run_youtube_speedtest() -> Result<SpeedtestResult, String> {
     let cloudflare_url = "https://speed.cloudflare.com/__down?bytes=10000000";
 
     let start = Instant::now();
-    let resp = match client
+    let mut resp = match client
         .get(google_url)
         .header("Range", "bytes=0-10485759")
         .header("Cache-Control", "no-cache")

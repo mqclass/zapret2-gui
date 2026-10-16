@@ -450,7 +450,7 @@ impl TgProxyManager {
 
         let dir = Self::locate_dir();
         let binary_present = dir.is_some();
-        let manifest = dir.as_ref().and_then(Self::read_manifest);
+        let manifest = dir.as_ref().and_then(|d| Self::read_manifest(d));
         let binary_version = manifest.as_ref().map(|m| m.version.clone());
         let version_supported = manifest
             .as_ref()
@@ -944,7 +944,11 @@ impl TgProxyManager {
         self.emit_state(SupervisorState::Stopping);
         self.supervisor.log("info", "Остановка Telegram-прокси…");
 
-        if let Some(mut child) = self.active_child.lock().take() {
+        // Take the child out from under the lock *before* any `.await`:
+        // the parking_lot guard must not be held across an await point,
+        // otherwise the Tauri command future stops being `Send`.
+        let child = self.active_child.lock().take();
+        if let Some(mut child) = child {
             let _ = child.start_kill();
             let _ = timeout(Duration::from_secs(5), child.wait()).await;
         }

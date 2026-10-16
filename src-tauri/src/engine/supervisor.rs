@@ -117,7 +117,7 @@ impl Supervisor {
             diagnostics,
             ring_buffer,
             log_tx,
-            file_logger,
+            file_logger: file_logger.clone(),
             app_handle,
         };
 

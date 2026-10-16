@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{LocalFree, HLOCAL, PVOID};
+use windows::Win32::Foundation::{LocalFree, HLOCAL};
 use windows::Win32::Security::Cryptography::{
     CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
 };
@@ -148,9 +148,8 @@ fn dpapi_protect(plaintext: &str) -> Result<String, String> {
             descr,
             None,
             None,
-            // pvReserved must be NULL; PVOID is passed explicitly (proven
-            // Param<PVOID> path) instead of relying on Option inference.
-            PVOID(std::ptr::null_mut()),
+            // pvReserved must be NULL.
+            None,
             CRYPTPROTECT_UI_FORBIDDEN,
             &mut blob_out,
         )
@@ -197,8 +196,8 @@ fn dpapi_unprotect(stored: &str) -> Result<String, String> {
             None,
             None,
             None,
-            // See dpapi_protect: explicit null PVOID instead of None.
-            PVOID(std::ptr::null_mut()),
+            // pvReserved must be NULL.
+            None,
             CRYPTPROTECT_UI_FORBIDDEN,
             &mut blob_out,
         )
