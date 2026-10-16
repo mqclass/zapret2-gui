@@ -8,7 +8,13 @@
   />
   <description>zapret2 Windows GUI &amp; Background Supervisor</description>
 
-  <!-- UAC Privilege Elevation: Local Administrator is required for WinDivert driver registration in WFP -->
+  <!-- UAC Privilege Elevation: Local Administrator is required for WinDivert driver registration in WFP.
+       SECURITY (M-2): requireAdministrator is INTENTIONAL and must stay — the WinDivert
+       kernel driver cannot be installed/attached without admin rights, and the whole
+       supervisor is designed around it. This means the entire UI (Chromium webview)
+       also runs elevated, which is why a strict CSP (tauri.conf.json) and minimal
+       IPC surface matter. Long-term: split into an unprivileged UI process + a
+       privileged broker service; see SECURITY.md M-2. -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>

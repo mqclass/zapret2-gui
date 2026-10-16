@@ -16,6 +16,15 @@ import { ZapretLogo } from "../ZapretLogo";
 import { useI18n } from "../../i18n";
 import { Language } from "../../i18n/types";
 import { useTheme, ThemeId } from "../../theme/ThemeContext";
+import { openUrl } from "@tauri-apps/plugin-opener";
+
+/** External links opened via the opener plugin (L-2). The capability allowlist
+ *  restricts this to https://github.com/* — no webview navigation is enabled. */
+const EXTERNAL_LINKS = [
+  { url: "https://github.com/bol-van/zapret", label: "GitHub bol-van/zapret" },
+  { url: "https://github.com/Flowseal/zapret-discord-youtube", label: "GitHub Flowseal (Пресеты)" },
+  { url: "https://github.com/mqclass/zapret2-gui", label: "GitHub mqclass/zapret2-gui" },
+];
 
 /** Static miniature mock of each theme — pure CSS, no app state involved. */
 const ThemePreview: React.FC<{ id: ThemeId }> = ({ id }) => {
@@ -334,33 +343,17 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             {t.settingsTab.warningFakesBody}
           </p>
           <div className="flex flex-wrap gap-4 pt-1 text-xs">
-            <a
-              href="https://github.com/bol-van/zapret"
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1.5 text-accent hover:text-accent-soft hover:underline"
-            >
-              <span>GitHub bol-van/zapret</span>
-              <ExternalLink className="h-3 w-3" />
-            </a>
-            <a
-              href="https://github.com/Flowseal/zapret-discord-youtube"
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1.5 text-accent hover:text-accent-soft hover:underline"
-            >
-              <span>GitHub Flowseal (Пресеты)</span>
-              <ExternalLink className="h-3 w-3" />
-            </a>
-            <a
-              href="https://github.com/mqclass/zapret2-gui"
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1.5 text-accent hover:text-accent-soft hover:underline"
-            >
-              <span>GitHub mqclass/zapret2-gui</span>
-              <ExternalLink className="h-3 w-3" />
-            </a>
+            {EXTERNAL_LINKS.map((l) => (
+              <button
+                key={l.url}
+                type="button"
+                onClick={() => openUrl(l.url)}
+                className="flex items-center gap-1.5 text-accent hover:text-accent-soft hover:underline cursor-pointer bg-transparent border-0 p-0"
+              >
+                <span>{l.label}</span>
+                <ExternalLink className="h-3 w-3" />
+              </button>
+            ))}
           </div>
         </div>
 
