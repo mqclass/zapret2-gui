@@ -18,9 +18,15 @@ tauri-plugin-dialog = "2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.38", features = ["full"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 parking_lot = "0.12"
 thiserror = "1.0"
+# T1 (review): tgproxy.rs needs rand (OsRng secret generation), sha2 (download
+# integrity) and reqwest's "stream" feature (resp.chunk()).
+# NOTE: sha2 is "0.10", not "1.0" — there is no sha2 1.x on crates.io
+# (max is 0.11.1; 0.10.9 is the most compatible, edition-2018 build).
+rand = "0.8"
+sha2 = "0.10"
 
 [dependencies.windows]
 version = "0.58"
@@ -30,6 +36,8 @@ features = [
     "Win32_System_JobObjects",
     "Win32_System_Console",
     "Win32_Security",
+    # L-3: DPAPI (CryptProtectData) for the MTProto secret at rest.
+    "Win32_Security_Cryptography",
     "Win32_UI_Shell",
     "Win32_System_Registry",
     "Win32_System_Diagnostics_ToolHelp",

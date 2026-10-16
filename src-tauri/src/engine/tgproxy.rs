@@ -17,12 +17,23 @@
 //!   anything else in the release is ignored.
 //! - The `digest` field of the asset metadata is MANDATORY and must look like
 //!   `sha256:<64 hex chars>`; without it the download is refused.
+//! - Pinned digests (`PINNED_RELEASE_DIGESTS`): the API-served digest must
+//!   additionally match the pin for that exact version. A silently re-uploaded
+//!   release or a new upstream version is refused until the pin is consciously
+//!   updated in code (defense in depth against a compromised Flowseal
+//!   account/pipeline — the digest alone only proves "bytes == what the API
+//!   currently serves").
 //! - The file is streamed into a temporary file while being hashed (same
 //!   mechanics as upstream `utils/update_check.py::download_asset`); the hash
 //!   is compared BEFORE the file is moved into place; on mismatch the temp
 //!   file is deleted.
 //! - A `manifest.json` next to the binary records asset name, release version
 //!   and SHA-256; the hash is re-verified on every start.
+//! - De-elevation (`win32::deelevate`): the GUI runs elevated (WinDivert), but
+//!   the sidecar only listens on `127.0.0.1:1443`, so it is spawned with the
+//!   interactive user's token via `CreateProcessAsUserW` — never with the
+//!   Administrator token. Spawning refuses to fall back to elevated on error
+//!   (fail-closed).
 //!
 //! # Process model
 //! The published `TgWsProxy_windows.exe` is a PyInstaller tray GUI application
@@ -41,8 +52,10 @@
 //! forwarded into the supervisor's shared log buffer with level `"tgproxy"`.
 //!
 //! # Version drift
-//! Only three config keys are ever written (`host`, `port`, `secret`) — they
-//! exist in every released `default_config.py`. The downloaded version is
+//! Four config keys are written (`host`, `port`, `secret`, plus
+//! `check_updates: false` which silences the tray app's own updater — updates
+//! are managed by zapret2-gui); everything else is filled in by the exe itself
+//! from its defaults. The downloaded version is
 //! recorded in the manifest and compared against `TGWS_MAX_TESTED_VERSION`;
 //! a newer-than-tested version raises a visible warning in the GUI instead of
 //! silently misbehaving.
@@ -60,15 +73,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 use tokio::net::TcpStream;
-use tokio::process::{Child, Command};
 use tokio::time::timeout;
 
 use crate::engine::supervisor::{Supervisor, SupervisorState};
+use crate::win32::deelevate::RawChild;
 use crate::win32::job_object::JobObject;
-
-/// Creation flags mirroring `win32::process::spawn_process`.
-const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// GitHub Releases API endpoint for the official tg-ws-proxy project.
 const TGWS_RELEASES_API: &str = "https://api.github.com/repos/Flowseal/tg-ws-proxy/releases/latest";
@@ -77,6 +86,24 @@ const TGWS_ASSET_NAME: &str = "TgWsProxy_windows.exe";
 /// Newest upstream version whose config-file contract was verified by hand.
 /// Newer versions still work, but the GUI shows a drift warning.
 const TGWS_MAX_TESTED_VERSION: &str = "1.11.2";
+
+/// Pinned SHA-256 digests of reviewed Flowseal releases: `(version, sha256)`.
+///
+/// Trust-on-first-use, recorded 2026-10-16 from the release API metadata —
+/// cross-check against an independent source before extending. The
+/// API-served digest must match the pin for that exact version; a silently
+/// re-uploaded release (same version, different bytes) or a brand-new
+/// upstream version is REFUSED until the pin is consciously updated here.
+/// This is defense in depth against a compromised Flowseal account or release
+/// pipeline: the `digest` field alone only proves "bytes == what the API
+/// currently serves".
+const PINNED_RELEASE_DIGESTS: &[(&str, &str)] = &[
+    // v1.11.2, from https://api.github.com/repos/Flowseal/tg-ws-proxy/releases/latest
+    (
+        "1.11.2",
+        "54acaa989858dd0f90eca3d18a93125fac3d8f702fc25cff8900d6098f725853",
+    ),
+];
 
 const TGWS_DEFAULT_HOST: &str = "127.0.0.1";
 const TGWS_DEFAULT_PORT: u16 = 1443;
@@ -159,6 +186,12 @@ pub enum TgProxyError {
     MustStopFirst,
     #[error("Не удалось запустить процесс: {0}")]
     Spawn(String),
+    #[error("Не удалось запустить прокси без прав администратора: {0}")]
+    Deelevate(String),
+    #[error("Версия {0} tg-ws-proxy не закреплена (pin) в коде — скачивание отклонено. Обновление до новой версии upstream — осознанное действие: добавьте её SHA-256 в PINNED_RELEASE_DIGESTS после ручной проверки")]
+    VersionNotPinned(String),
+    #[error("Digest версии {0} не совпал с закреплённым в коде — возможно, релиз был тихо перезалит. Скачивание отклонено")]
+    PinnedDigestMismatch(String),
 }
 
 /// Manages the TgWsProxy sidecar process lifecycle.
@@ -167,7 +200,7 @@ pub struct TgProxyManager {
     lifecycle: Arc<tokio::sync::Mutex<()>>,
     state: Arc<RwLock<SupervisorState>>,
     active_pid: Arc<RwLock<Option<u32>>>,
-    active_child: Arc<Mutex<Option<Child>>>,
+    active_child: Arc<Mutex<Option<RawChild>>>,
     job_object: Arc<JobObject>,
     start_time: Arc<RwLock<Option<Instant>>>,
     last_error: Arc<RwLock<Option<String>>>,
@@ -202,6 +235,15 @@ impl TgProxyManager {
     fn emit_state(&self, state: SupervisorState) {
         if let Some(handle) = self.app_handle.read().as_ref() {
             let _ = handle.emit("tgproxy-state", state);
+        }
+    }
+
+    /// Best-effort download progress for the UI (T12): emits the
+    /// `tgproxy-download-progress` event with 0–100 (percent only advances
+    /// when the server reports a content length).
+    fn emit_download_progress(&self, percent: u64) {
+        if let Some(handle) = self.app_handle.read().as_ref() {
+            let _ = handle.emit("tgproxy-download-progress", percent);
         }
     }
 
@@ -282,6 +324,19 @@ impl TgProxyManager {
 
     fn is_valid_secret(s: &str) -> bool {
         s.len() == 32 && s.chars().all(|c| c.is_ascii_hexdigit())
+    }
+
+    /// Enforces the digest pin table (M-3): the API-served digest must match
+    /// the pin recorded for that exact version.
+    fn check_pinned_digest(version: &str, digest: &str) -> Result<(), TgProxyError> {
+        match PINNED_RELEASE_DIGESTS
+            .iter()
+            .find(|(v, _)| *v == version)
+        {
+            Some((_, pinned)) if pinned.eq_ignore_ascii_case(digest) => Ok(()),
+            Some(_) => Err(TgProxyError::PinnedDigestMismatch(version.to_string())),
+            None => Err(TgProxyError::VersionNotPinned(version.to_string())),
+        }
     }
 
     fn generate_secret() -> String {
@@ -425,6 +480,14 @@ impl TgProxyManager {
     ///
     /// Returns the release version (e.g. `"1.11.2"`).
     pub async fn download_binary(&self) -> Result<String, TgProxyError> {
+        // T6: refuse while the sidecar is alive — on Windows a rename over a
+        // running exe fails with a sharing violation, and swapping the binary
+        // under a live process is never what the user asked for.
+        match *self.state.read() {
+            SupervisorState::Stopped | SupervisorState::Error => {}
+            _ => return Err(TgProxyError::MustStopFirst),
+        }
+
         let dir = Self::ensure_dir()?;
 
         let client = reqwest::Client::builder()
@@ -464,6 +527,9 @@ impl TgProxyManager {
             .to_string();
         let digest_raw = asset.get("digest").and_then(|d| d.as_str()).unwrap_or("");
         let expected = Self::parse_sha256_digest(digest_raw).ok_or(TgProxyError::MissingDigest)?;
+        // M-3: the API digest must additionally match the in-code pin for
+        // this exact version (fail fast, before downloading any bytes).
+        Self::check_pinned_digest(&version, &expected)?;
 
         self.supervisor.log(
             "info",
@@ -477,19 +543,34 @@ impl TgProxyManager {
             .await?
             .error_for_status()
             .map_err(|e| TgProxyError::ReleaseFetch(e.to_string()))?;
+        let total = resp.content_length().unwrap_or(0);
         let tmp_path = dir.join(format!("{}.download", TGWS_ASSET_NAME));
         let mut out = std::fs::File::create(&tmp_path)?;
         let mut hasher = Sha256::new();
+        let mut downloaded: u64 = 0;
+        let mut last_percent: u64 = 0;
+        self.emit_download_progress(0);
         loop {
             match resp.chunk().await? {
                 Some(bytes) => {
                     hasher.update(&bytes);
                     out.write_all(&bytes)?;
+                    // T12: progress for the UI (percent only when the server
+                    // reports a content length).
+                    downloaded += bytes.len() as u64;
+                    if total > 0 {
+                        let percent = downloaded.saturating_mul(100) / total;
+                        if percent != last_percent {
+                            last_percent = percent;
+                            self.emit_download_progress(percent);
+                        }
+                    }
                 }
                 None => break,
             }
         }
         drop(out);
+        self.emit_download_progress(100);
 
         let actual = format!("{:x}", hasher.finalize());
         if actual != expected {
@@ -501,7 +582,18 @@ impl TgProxyManager {
             return Err(TgProxyError::DigestMismatch);
         }
 
-        std::fs::rename(&tmp_path, dir.join(TGWS_ASSET_NAME))?;
+        // L-5: allow re-download / upgrade to a newer pinned version. The old
+        // binary and its manifest are removed only AFTER the new file is
+        // verified, and Windows cannot rename over an existing file anyway.
+        let exe_path = dir.join(TGWS_ASSET_NAME);
+        if exe_path.exists() {
+            std::fs::remove_file(&exe_path)?;
+        }
+        let manifest_path = dir.join(TGWS_MANIFEST_FILE);
+        if manifest_path.exists() {
+            std::fs::remove_file(&manifest_path)?;
+        }
+        std::fs::rename(&tmp_path, &exe_path)?;
 
         let manifest = TgProxyManifest {
             asset: TGWS_ASSET_NAME.to_string(),
@@ -542,23 +634,35 @@ impl TgProxyManager {
     /// user-tuned keys like cfproxy domains survive) and suppresses the
     /// official first-run window. Returns `(port, secret)`.
     ///
-    /// Only the three stable keys (`host`, `port`, `secret`) are ever written;
-    /// everything else is filled in by the exe itself from its defaults.
-    fn prepare_config(&self) -> Result<(u16, String), TgProxyError> {
-        let mut settings = crate::win32::settings::load_settings();
-        let port = Self::normalize_port(settings.tgproxy_port);
-        let mut secret = settings.tgproxy_secret.clone();
-        if !Self::is_valid_secret(&secret) {
-            // No invented defaults: a missing/invalid secret is generated with
-            // a CSPRNG and persisted, so the UI always shows the real value.
-            secret = Self::generate_secret();
-        }
-        settings.tgproxy_port = port;
-        settings.tgproxy_secret = secret.clone();
-        crate::win32::settings::save_settings(settings).map_err(TgProxyError::Settings)?;
+    /// Four keys are written (`host`, `port`, `secret`, plus
+    /// `check_updates: false` — the tray app's own updater is silenced because
+    /// updates are managed by zapret2-gui); everything else is filled in by
+    /// the exe itself from its defaults.
+    ///
+    /// `dir` must be the directory the binary was located in (L-6): in
+    /// `--dev` mode that can be `./bin/tgproxy`, while `ensure_dir()` always
+    /// anchors at the executable — writing the config next to a *different*
+    /// binary than the one being launched would silently misconfigure it.
+    fn prepare_config(&self, dir: &Path) -> Result<(u16, String), TgProxyError> {
+        // L-4: the whole read-modify-write goes through the serialized
+        // `update_settings`, so a concurrent `regenerate_secret` cannot be
+        // silently clobbered (or vice versa).
+        let (port, secret) =
+            crate::win32::settings::update_settings(|settings| {
+                let port = Self::normalize_port(settings.tgproxy_port);
+                let mut secret = settings.tgproxy_secret.clone();
+                if !Self::is_valid_secret(&secret) {
+                    // No invented defaults: a missing/invalid secret is generated with
+                    // a CSPRNG and persisted, so the UI always shows the real value.
+                    secret = Self::generate_secret();
+                }
+                settings.tgproxy_port = port;
+                settings.tgproxy_secret = secret.clone();
+                (port, secret)
+            })
+            .map_err(TgProxyError::Settings)?;
 
-        let dir = Self::ensure_dir()?;
-        let data_dir = Self::data_dir(&dir);
+        let data_dir = Self::data_dir(dir);
         std::fs::create_dir_all(&data_dir)?;
 
         let cfg_path = data_dir.join(TGWS_CONFIG_FILE);
@@ -605,38 +709,85 @@ impl TgProxyManager {
         if let Some(mut child) = self.active_child.lock().take() {
             let _ = child.start_kill();
         }
+        // T7: unlike `stop()`, also terminate the Job Object — if the tray
+        // exe managed to spawn grandchildren in the same job, `start_kill`
+        // alone would leave them behind. The job handle stays valid for the
+        // next `start()` (`TerminateJobObject` does not destroy the job).
+        let _ = self.job_object.terminate(1);
         *self.active_pid.write() = None;
         *self.start_time.write() = None;
         *self.state.write() = SupervisorState::Error;
         self.emit_state(SupervisorState::Error);
+        // T4: a deterministically failing proxy must not be retried on every
+        // app launch — drop the persisted "left enabled" intent.
+        self.clear_enabled_flag();
         Err(err)
     }
 
+    /// Drops the persisted auto-start intent so a failing proxy is not
+    /// retried on every app launch (T4). The user re-enables it manually
+    /// after fixing the underlying problem.
+    fn clear_enabled_flag(&self) {
+        if !crate::win32::settings::load_settings().tgproxy_enabled {
+            return;
+        }
+        match crate::win32::settings::update_settings(|s| s.tgproxy_enabled = false) {
+            Ok(()) => self.supervisor.log(
+                "info",
+                "Telegram-прокси: автозапуск отключён — при следующем запуске приложения прокси не стартует, пока вы не включите его вручную",
+            ),
+            Err(e) => self.supervisor.log(
+                "error",
+                &format!("Telegram-прокси: не удалось сбросить флаг автозапуска: {}", e),
+            ),
+        }
+    }
+
+    /// Spawns the sidecar and binds it to the Job Object immediately.
+    ///
+    /// M-3: the GUI is elevated (WinDivert), but the sidecar only listens on
+    /// 127.0.0.1 — it must never inherit the Administrator token. When
+    /// elevated we spawn de-elevated via the interactive user's token
+    /// (`win32::deelevate`); any de-elevation failure refuses the spawn
+    /// (fail-closed, no elevated fallback). When the GUI itself runs
+    /// non-elevated there is nothing to drop and the child spawns with the
+    /// current token.
     fn spawn_sidecar(
         exe: &Path,
         workdir: &Path,
         job: &JobObject,
-    ) -> Result<(Child, u32), TgProxyError> {
-        let mut cmd = Command::new(exe);
-        // Portable mode: all state (config.json, proxy.log) lives next to the
-        // exe instead of %APPDATA%, isolating us from a standalone install.
-        cmd.arg("--portable");
-        cmd.current_dir(workdir);
-        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
-        cmd.stdin(std::process::Stdio::null());
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(std::process::Stdio::piped());
+    ) -> Result<(RawChild, u32), TgProxyError> {
+        let elevated = crate::win32::privileges::is_elevated().unwrap_or(true);
+        let mut child = if elevated {
+            crate::win32::deelevate::spawn_deelevated(exe, &["--portable"], workdir)
+                .map_err(|e| TgProxyError::Deelevate(e.to_string()))?
+        } else {
+            crate::win32::deelevate::spawn_current_token(exe, &["--portable"], workdir)
+                .map_err(|e| TgProxyError::Spawn(e.to_string()))?
+        };
 
-        let mut child = cmd.spawn().map_err(|e| TgProxyError::Spawn(e.to_string()))?;
-
-        // Same pattern as win32::process::spawn_process: bind immediately.
-        let raw_handle: RawHandle = child
-            .raw_handle()
-            .ok_or_else(|| TgProxyError::Spawn("no raw handle".to_string()))?;
-        job.assign_raw_handle(raw_handle)?;
-        let pid = child
-            .id()
-            .ok_or_else(|| TgProxyError::Spawn("no process id".to_string()))?;
+        // T3: the process is already alive at this point — every error path
+        // below must kill it first. Dropping a child handle never terminates
+        // the process, so a bare `?` here would leak a live tray exe outside
+        // the Job Object and outside the manager's accounting.
+        let raw_handle: RawHandle = match child.raw_handle() {
+            Some(h) => h,
+            None => {
+                let _ = child.start_kill();
+                return Err(TgProxyError::Spawn("no raw handle".to_string()));
+            }
+        };
+        if let Err(e) = job.assign_raw_handle(raw_handle) {
+            let _ = child.start_kill();
+            return Err(e.into());
+        }
+        let pid = match child.id() {
+            Some(p) => p,
+            None => {
+                let _ = child.start_kill();
+                return Err(TgProxyError::Spawn("no process id".to_string()));
+            }
+        };
 
         Ok((child, pid))
     }
@@ -705,7 +856,7 @@ impl TgProxyManager {
         if let Err(e) = Self::verify_binary_integrity(&dir) {
             return self.fail(e);
         }
-        let (port, _secret) = match self.prepare_config() {
+        let (port, _secret) = match self.prepare_config(&dir) {
             Ok(v) => v,
             Err(e) => return self.fail(e),
         };
@@ -756,9 +907,7 @@ impl TgProxyManager {
         );
 
         // Persist the "enabled" intent so it survives app restarts.
-        let mut settings = crate::win32::settings::load_settings();
-        settings.tgproxy_enabled = true;
-        let _ = crate::win32::settings::save_settings(settings);
+        let _ = crate::win32::settings::update_settings(|s| s.tgproxy_enabled = true);
 
         self.spawn_log_tailer(dir.clone());
         self.spawn_exit_monitor();
@@ -791,9 +940,7 @@ impl TgProxyManager {
         *self.state.write() = SupervisorState::Stopped;
         self.emit_state(SupervisorState::Stopped);
 
-        let mut settings = crate::win32::settings::load_settings();
-        settings.tgproxy_enabled = false;
-        let _ = crate::win32::settings::save_settings(settings);
+        let _ = crate::win32::settings::update_settings(|s| s.tgproxy_enabled = false);
 
         self.supervisor.log("info", "Telegram-прокси остановлен");
         Ok(())
@@ -901,14 +1048,23 @@ impl TgProxyManager {
                     }
                 };
                 if exited {
-                    {
+                    // T4: an unexpected exit of a Running proxy usually means
+                    // a deterministic crash — drop the auto-start intent so
+                    // the app does not retry it on every launch. (A Stopping
+                    // proxy was halted by the user; `stop()` clears the flag
+                    // itself.)
+                    let unexpected = {
                         let mut state = this.state.write();
-                        if *state == SupervisorState::Running || *state == SupervisorState::Stopping
-                        {
+                        let unexpected = *state == SupervisorState::Running;
+                        if unexpected || *state == SupervisorState::Stopping {
                             *state = SupervisorState::Stopped;
                         }
                         *this.active_pid.write() = None;
                         *this.start_time.write() = None;
+                        unexpected
+                    };
+                    if unexpected {
+                        this.clear_enabled_flag();
                     }
                     this.emit_state(SupervisorState::Stopped);
                     break;
@@ -921,12 +1077,22 @@ impl TgProxyManager {
     // User configuration
     // ------------------------------------------------------------------
 
+    /// Config changes are only allowed when the sidecar is fully stopped (or
+    /// in `Error` after a failed start, so the user can fix what broke it).
+    /// During `Starting`/`Stopping`, `prepare_config` may already have
+    /// snapshotted the old values — allowing a change then would desync the
+    /// on-disk config from the actually spawned process (T5).
+    fn ensure_config_change_allowed(&self) -> Result<(), TgProxyError> {
+        match *self.state.read() {
+            SupervisorState::Stopped | SupervisorState::Error => Ok(()),
+            _ => Err(TgProxyError::MustStopFirst),
+        }
+    }
+
     /// Updates port/secret. Refused while running — the exe reads config only
     /// at startup, so a silent no-op would be worse than an explicit error.
     pub fn set_config(&self, port: u16, secret: String) -> Result<(), TgProxyError> {
-        if *self.state.read() == SupervisorState::Running {
-            return Err(TgProxyError::MustStopFirst);
-        }
+        self.ensure_config_change_allowed()?;
         if port == 0 {
             return Err(TgProxyError::BadPort(port));
         }
@@ -934,22 +1100,22 @@ impl TgProxyManager {
         if !Self::is_valid_secret(&secret) {
             return Err(TgProxyError::BadSecret);
         }
-        let mut settings = crate::win32::settings::load_settings();
-        settings.tgproxy_port = port;
-        settings.tgproxy_secret = secret;
-        crate::win32::settings::save_settings(settings).map_err(TgProxyError::Settings)?;
+        crate::win32::settings::update_settings(|settings| {
+            settings.tgproxy_port = port;
+            settings.tgproxy_secret = secret.clone();
+        })
+        .map_err(TgProxyError::Settings)?;
         Ok(())
     }
 
     /// Generates a fresh CSPRNG secret and persists it.
     pub fn regenerate_secret(&self) -> Result<String, TgProxyError> {
-        if *self.state.read() == SupervisorState::Running {
-            return Err(TgProxyError::MustStopFirst);
-        }
-        let secret = Self::generate_secret();
-        let mut settings = crate::win32::settings::load_settings();
-        settings.tgproxy_secret = secret.clone();
-        crate::win32::settings::save_settings(settings).map_err(TgProxyError::Settings)?;
-        Ok(secret)
+        self.ensure_config_change_allowed()?;
+        crate::win32::settings::update_settings(|settings| {
+            let secret = Self::generate_secret();
+            settings.tgproxy_secret = secret.clone();
+            secret
+        })
+        .map_err(TgProxyError::Settings)
     }
 }

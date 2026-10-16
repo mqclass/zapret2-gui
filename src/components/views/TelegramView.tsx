@@ -28,13 +28,13 @@ type BusyKind = "idle" | "download" | "toggle" | "save" | "secret";
 
 const SECRET_RE = /^[0-9a-fA-F]{32}$/;
 
-const formatUptime = (secs: number) => {
+const formatUptime = (secs: number, h: string, m: string, s: string) => {
   const hrs = Math.floor(secs / 3600);
   const mins = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  if (hrs > 0) return `${hrs}h ${mins}m ${s}s`;
-  if (mins > 0) return `${mins}m ${s}s`;
-  return `${s}s`;
+  const sec = secs % 60;
+  if (hrs > 0) return `${hrs}${h} ${mins}${m} ${sec}${s}`;
+  if (mins > 0) return `${mins}${m} ${sec}${s}`;
+  return `${sec}${s}`;
 };
 
 export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) => {
@@ -45,13 +45,17 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
   const [secretInput, setSecretInput] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // T12: download progress (percent) streamed from the backend; null = idle/unknown.
+  const [dlProgress, setDlProgress] = useState<number | null>(null);
   const copyTimer = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const s = await invoke<TgProxyStatus>("get_tgproxy_status");
       setStatus(s);
-      setPortInput(String(s.port));
+      // T9: the 5s poll must not wipe a port the user is typing — same
+      // activeElement guard as the secret field below.
+      setPortInput((prev) => (document.activeElement?.tagName === "INPUT" ? prev : String(s.port)));
       setSecretInput((prev) => (document.activeElement?.tagName === "INPUT" ? prev : s.secret));
     } catch (e) {
       console.error("Failed to fetch tgproxy status:", e);
@@ -71,6 +75,15 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
     };
   }, [refresh]);
 
+  useEffect(() => {
+    const unlistenPromise = listen<number>("tgproxy-download-progress", (e) => {
+      setDlProgress(e.payload);
+    });
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
+
   const fail = useCallback(
     (e: unknown) => {
       const msg = e instanceof Error ? e.message : String(e);
@@ -83,6 +96,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
   const handleDownload = useCallback(async () => {
     setBusy("download");
     setError(null);
+    setDlProgress(0);
     try {
       const version = await invoke<string>("download_tgproxy");
       await notifyUser(t.telegram.notifyDownloadedTitle, `${t.telegram.notifyDownloadedBody}: ${version}`);
@@ -91,6 +105,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
       fail(e);
     } finally {
       setBusy("idle");
+      setDlProgress(null);
     }
   }, [refresh, fail, t]);
 
@@ -233,7 +248,13 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
               </span>
               {isRunning && status!.uptime_secs > 0 && (
                 <span className="text-xs font-mono text-ink4">
-                  {t.telegram.uptime}: {formatUptime(status!.uptime_secs)}
+                  {t.telegram.uptime}:{" "}
+                  {formatUptime(
+                    status!.uptime_secs,
+                    t.telegram.uptimeH,
+                    t.telegram.uptimeM,
+                    t.telegram.uptimeS
+                  )}
                 </span>
               )}
               {isRunning && status!.pid && (
@@ -276,7 +297,9 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
-                {busy === "download" ? t.telegram.downloading : t.telegram.download}
+                {busy === "download"
+                  ? `${t.telegram.downloading}${dlProgress !== null ? ` ${dlProgress}%` : ""}`
+                  : t.telegram.download}
               </button>
             ) : (
               <button
@@ -369,7 +392,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
                   className="t-btn t-btn-ghost"
                 >
                   <Copy className="h-4 w-4" />
-                  tg://
+                  {t.telegram.tgLinkLabel}
                 </button>
               )}
             </div>

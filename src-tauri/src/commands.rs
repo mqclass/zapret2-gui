@@ -423,15 +423,15 @@ pub async fn get_app_settings() -> Result<crate::win32::settings::AppSettings, S
 pub async fn save_app_settings(
     settings: crate::win32::settings::AppSettings,
 ) -> Result<(), String> {
-    crate::win32::settings::save_settings(settings)
+    // Serialized vs. concurrent backend mutations (L-4).
+    crate::win32::settings::update_settings(|s| *s = settings)
 }
 
 /// Toggles Windows toast notifications for engine events.
 #[tauri::command]
 pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
-    let mut settings = crate::win32::settings::load_settings();
-    settings.notifications_enabled = enable;
-    crate::win32::settings::save_settings(settings).map_err(|e| e.to_string())?;
+    crate::win32::settings::update_settings(|s| s.notifications_enabled = enable)
+        .map_err(|e| e.to_string())?;
     Ok(enable)
 }
 
@@ -596,10 +596,10 @@ pub async fn export_diagnostics_bundle(
 pub async fn set_split_tunnel_mode(
     mode: crate::win32::settings::SplitTunnelMode,
 ) -> Result<crate::win32::settings::AppSettings, String> {
-    let mut settings = crate::win32::settings::load_settings();
-    settings.split_tunnel_mode = mode;
-    crate::win32::settings::save_settings(settings.clone())?;
-    Ok(settings)
+    crate::win32::settings::update_settings(|s| {
+        s.split_tunnel_mode = mode;
+        s.clone()
+    })
 }
 
 /// Executes the 1-click Auto-Doctor to repair driver, DNS, ARP, and network stack.

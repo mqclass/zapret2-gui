@@ -430,6 +430,9 @@ export interface Translations {
     error: string;
     pid: string;
     uptime: string;
+    uptimeH: string;
+    uptimeM: string;
+    uptimeS: string;
     lastError: string;
     connectionTitle: string;
     connectionHint: string;
@@ -438,6 +441,7 @@ export interface Translations {
     secret: string;
     copy: string;
     copied: string;
+    tgLinkLabel: string;
     openInTelegram: string;
     settingsTitle: string;
     portLabel: string;

@@ -28,6 +28,9 @@
       "allow": [
         {
           "url": "https://github.com/*"
+        },
+        {
+          "url": "tg://*"
         }
       ]
     }

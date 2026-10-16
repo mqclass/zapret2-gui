@@ -438,6 +438,9 @@ export const en: Translations = {
     error: "Error",
     pid: "PID",
     uptime: "Uptime",
+    uptimeH: "h",
+    uptimeM: "m",
+    uptimeS: "s",
     lastError: "Last error",
     connectionTitle: "Telegram client connection",
     connectionHint:
@@ -447,6 +450,7 @@ export const en: Translations = {
     secret: "Secret",
     copy: "Copy",
     copied: "Copied",
+    tgLinkLabel: "tg://",
     openInTelegram: "Open in Telegram",
     settingsTitle: "Proxy settings",
     portLabel: "Port",

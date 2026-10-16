@@ -438,6 +438,9 @@ export const uk: Translations = {
     error: "Помилка",
     pid: "PID",
     uptime: "Аптайм",
+    uptimeH: "год",
+    uptimeM: "хв",
+    uptimeS: "с",
     lastError: "Остання помилка",
     connectionTitle: "Підключення Telegram-клієнта",
     connectionHint:
@@ -447,6 +450,7 @@ export const uk: Translations = {
     secret: "Secret",
     copy: "Копіювати",
     copied: "Скопійовано",
+    tgLinkLabel: "tg://",
     openInTelegram: "Відкрити в Telegram",
     settingsTitle: "Налаштування проксі",
     portLabel: "Порт",
