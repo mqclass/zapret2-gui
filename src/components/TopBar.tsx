@@ -99,6 +99,16 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
             title: t.tabMeta.settingsTitle,
             subtitle: t.tabMeta.settingsSubtitle,
           };
+        case "telegram":
+          return {
+            title: t.tabMeta.telegramTitle,
+            subtitle: t.tabMeta.telegramSubtitle,
+          };
+        default:
+          return {
+            title: t.tabMeta.dashboardTitle,
+            subtitle: t.tabMeta.dashboardSubtitle,
+          };
       }
     };
 

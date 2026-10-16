@@ -6,6 +6,7 @@ import {
   Globe2,
   ListFilter,
   Terminal,
+  Send,
   Settings,
   Gamepad2,
   Layers,
@@ -24,6 +25,7 @@ export type NavTab =
   | "dns"
   | "lists"
   | "logs"
+  | "telegram"
   | "settings";
 
 interface SidebarProps {
@@ -72,6 +74,11 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
         id: "logs",
         label: t.nav.logs,
         icon: <Terminal className="h-4 w-4" />,
+      },
+      {
+        id: "telegram",
+        label: t.nav.telegram,
+        icon: <Send className="h-4 w-4" />,
       },
       {
         id: "settings",

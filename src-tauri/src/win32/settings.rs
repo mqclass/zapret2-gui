@@ -50,10 +50,23 @@ pub struct AppSettings {
     /// Whether Windows toast notifications are shown for engine events.
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
+    /// Telegram MTProxy-mode sidecar: listen port (0 = default 1443).
+    #[serde(default = "default_tgproxy_port")]
+    pub tgproxy_port: u16,
+    /// Telegram MTProxy-mode sidecar: 32-hex-char MTProto secret (empty = not generated yet).
+    #[serde(default)]
+    pub tgproxy_secret: String,
+    /// Whether the Telegram proxy was left enabled (auto-start on app launch).
+    #[serde(default)]
+    pub tgproxy_enabled: bool,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_tgproxy_port() -> u16 {
+    1443
 }
 
 impl Default for AppSettings {
@@ -67,6 +80,9 @@ impl Default for AppSettings {
             last_strategy_id: Some("flowseal-alt".into()),
             auto_start_bypass: true,
             notifications_enabled: true,
+            tgproxy_port: 1443,
+            tgproxy_secret: String::new(),
+            tgproxy_enabled: false,
         }
     }
 }

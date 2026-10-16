@@ -22,6 +22,7 @@ import { DiagnosticsView } from "./components/views/DiagnosticsView";
 import { DnsSpeedView } from "./components/views/DnsSpeedView";
 import { ListsView } from "./components/views/ListsView";
 import { LogsView } from "./components/views/LogsView";
+import { TelegramView } from "./components/views/TelegramView";
 import { SettingsView } from "./components/views/SettingsView";
 import { AlertCircle, CheckCircle2, ShieldAlert, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
@@ -656,6 +657,8 @@ const AppContent: React.FC = () => {
               isRefreshing={isRefreshingLogs}
             />
           )}
+
+          {activeTab === "telegram" && <TelegramView logs={logs} />}
 
           {activeTab === "settings" && (
             <SettingsView

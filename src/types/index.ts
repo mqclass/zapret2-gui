@@ -49,6 +49,23 @@ export interface SupervisorStatus {
   total_logs_buffered: number;
 }
 
+export interface TgProxyStatus {
+  state: SupervisorState;
+  pid: number | null;
+  host: string;
+  port: number;
+  /** 32-hex-char MTProto secret; empty when not generated yet. */
+  secret: string;
+  /** Ready-to-use tg://proxy?... deep link; empty when no secret yet. */
+  tg_link: string;
+  binary_present: boolean;
+  binary_version: string | null;
+  /** False when the downloaded version is newer than the verified one. */
+  version_supported: boolean;
+  uptime_secs: number;
+  last_error: string | null;
+}
+
 export interface ZapretBinaries {
   bin_dir: string;
   winws2_exe: string;
@@ -70,7 +87,7 @@ export interface LuaStrategy {
 
 export interface LogEntry {
   timestamp: number;
-  level: "stdout" | "stderr" | "info" | "warn" | "error";
+  level: "stdout" | "stderr" | "info" | "warn" | "error" | "tgproxy";
   message: string;
   /** Client-side monotonic id for stable React keys (assigned at ingest, not from backend). */
   id?: number;
@@ -111,6 +128,9 @@ export interface AppSettings {
   auto_start_bypass?: boolean;
   auto_doctor_on_start?: boolean;
   notifications_enabled?: boolean;
+  tgproxy_port?: number;
+  tgproxy_secret?: string;
+  tgproxy_enabled?: boolean;
 }
 
 export interface DoctorStep {

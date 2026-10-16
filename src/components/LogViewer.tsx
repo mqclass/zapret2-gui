@@ -78,6 +78,8 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
           return "text-amber-400 bg-amber-500/10 border border-amber-500/20";
         case "info":
           return "text-cyan-400 bg-cyan-500/10 border border-cyan-500/20";
+        case "tgproxy":
+          return "border border-accent-line bg-accent-wash text-accent";
         case "stdout":
         default:
           return "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20";
