@@ -316,24 +316,31 @@ impl TgProxyManager {
             let supervisor = this.supervisor.clone();
             let app_handle = this.app_handle.clone();
 
+            // on_listen is FnOnce: hand it its own Arc clones so the originals
+            // stay usable in the match below after run_with_listen returns.
+            let cb_tg_link = tg_link.clone();
+            let cb_state = state.clone();
+            let cb_supervisor = supervisor.clone();
+            let cb_app_handle = app_handle.clone();
+
             let result = tg_ws_proxy_rs::server::run_with_listen(
                 config,
                 async move {
                     let _ = shutdown_rx.await;
                 },
                 move |info| {
-                    *tg_link.write() = info.tg_link.clone();
+                    *cb_tg_link.write() = info.tg_link.clone();
                     // m5: stop() may have fired while we were still binding —
                     // don't flash `Running` on the way to `Stopped`.
-                    let mut st = state.write();
+                    let mut st = cb_state.write();
                     if *st == SupervisorState::Starting {
                         *st = SupervisorState::Running;
                         drop(st);
-                        if let Some(handle) = app_handle.read().as_ref() {
+                        if let Some(handle) = cb_app_handle.read().as_ref() {
                             let _ = handle.emit("tgproxy-state", SupervisorState::Running);
                         }
                     }
-                    supervisor.log(
+                    cb_supervisor.log(
                         "info",
                         &format!(
                             "Telegram-мост слушает {} — введите параметры в Telegram-клиенте",
