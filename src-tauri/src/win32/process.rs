@@ -5,7 +5,7 @@
 //! 2. Hybrid strategy discovery: Flowseal presets + zapret2 Lua strategies.
 //! 3. Process execution in an isolated process group (`CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`).
 //! 4. Immediate binding to Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`).
-//! 5. Graceful shutdown protocol via Console Control Break events (`CTRL_BREAK_EVENT`) with 3000ms timeout.
+//! 5. Direct process termination (`kill` + `wait`) with Job Object teardown as safety net.
 //! 6. Native fallback driver cleanup via Service Control Manager.
 
 use std::fs;
@@ -20,9 +20,6 @@ use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::time::timeout;
 
 use windows::Win32::Foundation::CloseHandle;
-use windows::Win32::System::Console::{
-    AttachConsole, FreeConsole, GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT,
-};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
@@ -438,44 +435,23 @@ pub fn spawn_winws2(
     spawn_process(&binaries.winws2_exe, &binaries.bin_dir, args, job)
 }
 
-/// Graceful shutdown protocol for winws processes.
+/// Terminates a supervised winws process.
+///
+/// NOTE: a graceful `CTRL_BREAK_EVENT` shutdown is impossible here by design:
+/// the child is spawned with `CREATE_NO_WINDOW`, so it has no console and
+/// `AttachConsole` could never succeed for it. Termination is therefore direct:
+/// `kill` the child, wait briefly for it to exit, then terminate the Job Object
+/// as a safety net so no stray winws instance survives.
 pub async fn stop_winws2_gracefully(
     child: &mut Child,
-    pid: u32,
     job: &JobObject,
 ) -> Result<(), ProcessError> {
-    // Attempt fast signal via Windows Console Break event
-    let break_signal_dispatched = send_console_break_event(pid);
-
-    let graceful_exit = if break_signal_dispatched {
-        match timeout(Duration::from_millis(2500), child.wait()).await {
-            Ok(Ok(_status)) => true,
-            _ => false,
-        }
-    } else {
-        false
-    };
-
-    if !graceful_exit {
-        let _ = child.kill().await;
-        let _ = job.terminate(1);
-    }
-
+    let _ = child.kill().await;
+    // Give the process a moment to exit so WinDivert handles are released
+    // before the Job Object teardown below.
+    let _ = timeout(Duration::from_secs(5), child.wait()).await;
+    let _ = job.terminate(1);
     Ok(())
-}
-
-/// Dispatches a `CTRL_BREAK_EVENT` directly to the target process console group.
-fn send_console_break_event(pid: u32) -> bool {
-    unsafe {
-        let _ = FreeConsole();
-        if AttachConsole(pid).is_ok() {
-            let signal_res = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid);
-            let _ = FreeConsole();
-            signal_res.is_ok()
-        } else {
-            false
-        }
-    }
 }
 
 /// Purges stuck WinDivert driver services natively and quietly.

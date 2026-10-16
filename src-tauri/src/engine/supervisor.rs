@@ -68,6 +68,10 @@ pub struct SupervisorStatus {
 
 /// The main Supervisor managing the WinDivert and winws2 lifecycle.
 pub struct Supervisor {
+    /// Serializes start()/stop() so they can never interleave: a stop() racing
+    /// a start() either runs fully before it or fully after it, never in the
+    /// middle of a half-initialized engine.
+    lifecycle: Arc<tokio::sync::Mutex<()>>,
     state: Arc<RwLock<SupervisorState>>,
     active_pid: Arc<RwLock<Option<u32>>>,
     active_child: Arc<Mutex<Option<tokio::process::Child>>>,
@@ -98,6 +102,7 @@ impl Supervisor {
         let app_handle = Arc::new(RwLock::new(None::<AppHandle>));
 
         let supervisor = Self {
+            lifecycle: Arc::new(tokio::sync::Mutex::new(())),
             state: Arc::new(RwLock::new(SupervisorState::Stopped)),
             active_pid: Arc::new(RwLock::new(None)),
             active_child: Arc::new(Mutex::new(None)),
@@ -268,6 +273,10 @@ impl Supervisor {
         strategy_id: Option<String>,
         custom_args: Option<Vec<String>>,
     ) -> Result<(), ProcessError> {
+        // Hold the lifecycle lock for the whole start sequence so a concurrent
+        // stop() cannot observe a half-initialized engine (see 1.1).
+        let _lifecycle_guard = self.lifecycle.lock().await;
+
         // Support seamless strategy switching or fresh start
         {
             let mut state = self.state.write();
@@ -292,7 +301,7 @@ impl Supervisor {
         if let Some(mut old_child) = maybe_child {
             if let Some(old_pid) = old_pid_opt {
                 self.log("info", &format!("Switching config: stopping previous engine (PID {})", old_pid));
-                let _ = stop_winws2_gracefully(&mut old_child, old_pid, &self.job_object).await;
+                let _ = stop_winws2_gracefully(&mut old_child, &self.job_object).await;
             }
         }
 
@@ -364,8 +373,17 @@ impl Supervisor {
             });
         }
 
-        // 3. Assemble command-line arguments
-        let args = self.build_arguments(&binaries, Some(&active_id), custom_args)?;
+        // 3. Assemble command-line arguments (reset state on failure: the engine
+        // is not Starting anymore, it failed to start)
+        let args = match self.build_arguments(&binaries, Some(&active_id), custom_args) {
+            Ok(args) => args,
+            Err(e) => {
+                self.log("error", &format!("Failed to build engine arguments: {}", e));
+                *self.state.write() = SupervisorState::Error;
+                self.emit_state_change(SupervisorState::Error);
+                return Err(e);
+            }
+        };
         self.log(
             "info",
             &format!("Bypass parameters: {}", args.join(" ")),
@@ -413,6 +431,10 @@ impl Supervisor {
             }
         };
 
+        // Store the child BEFORE announcing Running: otherwise a concurrent stop()
+        // could observe Running with no child stored yet and leave winws running
+        // while the UI reports "stopped".
+        *self.active_child.lock() = Some(child);
         *self.active_pid.write() = Some(pid);
         *self.active_strategy.write() = Some(active_id);
         *self.start_time.write() = Some(Instant::now());
@@ -465,9 +487,7 @@ impl Supervisor {
             });
         }
 
-        // 6. Store active child and monitor process exit asynchronously
-        *self.active_child.lock() = Some(child);
-
+        // 6. Spawn monitor task for process exit (reads the child via active_child)
         let supervisor_clone = self.clone();
         tokio::spawn(async move {
             loop {
@@ -515,8 +535,12 @@ impl Supervisor {
         Ok(())
     }
 
-    /// Stops the bypass engine gracefully using Console Break events and fallback cleanup.
+    /// Stops the bypass engine and releases WinDivert.
     pub async fn stop(&self) -> Result<(), ProcessError> {
+        // Serialized with start(): either the start fully completed before us
+        // or it will run after we finish — never interleaved (see 1.1).
+        let _lifecycle_guard = self.lifecycle.lock().await;
+
         let pid = {
             let mut state = self.state.write();
             if *state == SupervisorState::Stopped || *state == SupervisorState::Stopping {
@@ -527,13 +551,13 @@ impl Supervisor {
         };
 
         self.emit_state_change(SupervisorState::Stopping);
-        self.log("info", "Initiating graceful shutdown of bypass engine...");
+        self.log("info", "Initiating shutdown of bypass engine...");
 
         let maybe_child = self.active_child.lock().take();
         if let Some(mut child) = maybe_child {
             if let Some(pid_val) = pid {
                 self.log("info", &format!("Executing shutdown protocol on PID {}", pid_val));
-                let _ = stop_winws2_gracefully(&mut child, pid_val, &self.job_object).await;
+                let _ = stop_winws2_gracefully(&mut child, &self.job_object).await;
             }
         }
 

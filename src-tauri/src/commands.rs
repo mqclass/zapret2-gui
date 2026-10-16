@@ -106,7 +106,7 @@ pub async fn start_supervisor(
         .map_err(|e| e.to_string())
 }
 
-/// Gracefully stops the active `winws2.exe` instance and releases WinDivert.
+/// Stops the active `winws2.exe` instance and releases WinDivert.
 #[tauri::command]
 pub async fn stop_supervisor(state: State<'_, AppState>) -> Result<(), String> {
     state.supervisor.stop().await.map_err(|e| e.to_string())
