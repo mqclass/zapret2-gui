@@ -53,17 +53,12 @@ export interface SupervisorStatus {
 
 export interface TgProxyStatus {
   state: SupervisorState;
-  pid: number | null;
   host: string;
   port: number;
   /** 32-hex-char MTProto secret; empty when not generated yet. */
   secret: string;
   /** Ready-to-use tg://proxy?... deep link; empty when no secret yet. */
   tg_link: string;
-  binary_present: boolean;
-  binary_version: string | null;
-  /** False when the downloaded version is newer than the verified one. */
-  version_supported: boolean;
   uptime_secs: number;
   last_error: string | null;
 }

@@ -452,13 +452,7 @@ export interface Translations {
   telegram: {
     title: string;
     subtitle: string;
-    notDownloaded: string;
-    notDownloadedDesc: string;
-    download: string;
-    downloading: string;
-    downloaded: string;
-    version: string;
-    versionUntested: string;
+    embeddedNote: string;
     enable: string;
     disable: string;
     starting: string;
@@ -466,7 +460,6 @@ export interface Translations {
     running: string;
     stopped: string;
     error: string;
-    pid: string;
     uptime: string;
     uptimeH: string;
     uptimeM: string;
@@ -494,13 +487,10 @@ export interface Translations {
     logsTitle: string;
     noLogs: string;
     parallelNote: string;
-    trayNote: string;
     notifyStartedTitle: string;
     notifyStartedBody: string;
     notifyStoppedTitle: string;
     notifyStoppedBody: string;
-    notifyDownloadedTitle: string;
-    notifyDownloadedBody: string;
     notifyErrorTitle: string;
   },
   transports: {

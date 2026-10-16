@@ -7,7 +7,6 @@ import {
   Play,
   Square,
   Loader2,
-  Download,
   Copy,
   Check,
   RefreshCw,
@@ -24,7 +23,7 @@ interface TelegramViewProps {
   logs: LogEntry[];
 }
 
-type BusyKind = "idle" | "download" | "toggle" | "save" | "secret";
+type BusyKind = "idle" | "toggle" | "save" | "secret";
 
 const SECRET_RE = /^[0-9a-fA-F]{32}$/;
 
@@ -45,8 +44,6 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
   const [secretInput, setSecretInput] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // T12: download progress (percent) streamed from the backend; null = idle/unknown.
-  const [dlProgress, setDlProgress] = useState<number | null>(null);
   const copyTimer = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
@@ -75,15 +72,6 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
     };
   }, [refresh]);
 
-  useEffect(() => {
-    const unlistenPromise = listen<number>("tgproxy-download-progress", (e) => {
-      setDlProgress(e.payload);
-    });
-    return () => {
-      unlistenPromise.then((unlisten) => unlisten());
-    };
-  }, []);
-
   const fail = useCallback(
     (e: unknown) => {
       const msg = e instanceof Error ? e.message : String(e);
@@ -92,22 +80,6 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
     },
     [t]
   );
-
-  const handleDownload = useCallback(async () => {
-    setBusy("download");
-    setError(null);
-    setDlProgress(0);
-    try {
-      const version = await invoke<string>("download_tgproxy");
-      await notifyUser(t.telegram.notifyDownloadedTitle, `${t.telegram.notifyDownloadedBody}: ${version}`);
-      await refresh();
-    } catch (e) {
-      fail(e);
-    } finally {
-      setBusy("idle");
-      setDlProgress(null);
-    }
-  }, [refresh, fail, t]);
 
   const handleToggle = useCallback(async () => {
     if (!status || busy !== "idle") return;
@@ -131,6 +103,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
   }, [status, busy, refresh, fail, t]);
 
   const handleGenerateSecret = useCallback(async () => {
+    if (busy !== "idle") return;
     setBusy("secret");
     setError(null);
     try {
@@ -141,7 +114,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
     } finally {
       setBusy("idle");
     }
-  }, [fail]);
+  }, [busy, fail]);
 
   const handleSave = useCallback(async () => {
     const port = Number(portInput);
@@ -246,34 +219,18 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
                 />
                 {stateLabel}
               </span>
-              {isRunning && status!.uptime_secs > 0 && (
+              {isRunning && (status?.uptime_secs ?? 0) > 0 && (
                 <span className="text-xs font-mono text-ink4">
                   {t.telegram.uptime}:{" "}
                   {formatUptime(
-                    status!.uptime_secs,
+                    status?.uptime_secs ?? 0,
                     t.telegram.uptimeH,
                     t.telegram.uptimeM,
                     t.telegram.uptimeS
                   )}
                 </span>
               )}
-              {isRunning && status!.pid && (
-                <span className="text-xs font-mono text-ink5">
-                  {t.telegram.pid}: {status!.pid}
-                </span>
-              )}
-              {status?.binary_present && status.binary_version && (
-                <span className="text-xs font-mono text-ink5">
-                  {t.telegram.version}: {status.binary_version}
-                </span>
-              )}
             </div>
-            {status?.binary_present && !status.version_supported && (
-              <div className="flex items-start gap-2 rounded-panel border border-warnline bg-warnwash p-3 text-xs text-ink2">
-                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>{t.telegram.versionUntested}</span>
-              </div>
-            )}
             {(error || status?.last_error) && (
               <div className="flex items-start gap-2 rounded-panel border border-danger-line bg-danger-wash p-3 text-xs text-ink2">
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -286,117 +243,96 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
           </div>
 
           <div className="flex flex-col gap-2 min-w-[220px]">
-            {!status?.binary_present ? (
-              <button
-                onClick={handleDownload}
-                disabled={busy === "download"}
-                className="t-btn t-btn-primary"
-              >
-                {busy === "download" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-                {busy === "download"
-                  ? `${t.telegram.downloading}${dlProgress !== null ? ` ${dlProgress}%` : ""}`
-                  : t.telegram.download}
-              </button>
-            ) : (
-              <button
-                onClick={handleToggle}
-                disabled={busy !== "idle"}
-                className={`t-btn ${isRunning ? "t-btn-danger" : "t-btn-primary"}`}
-              >
-                {busy === "toggle" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : isRunning ? (
-                  <Square className="h-4 w-4" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-                {isRunning ? t.telegram.disable : t.telegram.enable}
-              </button>
-            )}
-            {!status?.binary_present && (
-              <p className="text-[11px] leading-relaxed text-ink4">{t.telegram.notDownloadedDesc}</p>
-            )}
+            <button
+              onClick={handleToggle}
+              disabled={busy !== "idle"}
+              className={`t-btn ${isRunning ? "t-btn-danger" : "t-btn-primary"}`}
+            >
+              {busy === "toggle" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isRunning ? (
+                <Square className="h-4 w-4" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              {isRunning ? t.telegram.disable : t.telegram.enable}
+            </button>
+            <p className="text-[11px] leading-relaxed text-ink4">{t.telegram.embeddedNote}</p>
           </div>
         </div>
       </div>
 
-      {status?.binary_present && (
-        <>
-          {/* Connection parameters */}
-          <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-4">
-            <h3 className="text-sm font-semibold text-ink">{t.telegram.connectionTitle}</h3>
-            <p className="text-xs text-ink4 leading-relaxed">{t.telegram.connectionHint}</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {(
-                [
-                  { key: "host", label: t.telegram.host, value: status.host },
-                  { key: "port", label: t.telegram.port, value: String(status.port) },
-                  {
-                    key: "secret",
-                    label: t.telegram.secret,
-                    value: status.secret || t.telegram.secretEmpty,
-                    mono: true,
-                    secret: true,
-                  },
-                ] as const
-              ).map((f) => (
-                <div key={f.key} className="rounded-panel border border-line bg-cardin p-3">
-                  <div className="text-[11px] uppercase tracking-wide text-ink5 mb-1">{f.label}</div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span
-                      className={`text-sm truncate ${
-                        "secret" in f && f.secret && !hasSecret
-                          ? "text-ink5 italic"
-                          : "font-mono text-ink"
-                      }`}
-                      title={f.value}
+      {/* Connection parameters */}
+        <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-4">
+          <h3 className="text-sm font-semibold text-ink">{t.telegram.connectionTitle}</h3>
+          <p className="text-xs text-ink4 leading-relaxed">{t.telegram.connectionHint}</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {(
+              [
+                { key: "host", label: t.telegram.host, value: status?.host ?? "127.0.0.1" },
+                { key: "port", label: t.telegram.port, value: String(status?.port ?? 1443) },
+                {
+                  key: "secret",
+                  label: t.telegram.secret,
+                  value: status?.secret || t.telegram.secretEmpty,
+                  mono: true,
+                  secret: true,
+                },
+              ] as const
+            ).map((f) => (
+              <div key={f.key} className="rounded-panel border border-line bg-cardin p-3">
+                <div className="text-[11px] uppercase tracking-wide text-ink5 mb-1">{f.label}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className={`text-sm truncate ${
+                      "secret" in f && f.secret && !hasSecret
+                        ? "text-ink5 italic"
+                        : "font-mono text-ink"
+                    }`}
+                    title={f.value}
+                  >
+                    {f.value}
+                  </span>
+                  {f.value && (
+                    <button
+                      onClick={() => handleCopy(f.key, f.value)}
+                      className="t-btn t-btn-ghost !px-2 !py-1"
+                      title={t.telegram.copy}
                     >
-                      {f.value}
-                    </span>
-                    {hasSecret && (
-                      <button
-                        onClick={() => handleCopy(f.key, f.value)}
-                        className="t-btn t-btn-ghost !px-2 !py-1"
-                        title={t.telegram.copy}
-                      >
-                        {copiedKey === f.key ? (
-                          <Check className="h-3.5 w-3.5 text-accent" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    )}
-                  </div>
+                      {copiedKey === f.key ? (
+                        <Check className="h-3.5 w-3.5 text-accent" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  )}
                 </div>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={handleOpenInTelegram}
-                disabled={!hasSecret}
-                className="t-btn t-btn-accent-soft"
-              >
-                <ExternalLink className="h-4 w-4" />
-                {t.telegram.openInTelegram}
-              </button>
-              {copiedKey === "tg_link" && (
-                <span className="text-xs text-accent">{t.telegram.copied}</span>
-              )}
-              {hasSecret && (
-                <button
-                  onClick={() => handleCopy("tg_link", status.tg_link)}
-                  className="t-btn t-btn-ghost"
-                >
-                  <Copy className="h-4 w-4" />
-                  {t.telegram.tgLinkLabel}
-                </button>
-              )}
-            </div>
+              </div>
+            ))}
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleOpenInTelegram}
+              disabled={!hasSecret}
+              className="t-btn t-btn-accent-soft"
+            >
+              <ExternalLink className="h-4 w-4" />
+              {t.telegram.openInTelegram}
+            </button>
+            {copiedKey === "tg_link" && (
+              <span className="text-xs text-accent">{t.telegram.copied}</span>
+            )}
+            {hasSecret && (
+              <button
+                onClick={() => handleCopy("tg_link", status?.tg_link ?? "")}
+                className="t-btn t-btn-ghost"
+              >
+                <Copy className="h-4 w-4" />
+                {t.telegram.tgLinkLabel}
+              </button>
+            )}
+          </div>
+        </div>
 
           {/* Settings */}
           <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-4">
@@ -461,15 +397,9 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
           </div>
 
           {/* Notes */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex items-start gap-2 rounded-card border border-accent-line bg-accent-wash p-4 text-xs text-ink2 leading-relaxed">
-              <Info className="h-4 w-4 shrink-0 mt-0.5 text-accent" />
-              <span>{t.telegram.parallelNote}</span>
-            </div>
-            <div className="flex items-start gap-2 rounded-card border border-line bg-cardin p-4 text-xs text-ink4 leading-relaxed">
-              <Info className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>{t.telegram.trayNote}</span>
-            </div>
+          <div className="flex items-start gap-2 rounded-card border border-accent-line bg-accent-wash p-4 text-xs text-ink2 leading-relaxed">
+            <Info className="h-4 w-4 shrink-0 mt-0.5 text-accent" />
+            <span>{t.telegram.parallelNote}</span>
           </div>
 
           {/* Logs */}
@@ -495,8 +425,6 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
               )}
             </div>
           </div>
-        </>
-      )}
     </div>
   );
 });

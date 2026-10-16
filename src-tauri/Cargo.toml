@@ -21,12 +21,20 @@ tokio = { version = "1.38", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 parking_lot = "0.12"
 thiserror = "1.0"
-# tgproxy.rs needs rand (OsRng secret generation) and sha2 (download
-# integrity). NOTE: sha2 is "0.10" — there is no sha2 1.x on crates.io.
+# rand: OsRng for the Telegram bridge secret. sha2/zip/hex: streaming
+# download integrity + archive extraction for the auto-update pipeline
+# (updater.rs). NOTE: sha2 is "0.10" — there is no sha2 1.x on crates.io.
 sha2 = "0.10"
 hex = "0.4"
 zip = "2"
 rand = "0.8"
+# Native Telegram MTProto→WebSocket bridge (MIT). Embedded in-process —
+# no downloaded executable, no sidecar. Pinned to a release tag.
+tg-ws-proxy-rs = { git = "https://github.com/valnesfjord/tg-ws-proxy-rs", tag = "v2.5.4" }
+clap = { version = "4", features = ["derive"] }
+# Funnel the bridge library's tracing diagnostics into our log buffer.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
 [dependencies.windows]
 version = "0.58"
 features = [

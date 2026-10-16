@@ -461,16 +461,8 @@ export const uk: Translations = {
   },
   telegram: {
     title: "Telegram-режим",
-    subtitle: "Локальний MTProto-міст для Telegram-клієнта (офіційний tg-ws-proxy)",
-    notDownloaded: "Проксі не завантажено",
-    notDownloadedDesc:
-      "Завантажте офіційний бінарник TgWsProxy_windows.exe з релізів Flowseal/tg-ws-proxy. SHA-256 перевіряється автоматично за digest релізу.",
-    download: "Завантажити проксі",
-    downloading: "Завантаження…",
-    downloaded: "Проксі завантажено",
-    version: "Версія",
-    versionUntested:
-      "Версія новіша за перевірену — формат конфігу нової версії не верифіковано",
+    subtitle: "Локальний MTProto-міст для Telegram-клієнта (вбудовано, завантажувати нічого не треба)",
+    embeddedNote: "Міст вбудовано в застосунок — нічого завантажувати не треба, окремих процесів немає.",
     enable: "Увімкнути",
     disable: "Вимкнути",
     starting: "Запуск…",
@@ -478,7 +470,6 @@ export const uk: Translations = {
     running: "Запущено",
     stopped: "Зупинено",
     error: "Помилка",
-    pid: "PID",
     uptime: "Аптайм",
     uptimeH: "год",
     uptimeM: "хв",
@@ -508,14 +499,10 @@ export const uk: Translations = {
     noLogs: "Поки немає рядків логу",
     parallelNote:
       "Telegram-режим працює паралельно з основним рушієм обходу: winws2 перехоплює трафік на рівні драйвера і не займає порти, а проксі слухає лише 127.0.0.1. Їх можна використовувати одночасно.",
-    trayNote:
-      "Офіційний бінарник — tray-застосунок: його іконка з'явиться в системному треї, це нормально.",
     notifyStartedTitle: "Telegram-проксі",
     notifyStartedBody: "Локальний MTProto-міст запущено",
     notifyStoppedTitle: "Telegram-проксі",
     notifyStoppedBody: "Локальний MTProto-міст зупинено",
-    notifyDownloadedTitle: "Telegram-проксі",
-    notifyDownloadedBody: "Офіційний бінарник завантажено та перевірено",
     notifyErrorTitle: "Telegram-проксі: помилка",
   },
   transports: {
