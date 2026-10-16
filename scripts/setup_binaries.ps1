@@ -19,6 +19,64 @@ if (-not (Test-Path $BinListsDir)) {
 
 $RequiredFiles = @("winws2.exe", "winws.exe", "WinDivert.dll", "WinDivert64.sys", "cygwin1.dll")
 
+# ==============================================================================
+# PINNED UPSTREAM HASHES (supply-chain hardening, see SECURITY.md H-1)
+# ------------------------------------------------------------------------------
+# These SHA256 hashes pin the exact upstream release archives. The script
+# aborts if a downloaded archive does not match its pinned hash, so a
+# compromised upstream release asset cannot silently slip a trojaned
+# driver/exe into our build.
+#
+# HOW TO UPDATE when upstream publishes a new version:
+#   1. Download the new archive manually from the official release page.
+#   2. Compute its hash:  Get-FileHash <file>.zip -Algorithm SHA256
+#   3. Sanity-check it independently (second download, publisher's published
+#      checksum if any, VirusTotal, community reports).
+#   4. Update Url + Sha256 (+ file name where used) below in ONE commit and
+#      mention the upstream version in the commit message.
+# ==============================================================================
+$UpstreamPins = @{
+    "zapret2" = @{
+        Label  = "bol-van/zapret2 v1.0.5.2"
+        Url    = "https://github.com/bol-van/zapret2/releases/download/v1.0.5.2/zapret2-v1.0.5.2.zip"
+        Sha256 = "f585590bea6da82ac2c74926f6ac17e6204ee8b53e455c2ba2edae0c58c5d4ac"
+    }
+    "flowseal" = @{
+        Label  = "Flowseal/zapret-discord-youtube 1.10.3"
+        Url    = "https://github.com/Flowseal/zapret-discord-youtube/releases/download/1.10.3/zapret-discord-youtube-1.10.3.zip"
+        Sha256 = "244314ae1c24538a0d751601da8e0c925c843371eec4456eb15f14c4fd6b7058"
+    }
+}
+
+function Test-PinnedHash {
+    param([string]$Path, [string]$ExpectedSha256, [string]$Label)
+    $actual = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $ExpectedSha256.ToLowerInvariant()) {
+        throw ("SECURITY: SHA256 mismatch for {0}!`n  expected: {1}`n  actual:   {2}`n" +
+               "The upstream archive may have been tampered with. Aborting build.") -f $Label, $ExpectedSha256, $actual
+    }
+    Write-Host "    [+] SHA256 verified: $Label" -ForegroundColor Green
+}
+
+function Test-Authenticode {
+    param([string]$Path)
+    $fileName = [System.IO.Path]::GetFileName($Path)
+    $sig = Get-AuthenticodeSignature -FilePath $Path
+    switch ($sig.Status) {
+        "Valid" {
+            Write-Host "    [+] Authenticode valid: $fileName ($($sig.SignerCertificate.Subject))" -ForegroundColor Green
+        }
+        "NotSigned" {
+            # Upstream does not sign every binary; a missing signature is a warning,
+            # not a build break — the pinned SHA256 above is the hard guarantee.
+            Write-Warning "Authenticode: $fileName is not signed by upstream."
+        }
+        default {
+            throw "SECURITY: Authenticode check failed for $fileName — status: $($sig.Status). Aborting build."
+        }
+    }
+}
+
 # 1. Search local development paths first
 $SearchLocations = @(
     (Join-Path $PSScriptRoot "..\vendor\zapret2 releases\binaries\windows-x86_64"),
@@ -52,12 +110,13 @@ $NeedsZapret2 = (-not (Test-Path (Join-Path $BinDir "winws2.exe"))) -or
                 (-not (Test-Path (Join-Path $BinDir "cygwin1.dll")))
 
 if ($NeedsZapret2) {
-    Write-Host "==> Downloading official bol-van/zapret2 release from GitHub..." -ForegroundColor Cyan
+    $Pin = $UpstreamPins["zapret2"]
+    Write-Host ("==> Downloading {0} from GitHub..." -f $Pin.Label) -ForegroundColor Cyan
     $Z2Zip = Join-Path $env:TEMP "zapret2-v1.0.5.2.zip"
     $Z2Dir = Join-Path $env:TEMP "zapret2-v1.0.5.2-extracted"
-    $Z2Url = "https://github.com/bol-van/zapret2/releases/download/v1.0.5.2/zapret2-v1.0.5.2.zip"
-    
-    Invoke-WebRequest -Uri $Z2Url -OutFile $Z2Zip
+
+    Invoke-WebRequest -Uri $Pin.Url -OutFile $Z2Zip
+    Test-PinnedHash -Path $Z2Zip -ExpectedSha256 $Pin.Sha256 -Label $Pin.Label
     Expand-Archive -Path $Z2Zip -DestinationPath $Z2Dir -Force
 
     $Win64Bin = Get-ChildItem -Path $Z2Dir -Recurse -Directory | Where-Object { $_.FullName -like "*windows-x86_64" } | Select-Object -First 1
@@ -67,6 +126,12 @@ if ($NeedsZapret2) {
             Write-Host "    [+] Extracted $($_.Name) from zapret2 upstream" -ForegroundColor Green
         }
     }
+
+    # Authenticode sanity check on the security-critical binaries (warn if unsigned, fail if tampered)
+    foreach ($Bin in @("winws2.exe", "WinDivert.dll", "WinDivert64.sys")) {
+        $P = Join-Path $BinDir $Bin
+        if (Test-Path $P) { Test-Authenticode -Path $P }
+    }
 }
 
 # 3. Check if winws.exe, binary packet dumps (.bin), or lists are missing -> Download Flowseal release
@@ -75,12 +140,13 @@ $NeedsFlowseal = (-not (Test-Path (Join-Path $BinDir "winws.exe"))) -or
                  (-not (Test-Path (Join-Path $BinDir "ACTIVE_DISCORD_UDP.bin")))
 
 if ($NeedsFlowseal) {
-    Write-Host "==> Downloading upstream Flowseal preset bundle from GitHub..." -ForegroundColor Cyan
+    $Pin = $UpstreamPins["flowseal"]
+    Write-Host ("==> Downloading {0} from GitHub..." -f $Pin.Label) -ForegroundColor Cyan
     $FsZip = Join-Path $env:TEMP "zapret-flowseal.zip"
     $FsDir = Join-Path $env:TEMP "zapret-flowseal-extracted"
-    $FsUrl = "https://github.com/Flowseal/zapret-discord-youtube/releases/download/1.10.3/zapret-discord-youtube-1.10.3.zip"
-    
-    Invoke-WebRequest -Uri $FsUrl -OutFile $FsZip
+
+    Invoke-WebRequest -Uri $Pin.Url -OutFile $FsZip
+    Test-PinnedHash -Path $FsZip -ExpectedSha256 $Pin.Sha256 -Label $Pin.Label
     Expand-Archive -Path $FsZip -DestinationPath $FsDir -Force
     
     $FoundBin = Get-ChildItem -Path $FsDir -Recurse -Directory -Filter "bin" | Select-Object -First 1
@@ -97,6 +163,10 @@ if ($NeedsFlowseal) {
             Copy-Item -Path $_.FullName -Destination $BinListsDir -Force
         }
     }
+
+    # Authenticode sanity check on the Flowseal engine binary
+    $W1 = Join-Path $BinDir "winws.exe"
+    if (Test-Path $W1) { Test-Authenticode -Path $W1 }
 }
 
 # Ensure root copies exist for direct access
