@@ -108,11 +108,11 @@ impl Default for AppSettings {
             last_update_check: None,
             tgproxy_port: 1443,
             tgproxy_secret: String::new(),
-            tgproxy_enabled: false,        
+            tgproxy_enabled: false,
             active_transport_id: None,
             transport_configs: HashMap::new(),
-        
-}    }
+        }
+    }
 }
 
 static CACHED_SETTINGS: RwLock<Option<AppSettings>> = RwLock::new(None);
