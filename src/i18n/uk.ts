@@ -517,6 +517,7 @@ export const uk: Translations = {
     notifyDownloadedTitle: "Telegram-проксі",
     notifyDownloadedBody: "Офіційний бінарник завантажено та перевірено",
     notifyErrorTitle: "Telegram-проксі: помилка",
+  },
   transports: {
     title: "Транспорти (експеримент)",
     description:

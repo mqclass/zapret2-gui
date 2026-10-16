@@ -459,7 +459,6 @@ export const en: Translations = {
     defaultStrategy: "Default",
     checkingConnection: "Checking connection...",
   },
-<<<<<<< HEAD
   telegram: {
     title: "Telegram mode",
     subtitle: "Local MTProto bridge for the Telegram client (official tg-ws-proxy)",
@@ -518,7 +517,7 @@ export const en: Translations = {
     notifyDownloadedTitle: "Telegram proxy",
     notifyDownloadedBody: "Official binary downloaded and verified",
     notifyErrorTitle: "Telegram proxy: error",
-=======
+  },
   transports: {
     title: "Transports (experimental)",
     description:
@@ -541,6 +540,5 @@ export const en: Translations = {
     unavailableHint: "This transport cannot be enabled — see the reason above.",
     docsHint: "Architecture, honest limitations and how to write your own transport: docs/TRANSPORTS.md",
     configExampleLabel: "Config example (for researchers)",
->>>>>>> feature/transport-framework
   },
 };

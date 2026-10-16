@@ -517,6 +517,7 @@ export const ru: Translations = {
     notifyDownloadedTitle: "Telegram-прокси",
     notifyDownloadedBody: "Официальный бинарник скачан и проверен",
     notifyErrorTitle: "Telegram-прокси: ошибка",
+  },
   transports: {
     title: "Транспорты (эксперимент)",
     description:

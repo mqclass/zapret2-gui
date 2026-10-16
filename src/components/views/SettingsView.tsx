@@ -22,11 +22,8 @@ import { useI18n } from "../../i18n";
 import { Language } from "../../i18n/types";
 import { useTheme, ThemeId } from "../../theme/ThemeContext";
 import { openUrl } from "@tauri-apps/plugin-opener";
-<<<<<<< HEAD
 import { UpdateInfo } from "../../types";
-=======
 import { TransportsSection } from "../TransportsSection";
->>>>>>> feature/transport-framework
 
 /** External links opened via the opener plugin (L-2). The capability allowlist
  *  restricts this to https://github.com/* — no webview navigation is enabled. */

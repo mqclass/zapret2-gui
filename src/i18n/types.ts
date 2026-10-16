@@ -502,7 +502,9 @@ export interface Translations {
     notifyDownloadedTitle: string;
     notifyDownloadedBody: string;
     notifyErrorTitle: string;
+  },
   transports: {
+    title: string;
     description: string;
     experimentalBadge: string;
     requiresExitInfra: string;
