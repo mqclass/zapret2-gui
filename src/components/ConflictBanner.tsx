@@ -18,16 +18,16 @@ export const ConflictBanner: React.FC<ConflictBannerProps> = React.memo(
     }
 
     return (
-      <div className="rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-rose-500/10 to-amber-500/15 p-4 text-amber-200 shadow-lg shadow-amber-500/5 backdrop-blur-md">
+      <div className="rounded-panel border border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-rose-500/10 to-amber-500/15 p-4 text-amber-200 shadow-lg shadow-amber-500/5 backdrop-blur-md">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-amber-300">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-amber-500/20 text-amber-300">
               <ShieldAlert className="h-5 w-5" />
             </div>
             <div>
               <div className="font-semibold text-sm text-amber-100 flex items-center gap-2">
                 <span>{t.conflicts.bannerTitle}</span>
-                <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[11px] font-mono text-amber-300 border border-amber-500/30">
+                <span className="rounded-chip bg-amber-500/20 px-2 py-0.5 text-[11px] font-mono text-amber-300 border border-amber-500/30">
                   {conflicts.length}
                 </span>
               </div>
@@ -41,7 +41,7 @@ export const ConflictBanner: React.FC<ConflictBannerProps> = React.memo(
                 {conflicts.map((c, i) => (
                   <span
                     key={i}
-                    className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-mono text-amber-200"
+                    className="inline-flex items-center gap-1 rounded-chip border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-mono text-amber-200"
                   >
                     <span className="font-bold">{c.name}</span>
                     {c.pid && <span className="text-amber-400/70">(PID: {c.pid})</span>}
@@ -57,7 +57,7 @@ export const ConflictBanner: React.FC<ConflictBannerProps> = React.memo(
           <button
             onClick={onResolve}
             disabled={isResolving}
-            className="flex shrink-0 items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 text-xs shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="flex shrink-0 items-center gap-2 rounded-panel border border-amber-400/40 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 text-xs shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isResolving ? (
               <>

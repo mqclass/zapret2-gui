@@ -142,32 +142,32 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="relative w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl my-8">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 overflow-y-auto">
+      <div className="relative w-full max-w-2xl rounded-card border border-raise bg-card p-6 shadow-2xl my-8">
+        <div className="flex items-center justify-between pb-4 border-b border-raise">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            <div className="flex h-8 w-8 items-center justify-center rounded-control bg-accent-wash text-accent border border-accent-line">
               <Sparkles className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-white">
+              <h3 className="text-base font-semibold text-ink">
                 {editingStrategy ? t.modal.editTitle : t.modal.createTitle}
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-ink4">
                 {editingStrategy ? editingStrategy.id : "configs/custom_profiles.json"}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
+            className="rounded-control p-1.5 text-ink4 hover:bg-raise hover:text-ink transition-colors cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {error && (
-          <div className="mt-4 flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+          <div className="mt-4 flex items-center gap-2 rounded-control border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
             <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
             <span>{error}</span>
           </div>
@@ -175,7 +175,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
 
         <form onSubmit={handleSave} className="mt-4 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
+            <label className="block text-xs font-semibold text-ink3 mb-1">
               {t.modal.nameLabel} <span className="text-rose-400">*</span>
             </label>
             <input
@@ -184,12 +184,12 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
               onChange={(e) => setName(e.target.value)}
               placeholder={t.modal.namePlaceholder}
               required
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-panel border border-linestrong bg-cardin px-3.5 py-2 text-xs text-ink placeholder-ink5 focus:border-accent-line focus:outline-none focus:ring-1 focus:ring-accent-line"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
+            <label className="block text-xs font-semibold text-ink3 mb-1">
               {t.modal.descLabel}
             </label>
             <input
@@ -197,20 +197,20 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t.modal.descPlaceholder}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-panel border border-linestrong bg-cardin px-3.5 py-2 text-xs text-ink placeholder-ink5 focus:border-accent-line focus:outline-none focus:ring-1 focus:ring-accent-line"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+            <label className="block text-xs font-semibold text-ink3 mb-1.5">
               {t.modal.engineLabel}
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <label
-                className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-all ${
+                className={`flex items-start gap-3 rounded-panel border p-3 cursor-pointer transition-all ${
                   engine === "winws"
-                    ? "border-indigo-500/70 bg-indigo-500/10 text-white"
-                    : "border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700"
+                    ? "border-indigo-500/70 bg-indigo-500/10 text-ink"
+                    : "border-raise bg-cardin/60 text-ink4 hover:border-linestrong"
                 }`}
               >
                 <input
@@ -225,17 +225,17 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                   <div className="text-xs font-semibold text-indigo-300">
                     winws.exe (Flowseal / v1)
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                  <div className="text-[11px] text-ink4 mt-0.5 leading-snug">
                     {t.modal.engineFlowsealDesc}
                   </div>
                 </div>
               </label>
 
               <label
-                className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-all ${
+                className={`flex items-start gap-3 rounded-panel border p-3 cursor-pointer transition-all ${
                   engine === "winws2"
-                    ? "border-sky-500/70 bg-sky-500/10 text-white"
-                    : "border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700"
+                    ? "border-sky-500/70 bg-sky-500/10 text-ink"
+                    : "border-raise bg-cardin/60 text-ink4 hover:border-linestrong"
                 }`}
               >
                 <input
@@ -250,7 +250,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                   <div className="text-xs font-semibold text-sky-300">
                     winws2.exe (zapret2 / v2)
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                  <div className="text-[11px] text-ink4 mt-0.5 leading-snug">
                     {t.modal.engineZapret2Desc}
                   </div>
                 </div>
@@ -260,14 +260,14 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-300">
+              <label className="text-xs font-semibold text-ink3">
                 {t.modal.argsLabel}
               </label>
               <button
                 type="button"
                 onClick={handleParse}
                 disabled={isParsing || !argsInput.trim()}
-                className="text-[11px] font-medium text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="text-[11px] font-medium text-accent hover:text-accent-soft transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Terminal className="h-3 w-3" />
                 <span>{isParsing ? "..." : t.modal.parseBtn}</span>
@@ -276,7 +276,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
 
             {/* Quick Templates Bar */}
             <div className="mb-2">
-              <div className="text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1.5">
+              <div className="text-[11px] font-medium text-ink4 mb-1 flex items-center gap-1.5">
                 <Sparkles className="h-3 w-3 text-amber-400" />
                 <span>{t.modal.quickTemplates}:</span>
               </div>
@@ -284,7 +284,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                 <button
                   type="button"
                   onClick={() => applyQuickTemplate("youtube")}
-                  className="flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-950/30 px-2.5 py-1 text-[11px] font-medium text-red-300 hover:bg-red-900/40 hover:border-red-500/50 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-control border border-red-500/30 bg-red-950/30 px-2.5 py-1 text-[11px] font-medium text-red-300 hover:bg-red-900/40 hover:border-red-500/50 transition-all cursor-pointer"
                 >
                   <Tv className="h-3 w-3 text-red-400" />
                   <span>{t.modal.templateYoutube}</span>
@@ -292,7 +292,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                 <button
                   type="button"
                   onClick={() => applyQuickTemplate("discord")}
-                  className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-950/30 px-2.5 py-1 text-[11px] font-medium text-indigo-300 hover:bg-indigo-900/40 hover:border-indigo-500/50 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-control border border-indigo-500/30 bg-indigo-950/30 px-2.5 py-1 text-[11px] font-medium text-indigo-300 hover:bg-indigo-900/40 hover:border-indigo-500/50 transition-all cursor-pointer"
                 >
                   <Mic className="h-3 w-3 text-indigo-400" />
                   <span>{t.modal.templateDiscord}</span>
@@ -300,7 +300,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                 <button
                   type="button"
                   onClick={() => applyQuickTemplate("general")}
-                  className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-950/30 px-2.5 py-1 text-[11px] font-medium text-emerald-300 hover:bg-emerald-900/40 hover:border-emerald-500/50 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-control border border-emerald-500/30 bg-emerald-950/30 px-2.5 py-1 text-[11px] font-medium text-emerald-300 hover:bg-emerald-900/40 hover:border-emerald-500/50 transition-all cursor-pointer"
                 >
                   <Globe className="h-3 w-3 text-emerald-400" />
                   <span>{t.modal.templateGeneral}</span>
@@ -308,7 +308,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                 <button
                   type="button"
                   onClick={() => applyQuickTemplate("combo")}
-                  className="flex items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-950/30 px-2.5 py-1 text-[11px] font-medium text-purple-300 hover:bg-purple-900/40 hover:border-purple-500/50 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-control border border-purple-500/30 bg-purple-950/30 px-2.5 py-1 text-[11px] font-medium text-purple-300 hover:bg-purple-900/40 hover:border-purple-500/50 transition-all cursor-pointer"
                 >
                   <Zap className="h-3 w-3 text-purple-400" />
                   <span>{t.modal.templateCombo}</span>
@@ -324,53 +324,53 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                 setParsedTokens([]);
               }}
               placeholder={t.modal.argsPlaceholder}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 font-mono text-xs text-white placeholder-slate-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 leading-relaxed"
+              className="w-full rounded-panel border border-linestrong bg-cardin px-3.5 py-2.5 font-mono text-xs text-ink placeholder-ink5 focus:border-accent-line focus:outline-none focus:ring-1 focus:ring-accent-line leading-relaxed"
             />
-            <p className="mt-1 text-[11px] text-slate-400 leading-snug">
+            <p className="mt-1 text-[11px] text-ink4 leading-snug">
               {t.modal.argsHint}
             </p>
 
             {/* Cheatsheet Expander */}
-            <div className="mt-2.5 rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+            <div className="mt-2.5 rounded-panel border border-raise bg-cardin/80 p-3">
               <button
                 type="button"
                 onClick={() => setShowCheatsheet(!showCheatsheet)}
-                className="flex w-full items-center justify-between text-left text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+                className="flex w-full items-center justify-between text-left text-xs font-semibold text-ink3 hover:text-ink transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-1.5">
                   <Lightbulb className="h-3.5 w-3.5 text-amber-400" />
                   <span>{t.modal.cheatsheetTitle}</span>
                 </div>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-ink5">
                   {showCheatsheet ? "▲ Скрыть" : "▼ Раскрыть"}
                 </span>
               </button>
 
               {showCheatsheet && (
-                <div className="mt-2.5 pt-2.5 border-t border-slate-800/80 space-y-2 text-[11px] text-slate-300 leading-relaxed">
+                <div className="mt-2.5 pt-2.5 border-t border-raise/80 space-y-2 text-[11px] text-ink3 leading-relaxed">
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--filter-tcp=80,443 / --filter-udp=443,50000-50100</span>
-                    <p className="text-slate-400">Фильтрует сетевые порты. Для YouTube нужен TCP 443 + UDP 443 (QUIC), для Discord Voice — UDP 50000-50100.</p>
+                    <p className="text-ink4">Фильтрует сетевые порты. Для YouTube нужен TCP 443 + UDP 443 (QUIC), для Discord Voice — UDP 50000-50100.</p>
                   </div>
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--hostlist="lists/list-general.txt"</span>
-                    <p className="text-slate-400">Применяет обход только к доменам из списка. Можно указать несколько раз для разных списков.</p>
+                    <p className="text-ink4">Применяет обход только к доменам из списка. Можно указать несколько раз для разных списков.</p>
                   </div>
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--dpi-desync=fake,multisplit</span>
-                    <p className="text-slate-400"><span className="text-white font-medium">fake</span> отправляет поддельный ClientHello/QUIC, <span className="text-white font-medium">multisplit</span> делит реальный TCP пакет на части, сбивая сигнатурный анализ ТСПУ.</p>
+                    <p className="text-ink4"><span className="text-ink font-medium">fake</span> отправляет поддельный ClientHello/QUIC, <span className="text-ink font-medium">multisplit</span> делит реальный TCP пакет на части, сбивая сигнатурный анализ ТСПУ.</p>
                   </div>
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--dpi-desync-split-seqovl=681</span>
-                    <p className="text-slate-400">Смещение перекрытия TCP-сегментов. Значение 681 идеально работает под YouTube/Google, а 664 — для остальных сайтов в РФ.</p>
+                    <p className="text-ink4">Смещение перекрытия TCP-сегментов. Значение 681 идеально работает под YouTube/Google, а 664 — для остальных сайтов в РФ.</p>
                   </div>
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--dpi-desync-fooling=ts</span>
-                    <p className="text-slate-400">Маскировка фейкового пакета таймштампами TCP Timestamp. ТСПУ пропускает фейк, а сервер отбрасывает его и принимает ваши настоящие данные.</p>
+                    <p className="text-ink4">Маскировка фейкового пакета таймштампами TCP Timestamp. ТСПУ пропускает фейк, а сервер отбрасывает его и принимает ваши настоящие данные.</p>
                   </div>
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--new</span>
-                    <p className="text-slate-400">Разделитель блоков правил. Позволяет задать разные методы обхода для YouTube, Discord и заблокированных сайтов в одной строке.</p>
+                    <p className="text-ink4">Разделитель блоков правил. Позволяет задать разные методы обхода для YouTube, Discord и заблокированных сайтов в одной строке.</p>
                   </div>
                 </div>
               )}
@@ -378,8 +378,8 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
           </div>
 
           {parsedTokens.length > 0 && (
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 max-h-36 overflow-y-auto">
-              <div className="text-[11px] font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+            <div className="rounded-panel border border-raise bg-cardin p-3 max-h-36 overflow-y-auto">
+              <div className="text-[11px] font-semibold text-ink3 mb-1.5 flex items-center gap-1.5">
                 <Check className="h-3.5 w-3.5 text-emerald-400" />
                 <span>{t.modal.parsedTokensTitle} ({parsedTokens.length})</span>
               </div>
@@ -387,7 +387,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                 {parsedTokens.map((tok, idx) => (
                   <span
                     key={idx}
-                    className="rounded bg-slate-800/80 border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] text-slate-300 max-w-full break-all"
+                    className="rounded-chip bg-raise/80 border border-linestrong px-1.5 py-0.5 font-mono text-[10px] text-ink3 max-w-full break-all"
                   >
                     {tok}
                   </span>
@@ -396,19 +396,19 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-raise">
             <button
               type="button"
               onClick={onClose}
               disabled={isSaving}
-              className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-2 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer"
+              className="rounded-panel border border-linestrong bg-raise/60 px-4 py-2 text-xs font-medium text-ink3 hover:bg-linestrong hover:text-ink transition-colors cursor-pointer"
             >
               {t.modal.cancelBtn}
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 transition-all cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-2 rounded-panel bg-accent-fill px-5 py-2 text-xs font-semibold text-accent-contrast shadow-lg shadow-accent-fill/30 hover:bg-accent transition-all cursor-pointer disabled:opacity-50"
             >
               <Check className="h-4 w-4" />
               <span>{isSaving ? "..." : t.modal.saveBtn}</span>

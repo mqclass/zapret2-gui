@@ -57,8 +57,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = React.memo(
         default:
           return {
             label: t.status.stopped,
-            color: "text-slate-400 bg-slate-800/60 border-slate-700/60",
-            dotColor: "bg-slate-500 shadow-transparent",
+            color: "text-ink4 bg-raise/60 border-linestrong/60",
+            dotColor: "bg-ink5 shadow-transparent",
             icon: Square,
           };
       }
@@ -70,7 +70,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = React.memo(
     return (
       <div className="flex flex-wrap items-center gap-3">
         <div
-          className={`flex items-center gap-2 rounded-xl border px-3.5 py-1.5 text-xs font-semibold backdrop-blur-md shadow-sm ${config.color}`}
+          className={`flex items-center gap-2 rounded-panel border px-3.5 py-1.5 text-xs font-semibold backdrop-blur-md shadow-sm ${config.color}`}
         >
           <span
             className={`h-2 w-2 rounded-full shadow-md ${
@@ -86,21 +86,21 @@ export const StatusBadge: React.FC<StatusBadgeProps> = React.memo(
         </div>
 
         {pid !== null && (
-          <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1 text-xs text-slate-300 font-mono">
-            <span className="text-slate-500">{t.status.pid}:</span>
-            <span className="font-semibold text-slate-200">{pid}</span>
+          <div className="flex items-center gap-1.5 rounded-control border border-raise bg-card/50 px-2.5 py-1 text-xs text-ink3 font-mono">
+            <span className="text-ink5">{t.status.pid}:</span>
+            <span className="font-semibold text-ink2">{pid}</span>
           </div>
         )}
 
         {state === "running" && (
-          <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1 text-xs text-slate-300 font-mono">
-            <span className="text-slate-500">{t.status.uptime}:</span>
-            <span className="font-semibold text-slate-200">{formatUptime(uptimeSecs)}</span>
+          <div className="flex items-center gap-1.5 rounded-control border border-raise bg-card/50 px-2.5 py-1 text-xs text-ink3 font-mono">
+            <span className="text-ink5">{t.status.uptime}:</span>
+            <span className="font-semibold text-ink2">{formatUptime(uptimeSecs)}</span>
           </div>
         )}
 
         {activeStrategy && (
-          <div className="flex items-center gap-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-2.5 py-1 text-xs text-indigo-300">
+          <div className="flex items-center gap-1.5 rounded-control border border-indigo-500/20 bg-indigo-500/10 px-2.5 py-1 text-xs text-indigo-300">
             <span className="text-indigo-400/70">{t.status.strategy}:</span>
             <span className="font-medium text-indigo-200">{activeStrategy}</span>
           </div>

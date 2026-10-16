@@ -152,15 +152,15 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
         data-tauri-drag-region
         onMouseDown={handleDragMouseDown}
         onDoubleClick={handleToggleMaximize}
-        className="relative z-50 h-14 shrink-0 flex items-center justify-between pl-5 pr-2 border-b border-[#20242e] bg-[#11141c] select-none"
+        className="glass-bar relative z-50 h-14 shrink-0 flex items-center justify-between pl-5 pr-2 border-b border-line select-none"
       >
         {/* Title and subtitle area (Draggable) */}
         <div data-tauri-drag-region className="flex items-center gap-3">
           <div data-tauri-drag-region>
-            <h2 data-tauri-drag-region className="text-sm font-semibold tracking-tight text-white leading-tight">
+            <h2 data-tauri-drag-region className="text-sm font-semibold tracking-tight text-ink leading-tight">
               {meta.title}
             </h2>
-            <p data-tauri-drag-region className="text-[11px] text-slate-400 font-normal">
+            <p data-tauri-drag-region className="text-[11px] text-ink4 font-normal">
               {meta.subtitle}
             </p>
           </div>
@@ -171,7 +171,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           {/* UAC Elevation Status */}
           {isElevated ? (
             <div
-              className="flex items-center gap-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300"
+              className="flex items-center gap-1.5 rounded-control border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300"
               title="Приложение запущено с правами Администратора (WFP драйвер активен)"
             >
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
@@ -180,7 +180,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           ) : (
             <button
               onClick={onRelaunchElevated}
-              className="flex items-center gap-1.5 rounded-lg border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 rounded-control border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer"
               title="Нажмите для перезапуска с правами Администратора (требуется для фильтрации)"
             >
               <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
@@ -192,24 +192,24 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           <button
             onClick={onToggleAutostart}
             disabled={isTogglingAutostart}
-            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer disabled:opacity-60 ${
+            className={`flex items-center gap-1.5 rounded-control border px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer disabled:opacity-60 ${
               isAutostart
-                ? "bg-blue-600/15 border-blue-500/30 text-blue-300 hover:bg-blue-600/25"
-                : "bg-white/[0.03] border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]"
+                ? "bg-accent-wash border-accent-line text-accent-soft hover:bg-accent-wash"
+                : "bg-white/[0.03] border-white/[0.08] text-ink4 hover:text-ink2 hover:bg-white/[0.06]"
             }`}
             title={isAutostart ? "Автозапуск включен" : "Автозапуск выключен"}
           >
             {isTogglingAutostart ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-400" />
+              <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent" />
             ) : (
               <Rocket
-                className={`h-3.5 w-3.5 ${isAutostart ? "text-blue-400" : "text-slate-500"}`}
+                className={`h-3.5 w-3.5 ${isAutostart ? "text-accent" : "text-ink5"}`}
               />
             )}
             <span>Автозапуск</span>
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                isAutostart ? "bg-blue-400" : "bg-slate-600"
+                isAutostart ? "bg-accent" : "bg-ink5"
               }`}
             />
           </button>
@@ -218,7 +218,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           <button
             onClick={onKillStray}
             disabled={isStrayCleaning}
-            className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-slate-400 hover:text-rose-300 hover:border-rose-500/30 hover:bg-rose-500/10 transition-all cursor-pointer disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-control border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-ink4 hover:text-rose-300 hover:border-rose-500/30 hover:bg-rose-500/10 transition-all cursor-pointer disabled:opacity-60"
             title="Завершить зависшие процессы winws2 в памяти"
           >
             {isStrayCleaning ? (
@@ -234,21 +234,21 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
             <button
               type="button"
               onClick={() => setIsLangMenuOpen((prev) => !prev)}
-              className="flex items-center gap-1.5 rounded-lg border border-[#272d3b] bg-[#161a22] hover:bg-[#1c212c] px-2.5 py-1 text-[11px] font-semibold text-slate-200 transition-all cursor-pointer hover:border-[#384256]"
+              className="flex items-center gap-1.5 rounded-control border border-line bg-raise hover:bg-hovert px-2.5 py-1 text-[11px] font-semibold text-ink2 transition-all cursor-pointer hover:border-linestrong"
               title="Сменить язык интерфейса"
             >
-              <Globe className="h-3.5 w-3.5 text-blue-400" />
+              <Globe className="h-3.5 w-3.5 text-accent" />
               <span className="font-mono tracking-wider">{currentLangItem.label}</span>
               <ChevronDown
-                className={`h-3 w-3 text-slate-400 transition-transform duration-200 ${
-                  isLangMenuOpen ? "rotate-180 text-blue-400" : ""
+                className={`h-3 w-3 text-ink4 transition-transform duration-200 ${
+                  isLangMenuOpen ? "rotate-180 text-accent" : ""
                 }`}
               />
             </button>
 
             {/* Floating Dropdown Menu (Guaranteed on top of hero card) */}
             <div
-              className={`absolute right-0 top-full mt-2 w-36 rounded-xl border border-[#293040] bg-[#161a22] shadow-2xl p-1 z-[100] transition-all duration-150 ease-out origin-top-right transform ${
+              className={`absolute right-0 top-full mt-2 w-36 rounded-panel border border-line bg-raise shadow-2xl p-1 z-[100] transition-all duration-150 ease-out origin-top-right transform ${
                 isLangMenuOpen
                   ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
                   : "opacity-0 scale-95 -translate-y-2 pointer-events-none"
@@ -264,19 +264,19 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
                       setLanguage(l.code);
                       setIsLangMenuOpen(false);
                     }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-control text-xs font-medium transition-colors cursor-pointer ${
                       isSelected
-                        ? "bg-blue-600/15 text-blue-300 font-semibold"
-                        : "text-slate-300 hover:text-white hover:bg-white/[0.06]"
+                        ? "bg-accent-wash text-accent-soft font-semibold"
+                        : "text-ink3 hover:text-ink hover:bg-white/[0.06]"
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] text-slate-400">
+                      <span className="font-mono text-[10px] text-ink4">
                         {l.label}
                       </span>
                       <span>{l.full}</span>
                     </div>
-                    {isSelected && <Check className="h-3.5 w-3.5 text-blue-400" />}
+                    {isSelected && <Check className="h-3.5 w-3.5 text-accent" />}
                   </button>
                 );
               })}
@@ -287,21 +287,21 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           <div className="flex items-center ml-2 border-l border-white/[0.08] pl-2">
             <button
               onClick={handleMinimize}
-              className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+              className="h-8 w-8 flex items-center justify-center rounded-control text-ink4 hover:text-ink hover:bg-white/[0.08] transition-colors cursor-pointer"
               title="Свернуть"
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={handleToggleMaximize}
-              className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+              className="h-8 w-8 flex items-center justify-center rounded-control text-ink4 hover:text-ink hover:bg-white/[0.08] transition-colors cursor-pointer"
               title="Развернуть / Восстановить"
             >
               <Square className="h-3 w-3" />
             </button>
             <button
               onClick={handleClose}
-              className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-rose-600 transition-colors cursor-pointer"
+              className="h-8 w-8 flex items-center justify-center rounded-control text-ink4 hover:text-ink hover:bg-rose-600 transition-colors cursor-pointer"
               title="Закрыть (в трей)"
             >
               <X className="h-3.5 w-3.5" />

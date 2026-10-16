@@ -9,7 +9,7 @@ export const ZapretLogo: React.FC<ZapretLogoProps> = ({ className = "h-6 w-6", g
   return (
     <div className={`relative flex items-center justify-center shrink-0 ${className}`}>
       {glow && (
-        <div className="absolute inset-0 rounded-xl bg-gradient-to-tr from-cyan-500/30 to-blue-600/30 blur-md pointer-events-none" />
+        <div className="absolute inset-0 rounded-panel bg-gradient-to-tr from-accent/30 to-accent-fill/30 blur-md pointer-events-none" />
       )}
       <svg
         viewBox="0 0 32 32"

@@ -444,7 +444,7 @@ const AppContent: React.FC = () => {
   }, [selectedStrategyId, t.alerts.configDeleted]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0d1017] font-sans text-slate-100 select-none">
+    <div className="app-bg flex h-screen w-screen overflow-hidden font-sans text-ink select-none">
       {/* Sidebar Navigation */}
       <Sidebar
         activeTab={activeTab}
@@ -455,7 +455,7 @@ const AppContent: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0d1017]">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-app">
         {/* Top Header Bar */}
         <div className="relative z-50">
           <TopBar
@@ -481,7 +481,7 @@ const AppContent: React.FC = () => {
 
           {/* Error Alert Banner */}
           {errorAlert && (
-            <div className="flex items-start justify-between rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300 backdrop-blur-md">
+            <div className="flex items-start justify-between rounded-panel border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300 backdrop-blur-md">
               <div className="flex items-start gap-2.5">
                 <AlertCircle className="h-5 w-5 shrink-0 text-rose-400 mt-0.5" />
                 <div className="text-xs">
@@ -500,7 +500,7 @@ const AppContent: React.FC = () => {
 
           {/* Success Alert Banner */}
           {successAlert && (
-            <div className="flex items-start justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-emerald-300 backdrop-blur-md">
+            <div className="flex items-start justify-between rounded-panel border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-emerald-300 backdrop-blur-md">
               <div className="flex items-center gap-2.5 text-xs">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
                 <span className="font-medium">{successAlert}</span>
