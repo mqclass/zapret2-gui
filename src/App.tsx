@@ -38,6 +38,7 @@ const AppContent: React.FC = () => {
     state: "stopped",
     pid: null,
     active_strategy: null,
+    active_transport: null,
     binary_path: null,
     uptime_secs: 0,
     total_logs_buffered: 0,

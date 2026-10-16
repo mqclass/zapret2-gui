@@ -44,6 +44,8 @@ export interface SupervisorStatus {
   state: SupervisorState;
   pid: number | null;
   active_strategy: string | null;
+  /** Active camouflage transport id applied at launch, if any. */
+  active_transport: string | null;
   binary_path: string | null;
   uptime_secs: number;
   total_logs_buffered: number;
@@ -111,6 +113,8 @@ export interface AppSettings {
   auto_start_bypass?: boolean;
   auto_doctor_on_start?: boolean;
   notifications_enabled?: boolean;
+  /** Active camouflage transport id (`null`/`undefined` = direct launch). */
+  active_transport_id?: string | null;
 }
 
 export interface DoctorStep {
@@ -178,3 +182,22 @@ export interface ListSyncReport {
   message: string;
 }
 
+/** Camouflage transport registry entry (IPC `list_transports` snapshot). */
+export interface TransportView {
+  id: string;
+  name: string;
+  description: string;
+  experimental: boolean;
+  requires_exit_infra: boolean;
+  available: boolean;
+  unavailable_reason: string | null;
+  default_config: TransportConfig;
+}
+
+/** Per-transport JSON config (stored in AppSettings.transport_configs). */
+export interface TransportConfig {
+  transport_id: string;
+  enabled: boolean;
+  /** Transport-specific options; validated by the transport itself. */
+  options: unknown;
+}

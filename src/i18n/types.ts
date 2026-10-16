@@ -408,4 +408,24 @@ export interface Translations {
     defaultStrategy: string;
     checkingConnection: string;
   };
+  transports: {
+    title: string;
+    description: string;
+    experimentalBadge: string;
+    requiresExitInfra: string;
+    statusAvailable: string;
+    statusUnavailable: string;
+    reasonLabel: string;
+    select: string;
+    selected: string;
+    name_direct: string;
+    desc_direct: string;
+    name_domain_fronting: string;
+    desc_domain_fronting: string;
+    setSuccess: string;
+    setError: string;
+    loadError: string;
+    unavailableHint: string;
+    docsHint: string;
+  };
 }
