@@ -11,12 +11,15 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::Manager;
 
 use commands::AppState;
+use commands::CachedBinaries;
 use engine::supervisor::Supervisor;
 use win32::privileges::{ensure_elevated, is_elevated};
 
 #[tokio::main]
 async fn main() {
-    // 1. Enforce Administrator elevation for WinDivert driver registration
+    // 1. Enforce Administrator elevation for WinDivert driver registration.
+    //    If the user declines the UAC prompt, the app still starts but the UI shows
+    //    an admin gate and engine start is refused until elevated (see start_supervisor).
     let elevated = is_elevated().unwrap_or(false);
     if !elevated {
         // Attempt automatic UAC elevation
@@ -47,7 +50,10 @@ async fn main() {
         .manage(AppState {
             supervisor: supervisor_clone,
             diagnostics: diagnostics_clone,
-            cached_binaries: Arc::new(parking_lot::RwLock::new(None)),
+            cached_binaries: Arc::new(parking_lot::RwLock::new(CachedBinaries {
+                resolved: None,
+                resolved_at: None,
+            })),
         })
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -167,6 +173,7 @@ async fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_system_status,
+            commands::get_supervisor_status,
             commands::list_strategies,
             commands::start_supervisor,
             commands::stop_supervisor,
@@ -194,7 +201,7 @@ async fn main() {
             commands::open_logs_folder,
             commands::get_log_file_path,
             commands::ping_custom_target,
-            commands::benchmark_strategies,
+            commands::estimate_strategies,
             commands::get_app_settings,
             commands::save_app_settings,
             commands::set_split_tunnel_mode,

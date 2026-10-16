@@ -81,7 +81,9 @@ impl FileLogger {
         std::env::temp_dir().join("zapret2-logs")
     }
 
-    /// Formats current UTC/local time into readable string `YYYY-MM-DD HH:MM:SS.mmm`.
+    /// Formats current time into readable string `YYYY-MM-DD HH:MM:SS.mmm` (UTC).
+    ///
+    /// Uses Howard Hinnant's civil-from-days algorithm — no heavy date dependencies.
     fn format_now() -> String {
         let now = SystemTime::now();
         let since_epoch = now.duration_since(UNIX_EPOCH).unwrap_or_default();
@@ -92,14 +94,31 @@ impl FileLogger {
         let m = (total_secs / 60) % 60;
         let h = (total_secs / 3600) % 24;
 
-        // Approximate day/month calculation without heavy chrono dependency
-        let days_since_epoch = total_secs / 86400;
-        let year = 1970 + days_since_epoch / 365;
+        let (year, month, day) = Self::civil_from_days(total_secs / 86400);
 
-        format!("{}-{:02} {:02}:{:02}:{:02}.{:03}", year, (days_since_epoch % 12) + 1, h, m, s, millis)
+        format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}", year, month, day, h, m, s, millis)
+    }
+
+    /// Converts days since the Unix epoch to a (year, month, day) calendar date.
+    fn civil_from_days(z: u64) -> (i64, u32, u32) {
+        let z = z as i64 + 719468;
+        let era = z.div_euclid(146097);
+        let doe = z.rem_euclid(146097); // day of era [0, 146096]
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // year of era [0, 399]
+        let y = yoe + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day of year [0, 365]
+        let mp = (5 * doy + 2) / 153; // month of [Mar=0 .. Feb=11]
+        let d = doy - (153 * mp + 2) / 5 + 1; // day of month [1, 31]
+        let m = if mp < 10 { mp + 3 } else { mp - 9 }; // calendar month [1, 12]
+        (if m <= 2 { y + 1 } else { y }, m as u32, d as u32)
     }
 
     /// Appends a structured log entry to `zapret2.log`, triggering rotation if size exceeds limit.
+    ///
+    /// Writes are buffered by the OS: there is intentionally NO per-line `flush()` here
+    /// (a syscall per log line while holding a blocking mutex). Call [`Self::flush`]
+    /// to force buffered data to disk — it runs automatically on rotation and on a
+    /// periodic timer owned by the supervisor.
     pub fn write_entry(&self, level: &str, message: &str) {
         let timestamp = Self::format_now();
         let line = format!("[{}] [{}] {}\n", timestamp, level.to_uppercase(), message);
@@ -108,28 +127,44 @@ impl FileLogger {
         let mut guard = self.writer.lock();
         if let Some(file) = guard.as_mut() {
             if file.write_all(line_bytes).is_ok() {
-                let _ = file.flush();
                 let current_size = self.bytes_written.fetch_add(line_bytes.len(), Ordering::Relaxed) + line_bytes.len();
 
                 // Rotate log if it exceeds MAX_LOG_SIZE_BYTES
                 if current_size as u64 >= MAX_LOG_SIZE_BYTES {
-                    let _ = file;
-                    *guard = None;
-
-                    let old_file = self.log_dir.join("zapret2.log.old");
-                    let _ = fs::remove_file(&old_file);
-                    let _ = fs::rename(&self.current_file, &old_file);
-
-                    let new_file = OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&self.current_file)
-                        .ok();
-
+                    // Flush before rotating so no buffered data is lost in the rename.
+                    let _ = file.flush();
+                    Self::rotate_locked(&mut guard, &self.log_dir, &self.current_file);
                     self.bytes_written.store(0, Ordering::Relaxed);
-                    *guard = new_file;
                 }
             }
+        }
+    }
+
+    /// Performs the log rotation; caller must hold the writer lock.
+    fn rotate_locked(
+        guard: &mut parking_lot::MutexGuard<Option<File>>,
+        log_dir: &Path,
+        current_file: &Path,
+    ) {
+        **guard = None;
+
+        let old_file = log_dir.join("zapret2.log.old");
+        let _ = fs::remove_file(&old_file);
+        let _ = fs::rename(current_file, &old_file);
+
+        let new_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(current_file)
+            .ok();
+
+        **guard = new_file;
+    }
+
+    /// Forces any OS-buffered log data to disk.
+    pub fn flush(&self) {
+        if let Some(file) = self.writer.lock().as_mut() {
+            let _ = file.flush();
         }
     }
 

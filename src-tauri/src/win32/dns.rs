@@ -131,7 +131,7 @@ pub fn detect_primary_adapter() -> Result<String, String> {
 pub fn get_active_dns_servers(adapter: &str) -> Vec<String> {
     let script = format!(
         "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $d = (Get-DnsClientServerAddress -InterfaceAlias '{}' -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses; if ($d) {{ $d -join ',' }} else {{ '' }}",
-        adapter
+        escape_ps(adapter)
     );
 
     let output = Command::new("powershell")
@@ -151,6 +151,66 @@ pub fn get_active_dns_servers(adapter: &str) -> Vec<String> {
         }
         Err(_) => Vec::new(),
     }
+}
+
+/// Escapes a value for safe embedding inside a PowerShell single-quoted string
+/// literal (a single quote is escaped by doubling it).
+fn escape_ps(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+/// Runs a PowerShell script silently, returning an error when PowerShell itself
+/// fails to launch or the script exits with a non-zero status.
+fn run_powershell(script: &str) -> Result<(), String> {
+    let output = Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
+        .output()
+        .map_err(|e| format!("Failed to launch PowerShell: {}", e))?;
+
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("PowerShell error: {}", err_msg.trim()));
+    }
+    Ok(())
+}
+
+/// Resets the adapter to automatic (DHCP) DNS assignment.
+fn reset_adapter_dns(adapter_esc: &str) -> Result<(), String> {
+    let script = format!(
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ResetServerAddresses -ErrorAction Stop",
+        adapter_esc
+    );
+    run_powershell(&script).map_err(|e| format!("Failed to reset adapter DNS: {}", e))
+}
+
+/// Assigns static DNS servers to the adapter.
+fn set_adapter_dns(adapter_esc: &str, primary: &str, secondary: &str) -> Result<(), String> {
+    let script = format!(
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}', '{}') -ErrorAction Stop",
+        adapter_esc, primary, secondary
+    );
+    run_powershell(&script).map_err(|e| format!("Failed to apply DNS settings: {}", e))
+}
+
+/// Best-effort rollback of the adapter DNS to a previously snapshotted configuration.
+/// An empty snapshot means the adapter was on DHCP → reset to automatic assignment.
+fn rollback_adapter_dns(adapter_esc: &str, previous: &[String]) {
+    let result = if previous.is_empty() {
+        reset_adapter_dns(adapter_esc)
+    } else {
+        let list = previous
+            .iter()
+            .map(|s| format!("'{}'", escape_ps(s)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let script = format!(
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses @({}) -ErrorAction SilentlyContinue",
+            adapter_esc, list
+        );
+        run_powershell(&script).map(|_| ())
+    };
+    let _ = result;
 }
 
 /// Target domain namespaces for Windows NRPT Split-DNS rules.
@@ -309,9 +369,15 @@ pub fn get_dns_status() -> Result<DnsStatus, String> {
 }
 
 /// Sets the DNS resolver on the primary adapter or selective Split-DNS via NRPT and flushes DNS cache silently.
+///
+/// The previously configured DNS servers are snapshotted before any change; if any step
+/// fails, the adapter is rolled back to them and the failure is reported. Settings are
+/// only persisted on success, so the UI can never report success for a failed change.
 pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatus, String> {
     let mut settings = load_settings();
-    let adapter = detect_primary_adapter().unwrap_or_else(|_| "Ethernet".into());
+    // Single PowerShell round-trip gives us both the adapter and the pre-change DNS snapshot.
+    let (adapter, previous_dns) = get_adapter_and_dns();
+    let adapter_esc = escape_ps(&adapter);
     let providers = get_available_providers();
 
     let effective_scope = match scope {
@@ -320,47 +386,37 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
         _ => settings.dns_scope,
     };
 
-    if provider_id == "system" || provider_id == "dhcp" {
-        // Reset Split-DNS NRPT rule
-        let _ = clear_split_dns_nrpt();
-        if effective_scope == crate::win32::settings::DnsScope::Full {
-            // Reset adapter to automatic DHCP assignment only in Full mode
-            let script = format!(
-                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ResetServerAddresses -ErrorAction Stop",
-                adapter
-            );
-            let _ = Command::new("powershell")
-                .creation_flags(CREATE_NO_WINDOW)
-                .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
-                .output();
-        }
-    } else if let Some(target) = providers.iter().find(|p| p.id == provider_id) {
-        match effective_scope {
-            crate::win32::settings::DnsScope::Split => {
-                // In Split mode: NRPT cleanly overlays on top of the adapter without destroying user's static/custom DNS
-                apply_split_dns_nrpt(&target.primary, &target.secondary)?;
+    let apply_result: Result<(), String> = (|| {
+        if provider_id == "system" || provider_id == "dhcp" {
+            // Reset Split-DNS NRPT rule
+            clear_split_dns_nrpt()?;
+            if effective_scope == crate::win32::settings::DnsScope::Full {
+                // Reset adapter to automatic DHCP assignment only in Full mode
+                reset_adapter_dns(&adapter_esc)?;
             }
-            crate::win32::settings::DnsScope::Full => {
-                // In Full mode: clear any Split NRPT rules and set adapter DNS
-                let _ = clear_split_dns_nrpt();
-                let script = format!(
-                    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}', '{}') -ErrorAction Stop",
-                    adapter, target.primary, target.secondary
-                );
-                let output = Command::new("powershell")
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
-                    .output()
-                    .map_err(|e| format!("Failed to apply DNS settings: {}", e))?;
-
-                if !output.status.success() {
-                    let err_msg = String::from_utf8_lossy(&output.stderr);
-                    return Err(format!("PowerShell DNS configuration error: {}", err_msg));
+            Ok(())
+        } else if let Some(target) = providers.iter().find(|p| p.id == provider_id) {
+            match effective_scope {
+                crate::win32::settings::DnsScope::Split => {
+                    // In Split mode: NRPT cleanly overlays on top of the adapter without destroying user's static/custom DNS
+                    apply_split_dns_nrpt(&target.primary, &target.secondary)
+                }
+                crate::win32::settings::DnsScope::Full => {
+                    // In Full mode: clear any Split NRPT rules and set adapter DNS
+                    clear_split_dns_nrpt()?;
+                    set_adapter_dns(&adapter_esc, &target.primary, &target.secondary)
                 }
             }
+        } else {
+            Err(format!("Unknown DNS provider ID: {}", provider_id))
         }
-    } else {
-        return Err(format!("Unknown DNS provider ID: {}", provider_id));
+    })();
+
+    if let Err(e) = apply_result {
+        // Best-effort rollback to the DNS configuration found before the change.
+        rollback_adapter_dns(&adapter_esc, &previous_dns);
+        let _ = clear_split_dns_nrpt();
+        return Err(e);
     }
 
     // Flush Windows DNS resolver cache immediately and silently
@@ -369,7 +425,7 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
         .arg("/flushdns")
         .output();
 
-    // Persist choice in settings
+    // Persist choice in settings only after the change actually succeeded
     settings.dns_provider = provider_id.to_string();
     settings.dns_scope = effective_scope;
     let _ = save_settings(settings);

@@ -110,6 +110,17 @@ pub fn load_settings() -> AppSettings {
     settings
 }
 
+/// Writes `contents` to `path` atomically via a temporary file + rename.
+///
+/// A crash or power loss mid-write can never leave a truncated file at `path`
+/// (readers either see the old complete file or the new complete file).
+pub fn atomic_write(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let tmp_path = path.with_extension("tmp");
+    fs::write(&tmp_path, contents)?;
+    fs::rename(&tmp_path, path)?;
+    Ok(())
+}
+
 pub fn save_settings(new_settings: AppSettings) -> Result<(), String> {
     let path = get_settings_file_path();
     if let Some(parent) = path.parent() {
@@ -119,7 +130,7 @@ pub fn save_settings(new_settings: AppSettings) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&new_settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
 
-    fs::write(&path, json).map_err(|e| format!("Failed to save settings to disk: {}", e))?;
+    atomic_write(&path, json.as_bytes()).map_err(|e| format!("Failed to save settings to disk: {}", e))?;
 
     *CACHED_SETTINGS.write() = Some(new_settings);
     Ok(())
