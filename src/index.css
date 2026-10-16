@@ -3,124 +3,141 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════════════
-   Dual-theme design tokens for zapret2-gui
-   Switching theme = changing `data-theme` on <html> ("macos" | "hyprland").
-   All Tailwind token classes (bg-card, text-ink, border-line, …) read
-   these variables, so every screen follows the active theme.
+   zapret2-gui — two real themes, one token system.
+   `data-theme` on <html> switches everything: "macos" | "hyprland".
+
+   macOS  — glassmorphism: frosted floating panels, aurora background,
+            generous radii, calm iOS blue. (Like the iOS/macOS mockup.)
+   Hyprland — riced compositor: deep black, neon cyan glow, transparent
+            blurred panels with gaps, smooth animations, mono HUD labels.
+
+   All Tailwind tokens (bg-card, text-ink, border-line, …) read these
+   variables, so every screen follows the active theme automatically.
    ═══════════════════════════════════════════════════════════════════ */
 
 :root,
 [data-theme="macos"] {
-  /* ── macOS: calm dark, frosted glass, generous radii ──
-     Solid colors are space-separated RGB triplets so Tailwind opacity
-     modifiers (bg-card/40, …) keep working via <alpha-value>. */
-  --c-app: 10 13 19;
-  --c-sidebar: 15 20 29;
-  --c-card: 19 25 36;
-  --c-cardin: 15 20 29;
-  --c-raise: 26 33 48;
-  --c-hovert: 30 38 55;
-  --c-overlay: rgba(8, 11, 17, 0.72);
+  /* ── macOS glassmorphism ─────────────────────────────── */
+  --c-app: 7 11 22;
+  --c-sidebar: 23 32 52;
+  --c-card: 24 33 54;
+  --c-cardin: 17 24 40;
+  --c-raise: 31 41 66;
+  --c-hovert: 38 50 78;
+  --c-overlay: rgba(5, 8, 16, 0.66);
 
-  --c-line: 35 44 64;
-  --c-linestrong: 53 65 94;
+  --c-line: 255 255 255;
+  --c-linestrong: 255 255 255;
 
-  --c-ink: 244 246 250;
-  --c-ink2: 216 222 233;
-  --c-ink3: 180 189 207;
-  --c-ink4: 138 148 169;
-  --c-ink5: 92 101 121;
+  --c-ink: 245 247 252;
+  --c-ink2: 219 226 238;
+  --c-ink3: 183 193 212;
+  --c-ink4: 141 151 175;
+  --c-ink5: 96 105 128;
 
-  --c-accent: 76 154 255;
-  --c-accent-soft: 168 204 255;
+  --c-accent: 90 163 255;
+  --c-accent-soft: 174 208 255;
   --c-accent-fill: 10 132 255;
-  --c-accent-fill-hover: 61 157 255;
+  --c-accent-fill-hover: 51 149 255;
   --c-accent-contrast: 255 255 255;
-  --c-accent-wash: rgba(10, 132, 255, 0.13);
-  --c-accent-line: rgba(76, 154, 255, 0.38);
+  --c-accent-wash: rgba(10, 132, 255, 0.16);
+  --c-accent-line: rgba(120, 180, 255, 0.35);
 
   --c-danger-fill: 255 69 58;
-  --c-danger-fill-hover: 255 107 97;
+  --c-danger-fill-hover: 255 110 100;
   --c-danger-wash: rgba(255, 69, 58, 0.12);
-  --c-danger-line: rgba(255, 69, 58, 0.35);
+  --c-danger-line: rgba(255, 120, 110, 0.35);
 
-  --c-ok-wash: rgba(52, 211, 153, 0.09);
+  --c-ok-wash: rgba(52, 211, 153, 0.1);
 
-  --c-warn-wash: rgba(255, 159, 10, 0.07);
-  --c-warn-line: rgba(255, 159, 10, 0.28);
+  --c-warn-wash: rgba(255, 179, 64, 0.08);
+  --c-warn-line: rgba(255, 179, 64, 0.3);
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
     Inter, system-ui, sans-serif;
 
-  --r-card: 18px;
-  --r-panel: 14px;
-  --r-control: 10px;
-  --r-chip: 7px;
+  --r-card: 20px;
+  --r-panel: 16px;
+  --r-control: 12px;
+  --r-chip: 8px;
 
-  --shadow-card: 0 10px 32px rgba(0, 0, 0, 0.38);
-  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.55);
-  --shadow-glow: 0 0 0 1px rgba(76, 154, 255, 0.12),
-    0 0 28px rgba(10, 132, 255, 0.1);
+  /* Frosted glass surfaces */
+  --glass-blur: blur(28px) saturate(180%);
+  --glass-blur-sm: blur(18px) saturate(160%);
+  --glass-sidebar-bg: rgba(30, 43, 72, 0.58);
+  --glass-card-bg: rgba(25, 35, 58, 0.5);
+  --glass-bar-bg: rgba(19, 27, 46, 0.55);
+  --glass-inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.09);
 
-  --glass-blur: blur(24px) saturate(1.6);
-  --glass-card-bg: rgba(19, 25, 36, 0.66);
-  --glass-bar-bg: rgba(15, 20, 29, 0.72);
+  --shadow-card: 0 18px 50px rgba(0, 0, 0, 0.45), var(--glass-inset-hi);
+  --shadow-pop: 0 24px 70px rgba(0, 0, 0, 0.55), var(--glass-inset-hi);
+  --shadow-glow: 0 0 0 1px rgba(120, 180, 255, 0.14),
+    0 0 34px rgba(10, 132, 255, 0.22);
+
+  --line-alpha: 0.09;
+  --line-strong-alpha: 0.16;
 }
 
 [data-theme="hyprland"] {
-  /* ── Hyprland: near-black, flat, dense, neon accent ──
-     Solid colors are space-separated RGB triplets so Tailwind opacity
-     modifiers (bg-card/40, …) keep working via <alpha-value>. */
-  --c-app: 5 7 10;
-  --c-sidebar: 9 12 16;
-  --c-card: 11 15 20;
-  --c-cardin: 7 10 13;
-  --c-raise: 16 21 27;
-  --c-hovert: 20 26 33;
-  --c-overlay: rgba(3, 5, 7, 0.84);
+  /* ── Hyprland rice: neon on black ────────────────────── */
+  --c-app: 4 6 11;
+  --c-sidebar: 7 11 18;
+  --c-card: 8 13 20;
+  --c-cardin: 5 8 14;
+  --c-raise: 13 19 28;
+  --c-hovert: 17 24 35;
+  --c-overlay: rgba(2, 4, 8, 0.78);
 
-  --c-line: 26 34 43;
-  --c-linestrong: 44 57 71;
+  --c-line: 103 232 249;
+  --c-linestrong: 103 232 249;
 
-  --c-ink: 233 239 244;
-  --c-ink2: 194 204 214;
-  --c-ink3: 152 164 177;
-  --c-ink4: 105 115 127;
-  --c-ink5: 66 75 86;
+  --c-ink: 235 242 250;
+  --c-ink2: 198 210 224;
+  --c-ink3: 154 168 186;
+  --c-ink4: 106 118 134;
+  --c-ink5: 68 78 94;
 
-  --c-accent: 163 230 53;
-  --c-accent-soft: 217 249 157;
-  --c-accent-fill: 77 124 15;
-  --c-accent-fill-hover: 101 163 13;
-  --c-accent-contrast: 244 255 214;
-  --c-accent-wash: rgba(163, 230, 53, 0.09);
-  --c-accent-line: rgba(163, 230, 53, 0.32);
+  --c-accent: 103 232 249;
+  --c-accent-soft: 190 245 253;
+  --c-accent-fill: 8 145 178;
+  --c-accent-fill-hover: 34 211 238;
+  --c-accent-contrast: 4 10 16;
+  --c-accent-wash: rgba(34, 211, 238, 0.1);
+  --c-accent-line: rgba(103, 232, 249, 0.4);
 
-  --c-danger-fill: 220 38 38;
-  --c-danger-fill-hover: 239 68 68;
-  --c-danger-wash: rgba(220, 38, 38, 0.1);
-  --c-danger-line: rgba(248, 113, 113, 0.32);
+  --c-danger-fill: 244 63 94;
+  --c-danger-fill-hover: 251 113 133;
+  --c-danger-wash: rgba(244, 63, 94, 0.1);
+  --c-danger-line: rgba(251, 113, 133, 0.4);
 
-  --c-ok-wash: rgba(52, 211, 153, 0.07);
+  --c-ok-wash: rgba(52, 211, 153, 0.08);
 
-  --c-warn-wash: rgba(251, 191, 36, 0.06);
-  --c-warn-line: rgba(251, 191, 36, 0.25);
+  --c-warn-wash: rgba(251, 191, 36, 0.07);
+  --c-warn-line: rgba(251, 191, 36, 0.32);
 
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 
-  --r-card: 8px;
-  --r-panel: 6px;
-  --r-control: 5px;
-  --r-chip: 4px;
+  --r-card: 12px;
+  --r-panel: 10px;
+  --r-control: 8px;
+  --r-chip: 6px;
 
-  --shadow-card: 0 4px 18px rgba(0, 0, 0, 0.5);
-  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.65);
-  --shadow-glow: 0 0 0 1px rgba(163, 230, 53, 0.14),
-    0 0 22px rgba(163, 230, 53, 0.08);
+  --glass-blur: blur(20px) saturate(140%);
+  --glass-blur-sm: blur(14px) saturate(130%);
+  --glass-sidebar-bg: rgba(7, 11, 18, 0.62);
+  --glass-card-bg: rgba(8, 13, 20, 0.58);
+  --glass-bar-bg: rgba(6, 10, 16, 0.66);
+  --glass-inset-hi: inset 0 1px 0 rgba(103, 232, 249, 0.07);
 
-  --glass-blur: none;
-  --glass-card-bg: rgb(var(--c-card));
-  --glass-bar-bg: rgb(var(--c-sidebar));
+  --shadow-card: 0 10px 34px rgba(0, 0, 0, 0.55),
+    0 0 22px rgba(34, 211, 238, 0.07), var(--glass-inset-hi);
+  --shadow-pop: 0 16px 50px rgba(0, 0, 0, 0.65),
+    0 0 30px rgba(34, 211, 238, 0.1);
+  --shadow-glow: 0 0 0 1px rgba(103, 232, 249, 0.28),
+    0 0 28px rgba(34, 211, 238, 0.35);
+
+  --line-alpha: 0.16;
+  --line-strong-alpha: 0.3;
 }
 
 @layer base {
@@ -136,11 +153,13 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* Keyboard-first: visible focus everywhere, accent-colored per theme */
   :is(button, a, input, select, textarea, [tabindex]):focus-visible {
     outline: 2px solid rgb(var(--c-accent));
     outline-offset: 2px;
     border-radius: var(--r-control);
+  }
+  [data-theme="hyprland"] :is(button, a, input, select, textarea, [tabindex]):focus-visible {
+    box-shadow: 0 0 14px rgba(34, 211, 238, 0.45);
   }
 
   ::selection {
@@ -156,59 +175,100 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgb(var(--c-linestrong));
-    border-radius: 4px;
+    background: rgb(var(--c-ink5) / 0.55);
+    border-radius: 8px;
     border: 2px solid transparent;
     background-clip: content-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgb(var(--c-ink5));
+    background: rgb(var(--c-accent) / 0.6);
     border: 2px solid transparent;
     background-clip: content-box;
-  }
-  [data-theme="macos"] ::-webkit-scrollbar-thumb {
-    border-radius: 8px;
   }
 }
 
 @layer components {
-  /* ── App backdrop: subtle aurora tint on macOS, pure flat on Hyprland ── */
+  /* ══ App backdrop ══════════════════════════════════════ */
   .app-bg {
     background-color: rgb(var(--c-app));
+    position: relative;
   }
+  /* macOS aurora: slow-drifting blue/violet ambient glows */
   [data-theme="macos"] .app-bg {
     background-image:
-      radial-gradient(1100px 520px at 12% -8%, rgba(10, 132, 255, 0.09), transparent 62%),
-      radial-gradient(900px 480px at 92% 108%, rgba(94, 92, 230, 0.08), transparent 60%);
+      radial-gradient(1000px 560px at 8% -10%, rgba(10, 132, 255, 0.22), transparent 60%),
+      radial-gradient(880px 620px at 105% 115%, rgba(124, 93, 250, 0.2), transparent 62%),
+      radial-gradient(700px 420px at 55% 45%, rgba(10, 132, 255, 0.07), transparent 65%);
+    background-attachment: fixed;
+  }
+  [data-theme="macos"] .app-bg::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(900px 500px at 85% -5%, rgba(90, 200, 250, 0.14), transparent 60%),
+      radial-gradient(760px 540px at -5% 100%, rgba(10, 132, 255, 0.16), transparent 60%);
+    animation: aurora-drift 26s ease-in-out infinite alternate;
+  }
+  /* Hyprland ambient: faint cyan/magenta haze in the corners */
+  [data-theme="hyprland"] .app-bg {
+    background-image:
+      radial-gradient(800px 480px at 100% 0%, rgba(34, 211, 238, 0.06), transparent 60%),
+      radial-gradient(700px 500px at 0% 100%, rgba(232, 121, 249, 0.05), transparent 60%);
     background-attachment: fixed;
   }
 
-  /* ── Frosted bars (sidebar / topbar): real glass on macOS, flat on Hyprland ── */
+  /* ══ Floating panels (the "gaps" look) ═════════════════ */
+  .panel-float {
+    border-radius: var(--r-card);
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+
+  /* ══ Frosted bars (sidebar / topbar) ═══════════════════ */
   .glass-bar {
     background: var(--glass-bar-bg);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
   }
-
-  /* ── Cards ── */
-  .t-card {
-    background: var(--glass-card-bg);
-    border: 1px solid rgb(var(--c-line));
-    border-radius: var(--r-card);
-    box-shadow: var(--shadow-card);
+  .glass-sidebar {
+    background: var(--glass-sidebar-bg);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
+    border-radius: var(--r-card);
+    box-shadow: var(--shadow-card);
   }
-  .t-card-in {
-    background: rgb(var(--c-cardin));
-    border: 1px solid rgb(var(--c-line));
-    border-radius: var(--r-panel);
-  }
-  [data-theme="hyprland"] .t-card-in {
-    border-left: 2px solid var(--c-accent-line);
+  [data-theme="hyprland"] .glass-sidebar {
+    box-shadow: var(--shadow-card), 0 0 26px rgba(34, 211, 238, 0.06);
   }
 
-  /* ── Buttons ── */
+  /* ══ Cards ═════════════════════════════════════════════ */
+  .t-card {
+    background: var(--glass-card-bg);
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
+    border-radius: var(--r-card);
+    box-shadow: var(--shadow-card);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+    transition: border-color 0.25s ease, box-shadow 0.25s ease,
+      transform 0.25s ease;
+  }
+  [data-theme="hyprland"] .t-card:hover {
+    border-color: rgb(var(--c-line) / 0.32);
+    box-shadow: var(--shadow-card), 0 0 22px rgba(34, 211, 238, 0.1);
+  }
+  .t-card-in {
+    background: rgb(var(--c-cardin) / 0.72);
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
+    border-radius: var(--r-panel);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+  }
+
+  /* ══ Buttons ═══════════════════════════════════════════ */
   .t-btn {
     display: inline-flex;
     align-items: center;
@@ -220,12 +280,12 @@
     padding: 0.5rem 0.875rem;
     border: 1px solid transparent;
     cursor: pointer;
-    transition: background-color 0.15s ease, border-color 0.15s ease,
-      color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    transition: background-color 0.18s ease, border-color 0.18s ease,
+      color 0.18s ease, transform 0.12s ease, box-shadow 0.25s ease;
     user-select: none;
   }
   .t-btn:active {
-    transform: scale(0.98);
+    transform: scale(0.97);
   }
   .t-btn:disabled {
     opacity: 0.5;
@@ -238,6 +298,12 @@
   }
   .t-btn-primary:hover:not(:disabled) {
     background: rgb(var(--c-accent-fill-hover));
+    box-shadow: 0 0 0 1px rgba(120, 180, 255, 0.2),
+      0 0 40px rgba(10, 132, 255, 0.35);
+  }
+  [data-theme="hyprland"] .t-btn-primary:hover:not(:disabled) {
+    box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.35),
+      0 0 34px rgba(34, 211, 238, 0.5);
   }
   .t-btn-danger {
     background: rgb(var(--c-danger-fill));
@@ -245,27 +311,33 @@
   }
   .t-btn-danger:hover:not(:disabled) {
     background: rgb(var(--c-danger-fill-hover));
+    box-shadow: 0 0 26px rgba(255, 69, 58, 0.35);
   }
   .t-btn-ghost {
-    background: rgb(var(--c-raise));
-    border-color: rgb(var(--c-linestrong));
+    background: rgb(var(--c-raise) / 0.6);
+    border-color: rgb(var(--c-line) / var(--line-strong-alpha));
     color: rgb(var(--c-ink2));
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
   }
   .t-btn-ghost:hover:not(:disabled) {
-    background: rgb(var(--c-hovert));
+    background: rgb(var(--c-hovert) / 0.7);
     color: rgb(var(--c-ink));
+    border-color: var(--c-accent-line);
   }
   .t-btn-accent-soft {
     background: var(--c-accent-wash);
     border-color: var(--c-accent-line);
     color: rgb(var(--c-accent-soft));
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
   }
   .t-btn-accent-soft:hover:not(:disabled) {
-    background: var(--c-accent-line);
+    box-shadow: var(--shadow-glow);
     color: rgb(var(--c-ink));
   }
 
-  /* ── Badges / pills ── */
+  /* ══ Badges / pills ════════════════════════════════════ */
   .t-badge {
     display: inline-flex;
     align-items: center;
@@ -274,15 +346,20 @@
     font-size: 10px;
     font-weight: 600;
     padding: 0.15rem 0.55rem;
-    border: 1px solid rgb(var(--c-line));
-    background: rgb(var(--c-cardin));
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
+    background: rgb(var(--c-cardin) / 0.6);
     color: rgb(var(--c-ink4));
     white-space: nowrap;
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
   }
   .t-badge-accent {
     background: var(--c-accent-wash);
     border-color: var(--c-accent-line);
     color: rgb(var(--c-accent-soft));
+  }
+  [data-theme="hyprland"] .t-badge-accent {
+    box-shadow: 0 0 12px rgba(34, 211, 238, 0.18);
   }
   .t-badge-ok {
     background: rgba(52, 211, 153, 0.1);
@@ -300,7 +377,7 @@
     color: #fca5a5;
   }
 
-  /* ── Section headings ── */
+  /* ══ Section headings ══════════════════════════════════ */
   .t-section-title {
     display: flex;
     align-items: center;
@@ -311,17 +388,19 @@
     letter-spacing: 0.01em;
   }
   [data-theme="hyprland"] .t-section-title {
-    font-family: var(--font-mono, "JetBrains Mono", Consolas, monospace);
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
     font-size: 0.6875rem;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: rgb(var(--c-ink3));
+    letter-spacing: 0.14em;
+    color: rgb(var(--c-accent-soft));
+    text-shadow: 0 0 12px rgba(34, 211, 238, 0.4);
   }
   [data-theme="hyprland"] .t-section-title svg {
     color: rgb(var(--c-accent));
+    filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.6));
   }
 
-  /* ── Keyboard hints (Hyprland keyboard-first, subtle on macOS) ── */
+  /* ══ Keyboard hints ════════════════════════════════════ */
   .t-kbd {
     display: inline-flex;
     align-items: center;
@@ -333,26 +412,29 @@
     font-weight: 600;
     line-height: 1.4;
     color: rgb(var(--c-ink4));
-    background: rgb(var(--c-cardin));
-    border: 1px solid rgb(var(--c-line));
+    background: rgb(var(--c-cardin) / 0.7);
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
     border-bottom-width: 2px;
     border-radius: var(--r-chip);
   }
   [data-theme="hyprland"] .t-kbd {
     color: rgb(var(--c-accent-soft));
     border-color: var(--c-accent-line);
+    box-shadow: 0 0 10px rgba(34, 211, 238, 0.15);
   }
 
-  /* ── Inputs ── */
+  /* ══ Inputs ════════════════════════════════════════════ */
   .t-input {
     width: 100%;
-    background: rgb(var(--c-cardin));
-    border: 1px solid rgb(var(--c-line));
+    background: rgb(var(--c-cardin) / 0.66);
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
     border-radius: var(--r-control);
     color: rgb(var(--c-ink));
     font-size: 0.75rem;
     padding: 0.5rem 0.75rem;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.18s ease, box-shadow 0.25s ease;
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
   }
   .t-input::placeholder {
     color: rgb(var(--c-ink5));
@@ -360,56 +442,141 @@
   .t-input:focus {
     outline: none;
     border-color: var(--c-accent-line);
-    box-shadow: 0 0 0 3px var(--c-accent-wash);
+    box-shadow: 0 0 0 3px var(--c-accent-wash), var(--shadow-glow);
   }
 
-  /* ── Nav items ── */
+  /* ══ Nav items ═════════════════════════════════════════ */
   .t-navitem {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    padding: 0.5rem 0.75rem;
+    padding: 0.55rem 0.8rem;
     border-radius: var(--r-control);
     font-size: 0.75rem;
     font-weight: 500;
     color: rgb(var(--c-ink4));
     border: 1px solid transparent;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.2s ease;
   }
   .t-navitem:hover {
-    color: rgb(var(--c-ink2));
+    color: rgb(var(--c-ink));
+    background: rgb(255 255 255 / 0.05);
+  }
+  [data-theme="hyprland"] .t-navitem:hover {
     background: var(--c-accent-wash);
+    box-shadow: inset 0 0 18px rgba(34, 211, 238, 0.06);
   }
   .t-navitem-active {
-    background: var(--c-accent-wash);
     color: rgb(var(--c-ink));
-    border-color: var(--c-accent-line);
+    font-weight: 600;
   }
+  /* macOS: frosted pill with top highlight, like iOS sidebar selection */
   [data-theme="macos"] .t-navitem-active {
-    background: var(--glass-card-bg);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    box-shadow: var(--shadow-card);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 4px 14px rgba(0, 0, 0, 0.25);
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
   }
+  [data-theme="macos"] .t-navitem-active .t-navitem-icon {
+    color: rgb(var(--c-accent-soft));
+  }
+  /* Hyprland: neon wash + glowing left bar */
   [data-theme="hyprland"] .t-navitem-active {
-    border-left: 2px solid rgb(var(--c-accent));
-    box-shadow: var(--shadow-glow);
+    background: var(--c-accent-wash);
+    border-color: var(--c-accent-line);
+    box-shadow: 0 0 18px rgba(34, 211, 238, 0.14),
+      inset 0 0 18px rgba(34, 211, 238, 0.05);
   }
-  .t-navitem-active .t-navitem-icon {
+  [data-theme="hyprland"] .t-navitem-active::before {
+    content: "";
+    position: absolute;
+    left: -1px;
+    top: 22%;
+    bottom: 22%;
+    width: 3px;
+    border-radius: 3px;
+    background: rgb(var(--c-accent));
+    box-shadow: 0 0 10px rgba(34, 211, 238, 0.9);
+  }
+  [data-theme="hyprland"] .t-navitem-active .t-navitem-icon {
     color: rgb(var(--c-accent));
+    filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.7));
+  }
+  .t-navitem-icon {
+    display: inline-flex;
+    color: rgb(var(--c-ink4));
+    transition: color 0.2s ease, filter 0.2s ease;
+  }
+  .t-navitem:hover .t-navitem-icon {
+    color: rgb(var(--c-ink2));
   }
 
-  /* ── Dividers ── */
+  /* ══ Dividers ══════════════════════════════════════════ */
   .t-divider {
-    border-color: rgb(var(--c-line));
+    border-color: rgb(var(--c-line) / var(--line-alpha));
   }
 
-  /* ── Theme preview mock (settings cards) ── */
+  /* ══ View enter animation ══════════════════════════════ */
+  .view-enter {
+    animation: view-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  [data-theme="hyprland"] .view-enter {
+    animation-duration: 0.26s;
+  }
+
+  /* ══ Neon status dot (Hyprland) ════════════════════════ */
+  [data-theme="hyprland"] .neon-dot {
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* ══ Theme preview mock (settings cards) ═══════════════ */
   .theme-preview {
     border-radius: var(--r-panel);
     overflow: hidden;
-    border: 1px solid rgb(var(--c-line));
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
+  }
+}
+
+/* ═══════════════ keyframes ═══════════════ */
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes aurora-drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2%, 2%, 0) scale(1.06);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .view-enter,
+  [data-theme="macos"] .app-bg::before {
+    animation: none;
   }
 }

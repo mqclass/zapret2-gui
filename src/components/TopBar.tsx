@@ -161,7 +161,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
       <header
         data-tauri-drag-region
         onMouseDown={handleDragMouseDown}
-        className="glass-bar relative z-50 h-14 shrink-0 flex items-center justify-between pl-5 pr-2 border-b border-line select-none"
+        className="relative z-50 h-14 shrink-0 flex items-center justify-between pl-5 pr-2 border-b t-divider select-none rounded-t-[var(--r-card)]"
       >
         {/* Title and subtitle area (Draggable + double-click to maximize) */}
         <div

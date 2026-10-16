@@ -101,12 +101,12 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
     }, []);
 
     return (
-      <aside className="glass-bar w-56 shrink-0 flex flex-col justify-between border-r border-line select-none">
+      <aside className="glass-sidebar w-60 shrink-0 flex flex-col justify-between select-none">
         {/* Top Brand Header (Draggable) */}
         <div
           data-tauri-drag-region
           onMouseDown={handleHeaderMouseDown}
-          className="p-4 border-b border-line cursor-default"
+          className="p-4 border-b t-divider cursor-default"
         >
           <div data-tauri-drag-region className="flex items-center gap-3">
             <div className="relative flex h-9 w-9 items-center justify-center rounded-panel bg-raise border border-line">
@@ -167,9 +167,9 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
         </nav>
 
         {/* Bottom Status Card */}
-        <div className="p-3 border-t border-line space-y-1.5">
+        <div className="p-3 border-t t-divider space-y-1.5">
           {/* Active Mode Pill */}
-          <div className="flex items-center justify-between rounded-control bg-cardin border border-line px-2.5 py-1.5 text-[11px]">
+          <div className="t-card-in flex items-center justify-between px-2.5 py-1.5 text-[11px]">
             <span className="text-ink4 font-medium">Режим:</span>
             <div className="flex items-center gap-1 font-semibold text-ink2">
               {splitTunnelMode === "game_mode" ? (
@@ -192,7 +192,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
           </div>
 
           {/* Engine Status Pill */}
-          <div className="flex items-center justify-between rounded-control bg-cardin border border-line px-2.5 py-1.5 text-[11px]">
+          <div className="t-card-in flex items-center justify-between px-2.5 py-1.5 text-[11px]">
             <span className="text-ink4 font-medium">Служба:</span>
             <div className="flex items-center gap-1.5">
               <span

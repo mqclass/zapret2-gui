@@ -28,9 +28,10 @@ export default {
         raise: "rgb(var(--c-raise) / <alpha-value>)",
         hovert: "rgb(var(--c-hovert) / <alpha-value>)",
         overlay: "var(--c-overlay)",
-        // Borders
-        line: "rgb(var(--c-line) / <alpha-value>)",
-        linestrong: "rgb(var(--c-linestrong) / <alpha-value>)",
+        // Borders — translucent by design (glassmorphism / neon);
+        // --line-alpha keeps every border subtle in both themes.
+        line: "rgb(var(--c-line) / var(--line-alpha))",
+        linestrong: "rgb(var(--c-line) / var(--line-strong-alpha))",
         // Text scale: ink (primary) → ink5 (faint)
         ink: "rgb(var(--c-ink) / <alpha-value>)",
         ink2: "rgb(var(--c-ink2) / <alpha-value>)",

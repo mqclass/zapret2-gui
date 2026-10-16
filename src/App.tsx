@@ -744,8 +744,8 @@ const AppContent: React.FC = () => {
   }, [selectedStrategyId, t.alerts.configDeleted]);
 
   return (
-    <div className="app-bg flex h-screen w-screen overflow-hidden font-sans text-ink select-none">
-      {/* Sidebar Navigation */}
+    <div className="app-bg flex h-screen w-screen overflow-hidden font-sans text-ink select-none gap-3 p-3">
+      {/* Sidebar Navigation — floating frosted panel */}
       <Sidebar
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -754,8 +754,8 @@ const AppContent: React.FC = () => {
         isElevated={isElevated}
       />
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-app">
+      {/* Main Content Area — floating panel */}
+      <div className="panel-float glass-bar flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Top Header Bar */}
         <div className="relative z-50">
           <TopBar
@@ -771,7 +771,7 @@ const AppContent: React.FC = () => {
         </div>
 
         {/* Scrollable View Area */}
-        <main className="relative z-10 flex-1 overflow-y-auto px-6 py-5 space-y-4">
+        <main key={activeTab} className="view-enter relative z-10 flex-1 overflow-y-auto px-6 py-5 space-y-4">
           {/* Conflicting Software Warning Banner */}
           <ConflictBanner
             conflicts={conflicts}
