@@ -11,7 +11,7 @@
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use serde::{Deserialize, Serialize};
-use crate::win32::settings::{load_settings, save_settings};
+use crate::win32::settings::{load_settings, update_settings};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -377,7 +377,7 @@ pub fn get_dns_status() -> Result<DnsStatus, String> {
 /// fails, the adapter is rolled back to them and the failure is reported. Settings are
 /// only persisted on success, so the UI can never report success for a failed change.
 pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatus, String> {
-    let mut settings = load_settings();
+    let settings = load_settings();
     // Single PowerShell round-trip gives us both the adapter and the pre-change DNS snapshot.
     let (adapter, previous_dns) = get_adapter_and_dns();
     let adapter_esc = escape_ps(&adapter);
@@ -428,10 +428,13 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
         .arg("/flushdns")
         .output();
 
-    // Persist choice in settings only after the change actually succeeded
-    settings.dns_provider = provider_id.to_string();
-    settings.dns_scope = effective_scope;
-    let _ = save_settings(settings);
+    // Persist choice in settings only after the change actually succeeded.
+    // Serialized vs. concurrent mutations (L-4): re-load inside the lock so a
+    // concurrent settings write in between is not clobbered.
+    let _ = update_settings(|s| {
+        s.dns_provider = provider_id.to_string();
+        s.dns_scope = effective_scope;
+    });
 
     get_dns_status()
 }

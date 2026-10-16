@@ -37,6 +37,15 @@ async fn main() {
     let supervisor_clone = supervisor.clone();
     let diagnostics_clone = diagnostics.clone();
 
+    // 2b. Initialize the Telegram MTProxy-mode sidecar manager with its own
+    // dedicated Windows Job Object (KILL_ON_JOB_CLOSE), sharing the
+    // supervisor only as a funnel into the common log buffer.
+    let tgproxy = Arc::new(
+        engine::tgproxy::TgProxyManager::new(supervisor.clone())
+            .expect("Failed to initialize Telegram proxy Job Object"),
+    );
+    let tgproxy_clone = tgproxy.clone();
+
     // 3. Build Tauri v2 application
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -57,14 +66,27 @@ async fn main() {
                 resolved: None,
                 resolved_at: None,
             })),
-            // No sidecars are registered in this branch; feature branches that
-            // spawn long-lived children (e.g. tgproxy) push their managers here
-            // so install_update fails closed while they are active.
-            sidecars: Vec::new(),
-        })
+            // Long-lived sidecars (e.g. the Telegram tgproxy sidecar) are
+            // registered here so install_update fails closed while any of
+            // them is active.
+            sidecars: vec![tgproxy_clone.clone() as Arc<dyn crate::engine::managed::ManagedSidecar>],
+            tgproxy: tgproxy_clone,        })
         .setup(move |app| {
             let handle = app.handle().clone();
             supervisor.set_app_handle(handle.clone());
+            tgproxy.set_app_handle(handle.clone());
+
+            // If the Telegram proxy was left enabled, restore it (best-effort).
+            let tgproxy_auto = tgproxy.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                let enabled = crate::win32::settings::load_settings().tgproxy_enabled;
+                if enabled {
+                    if let Err(e) = tgproxy_auto.start().await {
+                        eprintln!("Warning: Failed to auto-start Telegram proxy: {}", e);
+                    }
+                }
+            });
 
             // If started via Windows autostart with --minimized or --autostart
             let is_autostart = std::env::args().any(|a| a == "--minimized" || a == "--autostart");
@@ -217,6 +239,12 @@ async fn main() {
             commands::run_auto_doctor,
             commands::get_dns_status,
             commands::set_system_dns,
+            commands::get_tgproxy_status,
+            commands::download_tgproxy,
+            commands::start_tgproxy,
+            commands::stop_tgproxy,
+            commands::set_tgproxy_config,
+            commands::regenerate_tgproxy_secret,
             commands::benchmark_youtube_speed,
             commands::sync_remote_lists,
             commands::check_for_updates,

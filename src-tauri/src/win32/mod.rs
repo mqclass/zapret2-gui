@@ -2,6 +2,7 @@
 pub mod autostart;
 pub mod conflicts;
 pub mod custom_profiles;
+pub mod deelevate;
 pub mod dns;
 pub mod doctor;
 pub mod job_object;

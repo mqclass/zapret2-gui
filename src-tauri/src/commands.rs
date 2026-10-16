@@ -14,6 +14,7 @@ use tauri::State;
 
 use crate::engine::probes::{DiagnosticsReport, DiagnosticsService};
 use crate::engine::supervisor::{LogEntry, Supervisor, SupervisorState, SupervisorStatus};
+use crate::engine::tgproxy::{TgProxyManager, TgProxyStatus};
 use crate::win32::conflicts::{
     resolve_all_conflicts_excluding as win32_resolve_all_conflicts,
     scan_conflicts_excluding as win32_scan_conflicts, ConflictItem,
@@ -39,12 +40,11 @@ pub struct AppState {
     pub supervisor: Arc<Supervisor>,
     pub diagnostics: Arc<DiagnosticsService>,
     pub cached_binaries: Arc<parking_lot::RwLock<CachedBinaries>>,
-    /// Auxiliary long-lived processes (sidecars) managed by the app, e.g. the
-    /// Telegram tgproxy sidecar once `feature/tg-proxy-mode` is merged.
+    /// Auxiliary long-lived processes (sidecars) managed by the app.
     /// `install_update` fails closed while any of them is active, so the
     /// installation directory is never renamed out from under a running child.
     pub sidecars: Vec<Arc<dyn crate::engine::managed::ManagedSidecar>>,
-}
+    pub tgproxy: Arc<TgProxyManager>,}
 
 /// TTL for the resolved-binaries cache: binaries are re-discovered at most this often,
 /// so a newly installed/updated winws2.exe is picked up without an app restart.
@@ -426,16 +426,59 @@ pub async fn get_app_settings() -> Result<crate::win32::settings::AppSettings, S
 pub async fn save_app_settings(
     settings: crate::win32::settings::AppSettings,
 ) -> Result<(), String> {
-    crate::win32::settings::save_settings(settings)
+    // Serialized vs. concurrent backend mutations (L-4).
+    crate::win32::settings::update_settings(|s| *s = settings)
 }
 
 /// Toggles Windows toast notifications for engine events.
 #[tauri::command]
 pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
-    let mut settings = crate::win32::settings::load_settings();
-    settings.notifications_enabled = enable;
-    crate::win32::settings::save_settings(settings).map_err(|e| e.to_string())?;
+    crate::win32::settings::update_settings(|s| s.notifications_enabled = enable)
+        .map_err(|e| e.to_string())?;
     Ok(enable)
+}
+
+/// Returns the Telegram MTProxy-mode sidecar status snapshot.
+#[tauri::command]
+pub async fn get_tgproxy_status(state: State<'_, AppState>) -> Result<TgProxyStatus, String> {
+    Ok(state.tgproxy.get_status())
+}
+
+/// Downloads the official TgWsProxy_windows.exe from the latest Flowseal
+/// release with mandatory SHA-256 verification. Returns the release version.
+#[tauri::command]
+pub async fn download_tgproxy(state: State<'_, AppState>) -> Result<String, String> {
+    state.tgproxy.download_binary().await.map_err(|e| e.to_string())
+}
+
+/// Starts the Telegram proxy sidecar (supervised via a dedicated Job Object).
+#[tauri::command]
+pub async fn start_tgproxy(state: State<'_, AppState>) -> Result<(), String> {
+    state.tgproxy.clone().start().await.map_err(|e| e.to_string())
+}
+
+/// Stops the Telegram proxy sidecar.
+#[tauri::command]
+pub async fn stop_tgproxy(state: State<'_, AppState>) -> Result<(), String> {
+    state.tgproxy.stop().await.map_err(|e| e.to_string())
+}
+
+/// Updates the Telegram proxy listen port and MTProto secret.
+/// Refused while the sidecar is running (the exe reads config only at startup).
+#[tauri::command]
+pub async fn set_tgproxy_config(
+    state: State<'_, AppState>,
+    port: u16,
+    secret: String,
+) -> Result<(), String> {
+    state.tgproxy.set_config(port, secret).map_err(|e| e.to_string())
+}
+
+/// Generates a fresh CSPRNG secret for the Telegram proxy.
+/// Refused while the sidecar is running.
+#[tauri::command]
+pub async fn regenerate_tgproxy_secret(state: State<'_, AppState>) -> Result<String, String> {
+    state.tgproxy.regenerate_secret().map_err(|e| e.to_string())
 }
 
 /// Exports a diagnostic bundle for bug reports: app/system info, settings,
@@ -556,10 +599,10 @@ pub async fn export_diagnostics_bundle(
 pub async fn set_split_tunnel_mode(
     mode: crate::win32::settings::SplitTunnelMode,
 ) -> Result<crate::win32::settings::AppSettings, String> {
-    let mut settings = crate::win32::settings::load_settings();
-    settings.split_tunnel_mode = mode;
-    crate::win32::settings::save_settings(settings.clone())?;
-    Ok(settings)
+    crate::win32::settings::update_settings(|s| {
+        s.split_tunnel_mode = mode;
+        s.clone()
+    })
 }
 
 /// Executes the 1-click Auto-Doctor to repair driver, DNS, ARP, and network stack.
