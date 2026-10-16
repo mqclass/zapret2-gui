@@ -125,7 +125,6 @@ export interface UpdateInfo {
   asset_name: string;
   asset_size: number;
   published_at: string;
-  prerelease: boolean;
 }
 
 /** Download progress snapshot emitted over the `update-download-progress` event. */
@@ -133,6 +132,12 @@ export interface UpdateProgress {
   downloaded_bytes: number;
   total_bytes: number;
   percent: number;
+}
+
+/** Sidecar status snapshot returned by the `get_sidecar_statuses` IPC command. */
+export interface SidecarStatusView {
+  name: string;
+  active: boolean;
 }
 
 /** Scheduler preferences returned by the `get_update_prefs` IPC command. */

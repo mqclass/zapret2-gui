@@ -387,6 +387,7 @@ export const ru: Translations = {
     viewRelease: "Открыть на GitHub",
     updateBtn: "Обновить",
     laterBtn: "Позже",
+    cancelBtn: "Отмена",
     dialogTitle: "Доступно обновление",
     sizeLabel: "Размер",
     publishedLabel: "Опубликовано",
@@ -400,6 +401,9 @@ export const ru: Translations = {
       "Контрольная сумма архива не совпала — файл удалён, установка отменена. Попробуйте позже.",
     installFailed: "Ошибка установки обновления",
     engineRunning: "Остановите обход перед установкой обновления",
+    sidecarRunning: "Остановите «{name}» перед установкой обновления",
+    releaseChanged:
+      "Пока вы читали изменения, вышел более новый релиз. Проверьте обновления ещё раз, чтобы увидеть актуальные изменения.",
     notifyAvailableTitle: "Доступно обновление zapret2",
     notifyAvailableBody: "Вышла версия {v}. Откройте приложение, чтобы посмотреть изменения.",
   },

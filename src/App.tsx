@@ -15,6 +15,7 @@ import {
   UpdateInfo,
   UpdateProgress,
   UpdatePrefs,
+  SidecarStatusView,
 } from "./types";
 import { Sidebar, NavTab } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
@@ -227,11 +228,11 @@ const AppContent: React.FC = () => {
   }, [updateInfo]);
 
   /**
-   * Confirmed update flow: download (with progress + SHA256 verification),
-   * then stop the engine — only now, with the user's explicit consent from
-   * the dialog and the verified payload on disk — then atomic install and
-   * restart. On success the backend spawns the new version and terminates
-   * this process, so this function never returns.
+   * Confirmed update flow: download (with progress + SHA256 verification,
+   * cancellable), then stop the engine — only now, with the user's explicit
+   * consent from the dialog and the verified payload on disk — then atomic
+   * install and restart. On success the backend spawns the new version and
+   * terminates this process, so this function never returns.
    */
   const handleConfirmUpdate = useCallback(async () => {
     if (!updateInfo) return;
@@ -254,6 +255,18 @@ const AppContent: React.FC = () => {
         await invoke("stop_supervisor");
       }
 
+      // Sidecars (e.g. the tgproxy sidecar once its branch is merged) also
+      // execute from inside the installation directory: surface an active one
+      // here with a clear message instead of hitting the backend's fail-closed
+      // refusal mid-flow.
+      const sidecars = await invoke<SidecarStatusView[]>("get_sidecar_statuses");
+      const activeSidecars = sidecars.filter((s) => s.active);
+      if (activeSidecars.length > 0) {
+        throw new Error(
+          `SIDECAR_RUNNING: ${activeSidecars.map((s) => s.name).join(", ")}`
+        );
+      }
+
       stage = "install";
       setUpdatePhase("installing");
       await invoke("install_update");
@@ -263,11 +276,23 @@ const AppContent: React.FC = () => {
       setUpdatePhase("error");
     } catch (err: any) {
       const raw = formatErrorMessage(err);
+      // User-cancelled download: back to the confirmation step, no error.
+      if (/CANCELLED/i.test(raw)) {
+        setUpdateProgress(null);
+        setUpdateError(null);
+        setUpdatePhase("confirm");
+        return;
+      }
       let msg: string;
       if (/sha256|checksum/i.test(raw)) {
         msg = t.update.hashMismatch;
       } else if (/ENGINE_RUNNING/.test(raw)) {
         msg = t.update.engineRunning;
+      } else if (/SIDECAR_RUNNING/.test(raw)) {
+        const name = raw.split("SIDECAR_RUNNING:")[1]?.trim() || "?";
+        msg = t.update.sidecarRunning.replace("{name}", name);
+      } else if (/RELEASE_CHANGED/.test(raw)) {
+        msg = t.update.releaseChanged;
       } else {
         msg =
           stage === "install"
@@ -281,6 +306,15 @@ const AppContent: React.FC = () => {
       if (unlisten) unlisten();
     }
   }, [updateInfo, t]);
+
+  /** Aborts an in-flight update download; the backend cleans up temp files. */
+  const handleCancelUpdateDownload = useCallback(async () => {
+    try {
+      await invoke("cancel_update_download");
+    } catch (err) {
+      console.error("Failed to cancel update download:", err);
+    }
+  }, []);
 
   // Scheduled update checks: first run ~90s after startup (network settles),
   // then every 30 minutes — each tick only checks when the backend reports
@@ -911,6 +945,7 @@ const AppContent: React.FC = () => {
           error={updateError}
           onConfirm={handleConfirmUpdate}
           onClose={() => setUpdateDialogOpen(false)}
+          onCancelDownload={handleCancelUpdateDownload}
         />
       )}
     </div>

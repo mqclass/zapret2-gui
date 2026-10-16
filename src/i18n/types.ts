@@ -380,6 +380,7 @@ export interface Translations {
     viewRelease: string;
     updateBtn: string;
     laterBtn: string;
+    cancelBtn: string;
     dialogTitle: string;
     sizeLabel: string;
     publishedLabel: string;
@@ -391,6 +392,8 @@ export interface Translations {
     hashMismatch: string;
     installFailed: string;
     engineRunning: string;
+    sidecarRunning: string;
+    releaseChanged: string;
     notifyAvailableTitle: string;
     notifyAvailableBody: string;
   };

@@ -57,6 +57,10 @@ async fn main() {
                 resolved: None,
                 resolved_at: None,
             })),
+            // No sidecars are registered in this branch; feature branches that
+            // spawn long-lived children (e.g. tgproxy) push their managers here
+            // so install_update fails closed while they are active.
+            sidecars: Vec::new(),
         })
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -217,7 +221,9 @@ async fn main() {
             commands::sync_remote_lists,
             commands::check_for_updates,
             commands::download_update,
+            commands::cancel_update_download,
             commands::install_update,
+            commands::get_sidecar_statuses,
             commands::get_update_prefs,
             commands::set_auto_update_enabled,
             commands::window_minimize,

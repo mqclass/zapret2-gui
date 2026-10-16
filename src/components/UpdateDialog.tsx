@@ -20,6 +20,8 @@ interface UpdateDialogProps {
   error: string | null;
   onConfirm: () => void;
   onClose: () => void;
+  /** Aborts an in-flight download (visible only during `downloading`). */
+  onCancelDownload: () => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -59,6 +61,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   error,
   onConfirm,
   onClose,
+  onCancelDownload,
 }) => {
   const { t, language } = useI18n();
   const busy = phase === "downloading" || phase === "installing";
@@ -105,11 +108,6 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             {t.update.publishedLabel}:{" "}
             <span className="text-ink2">{formatDate(info.published_at, language)}</span>
           </span>
-          {info.prerelease && (
-            <span className="rounded-chip border border-warnline bg-warnwash px-1.5 py-0.5 text-[10px] text-ink2">
-              pre-release
-            </span>
-          )}
           <button
             type="button"
             onClick={() => openUrl(info.release_url)}
@@ -146,7 +144,9 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             <div className="flex items-center justify-between text-xs">
               <span className="flex items-center gap-2 text-ink2">
                 <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent" />
-                {t.update.downloading}
+                {/* At 100% the backend is finalizing the SHA256 and extracting —
+                    this is the integrity-verification stage. */}
+                {(progress?.percent ?? 0) >= 100 ? t.update.verifying : t.update.downloading}
               </span>
               <span className="font-mono text-ink4">{progress?.percent ?? 0}%</span>
             </div>
@@ -190,6 +190,11 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             <button type="button" onClick={onConfirm} className="t-btn t-btn-primary">
               <ArrowDownToLine className="h-3.5 w-3.5" />
               {t.update.updateBtn}
+            </button>
+          )}
+          {phase === "downloading" && (
+            <button type="button" onClick={onCancelDownload} className="t-btn t-btn-ghost">
+              {t.update.cancelBtn}
             </button>
           )}
           {phase === "error" && (

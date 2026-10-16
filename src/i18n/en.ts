@@ -387,6 +387,7 @@ export const en: Translations = {
     viewRelease: "Open on GitHub",
     updateBtn: "Update",
     laterBtn: "Later",
+    cancelBtn: "Cancel",
     dialogTitle: "Update available",
     sizeLabel: "Size",
     publishedLabel: "Published",
@@ -400,6 +401,9 @@ export const en: Translations = {
       "Archive checksum mismatch — the file was deleted and installation was cancelled. Try again later.",
     installFailed: "Update installation failed",
     engineRunning: "Stop the bypass before installing the update",
+    sidecarRunning: "Stop “{name}” before installing the update",
+    releaseChanged:
+      "A newer release was published while you were reading the changelog. Check for updates again to see the current notes.",
     notifyAvailableTitle: "zapret2 update available",
     notifyAvailableBody: "Version {v} is out. Open the app to see what's new.",
   },

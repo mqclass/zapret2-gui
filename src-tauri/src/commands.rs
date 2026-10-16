@@ -39,6 +39,11 @@ pub struct AppState {
     pub supervisor: Arc<Supervisor>,
     pub diagnostics: Arc<DiagnosticsService>,
     pub cached_binaries: Arc<parking_lot::RwLock<CachedBinaries>>,
+    /// Auxiliary long-lived processes (sidecars) managed by the app, e.g. the
+    /// Telegram tgproxy sidecar once `feature/tg-proxy-mode` is merged.
+    /// `install_update` fails closed while any of them is active, so the
+    /// installation directory is never renamed out from under a running child.
+    pub sidecars: Vec<Arc<dyn crate::engine::managed::ManagedSidecar>>,
 }
 
 /// TTL for the resolved-binaries cache: binaries are re-discovered at most this often,
@@ -619,14 +624,49 @@ pub async fn download_update(app: tauri::AppHandle) -> Result<String, String> {
 
 /// Atomically installs a previously staged update and restarts the app.
 ///
-/// Fail-closed: refuses while the bypass engine is running (the frontend stops
-/// it first, with the user's explicit consent from the update dialog). Backs
-/// the current installation up via rename, swaps in the new tree, restores
-/// user settings, then launches the new version and exits. Rolls back to the
-/// backup on any failure.
+/// Fail-closed: refuses while the bypass engine — or any registered sidecar —
+/// is running (the frontend stops them first, with the user's explicit consent
+/// from the update dialog). Backs the current installation up, swaps in the
+/// re-verified new tree, restores user settings, then launches the new version
+/// and exits. Rolls back to the backup on any failure.
+///
+/// Runs on a blocking thread: hashing, extraction and the cross-volume
+/// copy fallback are disk-heavy and must not stall the async runtime.
 #[tauri::command]
 pub async fn install_update(state: State<'_, AppState>) -> Result<(), String> {
-    crate::win32::updater::install_update(&state.supervisor)
+    let supervisor = state.supervisor.clone();
+    let sidecars = state.sidecars.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::win32::updater::install_update(&supervisor, &sidecars)
+    })
+    .await
+    .map_err(|e| format!("Install task failed: {e}"))?
+}
+
+/// Requests cancellation of an in-flight `download_update`. Cooperative: the
+/// download loop checks the flag between chunks and aborts cleanly.
+#[tauri::command]
+pub async fn cancel_update_download() -> Result<(), String> {
+    crate::win32::updater::cancel_download_update();
+    Ok(())
+}
+
+/// Reports the registered sidecar processes and whether each is active.
+/// The frontend update flow consults this before `install_update` so an active
+/// sidecar (e.g. tgproxy) is surfaced with a clear message instead of a raw
+/// backend refusal.
+#[tauri::command]
+pub async fn get_sidecar_statuses(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::win32::updater::SidecarStatusView>, String> {
+    Ok(state
+        .sidecars
+        .iter()
+        .map(|s| crate::win32::updater::SidecarStatusView {
+            name: s.name().to_string(),
+            active: s.is_active(),
+        })
+        .collect())
 }
 
 /// Returns the auto-update toggle and the last successful check timestamp.

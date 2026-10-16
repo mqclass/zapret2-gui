@@ -387,6 +387,7 @@ export const uk: Translations = {
     viewRelease: "Відкрити на GitHub",
     updateBtn: "Оновити",
     laterBtn: "Пізніше",
+    cancelBtn: "Скасувати",
     dialogTitle: "Доступне оновлення",
     sizeLabel: "Розмір",
     publishedLabel: "Опубліковано",
@@ -400,6 +401,9 @@ export const uk: Translations = {
       "Контрольна сума архіву не збіглася — файл видалено, встановлення скасовано. Спробуйте пізніше.",
     installFailed: "Помилка встановлення оновлення",
     engineRunning: "Зупиніть обхід перед встановленням оновлення",
+    sidecarRunning: "Зупиніть «{name}» перед встановленням оновлення",
+    releaseChanged:
+      "Поки ви читали зміни, вийшов новіший реліз. Перевірте оновлення ще раз, щоб побачити актуальні зміни.",
     notifyAvailableTitle: "Доступне оновлення zapret2",
     notifyAvailableBody: "Вийшла версія {v}. Відкрийте застосунок, щоб переглянути зміни.",
   },
