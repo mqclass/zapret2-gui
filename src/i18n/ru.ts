@@ -3,7 +3,7 @@ import { Translations } from "./types";
 export const ru: Translations = {
   header: {
     title: "zapret2",
-    version: "v1.0.10",
+    version: "v1.1.0",
     subtitle: "Служба обхода блокировок WFP & WinDivert",
     adminReady: "Администратор (WFP готов)",
     adminRequired: "Требуются права админа (Нажмите)",
