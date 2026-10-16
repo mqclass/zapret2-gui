@@ -29,6 +29,16 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
     const [autoScroll, setAutoScroll] = useState<boolean>(true);
     const [copied, setCopied] = useState<boolean>(false);
     const logContainerRef = useRef<HTMLDivElement>(null);
+    const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Clear the "copied" reset timer on unmount.
+    useEffect(() => {
+      return () => {
+        if (copiedTimerRef.current) {
+          clearTimeout(copiedTimerRef.current);
+        }
+      };
+    }, []);
 
     // PERFORMANCE OPTIMIZATION: Memoize filtered and sliced log entries up to 800 lines
     const { filteredCount, displayLogs } = useMemo(() => {
@@ -89,7 +99,10 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
           .join("\n");
         await navigator.clipboard.writeText(text);
         setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        if (copiedTimerRef.current) {
+          clearTimeout(copiedTimerRef.current);
+        }
+        copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
       } catch (e) {
         console.error("Failed to copy logs:", e);
       }
@@ -148,12 +161,12 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
                 onClick={onRefreshLogs}
                 disabled={isRefreshing}
                 className="flex h-8 items-center gap-1.5 rounded-xl border border-white/[0.08] bg-slate-950/80 px-2.5 text-xs text-slate-300 hover:bg-white/[0.08] hover:text-white transition-all cursor-pointer disabled:opacity-50"
-                title="Обновить журнал событий"
+                title={t.logs.refreshTitle}
               >
                 <RefreshCw
                   className={`h-3.5 w-3.5 text-cyan-400 ${isRefreshing ? "animate-spin" : ""}`}
                 />
-                <span>Обновить</span>
+                <span>{t.logs.refreshShort}</span>
               </button>
             )}
 
@@ -223,9 +236,9 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/[0.06] text-slate-600">
                 <Terminal className="h-6 w-6" />
               </div>
-              <p className="text-xs font-semibold text-slate-400">Журнал событий пуст</p>
+              <p className="text-xs font-semibold text-slate-400">{t.logs.emptyTitle}</p>
               <p className="text-[11px] text-slate-600 max-w-sm">
-                Запустите обход блокировок, чтобы увидеть консольный вывод winws2 и статус драйвера WFP.
+                {t.logs.emptyDesc}
               </p>
               {onRefreshLogs && (
                 <button
@@ -234,14 +247,14 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
                   className="mt-2 flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 transition-all cursor-pointer"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  <span>Обновить сейчас</span>
+                  <span>{t.logs.refreshNow}</span>
                 </button>
               )}
             </div>
           ) : (
-            displayLogs.map((log, index) => (
+            displayLogs.map((log) => (
               <div
-                key={index}
+                key={log.id ?? `${log.timestamp}-${log.message}`}
                 className="flex items-start gap-2.5 py-1 hover:bg-white/[0.03] rounded-md px-1.5 transition-colors"
               >
                 <span className="text-slate-600 shrink-0 select-none font-mono">

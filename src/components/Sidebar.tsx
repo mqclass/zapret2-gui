@@ -211,12 +211,12 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                 }`}
               >
                 {isRunning
-                  ? "Активна"
+                  ? t.sidebar.active
                   : isStarting
-                  ? "Старт..."
+                  ? t.sidebar.starting
                   : isStopping
-                  ? "Стоп..."
-                  : "Отключена"}
+                  ? t.sidebar.stopping
+                  : t.sidebar.inactive}
               </span>
             </div>
           </div>

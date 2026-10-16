@@ -66,38 +66,38 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
       switch (tab) {
         case "dashboard":
           return {
-            title: "Центр управления обходом",
-            subtitle: "Основной шлюз фильтрации пакетов WFP / WinDivert",
+            title: t.tabMeta.dashboardTitle,
+            subtitle: t.tabMeta.dashboardSubtitle,
           };
         case "strategies":
           return {
-            title: "Библиотека пресетов и стратегий",
-            subtitle: "Выбор оптимального алгоритма desync для YouTube, Discord и сайтов",
+            title: t.tabMeta.strategiesTitle,
+            subtitle: t.tabMeta.strategiesSubtitle,
           };
         case "diagnostics":
           return {
-            title: "Диагностика сети & Авто-Доктор",
-            subtitle: "Мониторинг пинга сервисов, автоподбор стратегии и лечение сети",
+            title: t.tabMeta.diagnosticsTitle,
+            subtitle: t.tabMeta.diagnosticsSubtitle,
           };
         case "dns":
           return {
-            title: "DNS & Тест скорости YouTube 4K",
-            subtitle: "Защита от подмены DNS провайдером и замер реального видеопотока",
+            title: t.tabMeta.dnsTitle,
+            subtitle: t.tabMeta.dnsSubtitle,
           };
         case "lists":
           return {
-            title: "Маршрутизация и Списки доменов",
-            subtitle: "Синхронизация списков с GitHub и управление своими хостами",
+            title: t.tabMeta.listsTitle,
+            subtitle: t.tabMeta.listsSubtitle,
           };
         case "logs":
           return {
-            title: "Системный журнал событий",
-            subtitle: "Консольный вывод процессов winws2 и службы супервизора",
+            title: t.tabMeta.logsTitle,
+            subtitle: t.tabMeta.logsSubtitle,
           };
         case "settings":
           return {
-            title: "Параметры и Информация",
-            subtitle: "Конфигурация автозапуска, очистка, лицензии и безопасность",
+            title: t.tabMeta.settingsTitle,
+            subtitle: t.tabMeta.settingsSubtitle,
           };
       }
     };
@@ -105,9 +105,9 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
     const meta = getTabMeta(activeTab);
 
     const languages: { code: Language; label: string; full: string }[] = [
-      { code: "ru", label: "RU", full: "Русский" },
-      { code: "en", label: "EN", full: "English" },
-      { code: "uk", label: "UK", full: "Українська" },
+      { code: "ru", label: "RU", full: t.header.langRu },
+      { code: "en", label: "EN", full: t.header.langEn },
+      { code: "uk", label: "UK", full: t.header.langUk },
     ];
 
     const currentLangItem = languages.find((l) => l.code === language) || languages[0];
@@ -151,12 +151,14 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
       <header
         data-tauri-drag-region
         onMouseDown={handleDragMouseDown}
-        onDoubleClick={handleToggleMaximize}
         className="relative z-50 h-14 shrink-0 flex items-center justify-between pl-5 pr-2 border-b border-[#20242e] bg-[#11141c] select-none"
       >
-        {/* Title and subtitle area (Draggable) */}
-        <div data-tauri-drag-region className="flex items-center gap-3">
-          <div data-tauri-drag-region>
+        {/* Title and subtitle area (Draggable + double-click to maximize) */}
+        <div
+          data-tauri-drag-region
+          onDoubleClick={handleToggleMaximize}
+          className="flex items-center gap-3"
+        >  <div data-tauri-drag-region>
             <h2 data-tauri-drag-region className="text-sm font-semibold tracking-tight text-white leading-tight">
               {meta.title}
             </h2>
@@ -172,19 +174,19 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           {isElevated ? (
             <div
               className="flex items-center gap-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300"
-              title="Приложение запущено с правами Администратора (WFP драйвер активен)"
+              title={t.header.adminTooltip}
             >
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Админ</span>
+              <span>{t.header.adminShort}</span>
             </div>
           ) : (
             <button
               onClick={onRelaunchElevated}
               className="flex items-center gap-1.5 rounded-lg border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer"
-              title="Нажмите для перезапуска с правами Администратора (требуется для фильтрации)"
+              title={t.header.adminRequiredTooltip}
             >
               <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
-              <span>Нужен Админ</span>
+              <span>{t.header.adminRequiredShort}</span>
             </button>
           )}
 
@@ -197,7 +199,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
                 ? "bg-blue-600/15 border-blue-500/30 text-blue-300 hover:bg-blue-600/25"
                 : "bg-white/[0.03] border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]"
             }`}
-            title={isAutostart ? "Автозапуск включен" : "Автозапуск выключен"}
+            title={isAutostart ? t.header.autostartOnTitle : t.header.autostartOffTitle}
           >
             {isTogglingAutostart ? (
               <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-400" />
@@ -206,7 +208,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
                 className={`h-3.5 w-3.5 ${isAutostart ? "text-blue-400" : "text-slate-500"}`}
               />
             )}
-            <span>Автозапуск</span>
+            <span>{t.header.autostart}</span>
             <span
               className={`h-1.5 w-1.5 rounded-full ${
                 isAutostart ? "bg-blue-400" : "bg-slate-600"
@@ -219,14 +221,14 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
             onClick={onKillStray}
             disabled={isStrayCleaning}
             className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-slate-400 hover:text-rose-300 hover:border-rose-500/30 hover:bg-rose-500/10 transition-all cursor-pointer disabled:opacity-60"
-            title="Завершить зависшие процессы winws2 в памяти"
+            title={t.header.cleanProcessesTooltip}
           >
             {isStrayCleaning ? (
               <RefreshCw className="h-3.5 w-3.5 animate-spin text-rose-400" />
             ) : (
               <Trash2 className="h-3.5 w-3.5" />
             )}
-            <span className="hidden sm:inline">Очистить</span>
+            <span className="hidden sm:inline">{t.header.cleanShort}</span>
           </button>
 
           {/* Animated Single Active Language Dropdown */}
@@ -235,7 +237,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
               type="button"
               onClick={() => setIsLangMenuOpen((prev) => !prev)}
               className="flex items-center gap-1.5 rounded-lg border border-[#272d3b] bg-[#161a22] hover:bg-[#1c212c] px-2.5 py-1 text-[11px] font-semibold text-slate-200 transition-all cursor-pointer hover:border-[#384256]"
-              title="Сменить язык интерфейса"
+              title={t.header.changeLanguage}
             >
               <Globe className="h-3.5 w-3.5 text-blue-400" />
               <span className="font-mono tracking-wider">{currentLangItem.label}</span>
@@ -288,21 +290,21 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
             <button
               onClick={handleMinimize}
               className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
-              title="Свернуть"
+              title={t.header.minimizeTitle}
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={handleToggleMaximize}
               className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
-              title="Развернуть / Восстановить"
+              title={t.header.maximizeTitle}
             >
               <Square className="h-3 w-3" />
             </button>
             <button
               onClick={handleClose}
               className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-rose-600 transition-colors cursor-pointer"
-              title="Закрыть (в трей)"
+              title={t.header.closeTitle}
             >
               <X className="h-3.5 w-3.5" />
             </button>

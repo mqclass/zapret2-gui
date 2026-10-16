@@ -72,6 +72,8 @@ export interface LogEntry {
   timestamp: number;
   level: "stdout" | "stderr" | "info" | "warn" | "error";
   message: string;
+  /** Client-side monotonic id for stable React keys (assigned at ingest, not from backend). */
+  id?: number;
 }
 
 export interface ConflictItem {
@@ -88,6 +90,12 @@ export interface SystemStatusResponse {
   binaries: ZapretBinaries | null;
   conflicts: ConflictItem[];
   autostart_enabled: boolean;
+}
+
+/** Lightweight heartbeat response: supervisor state + elevation only. */
+export interface SupervisorStatusResponse {
+  is_elevated: boolean;
+  supervisor: SupervisorStatus;
 }
 
 export type SplitTunnelMode = "full" | "strict" | "game_mode";

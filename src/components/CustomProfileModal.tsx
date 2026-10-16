@@ -31,23 +31,24 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
   const [showCheatsheet, setShowCheatsheet] = useState<boolean>(false);
 
   const applyQuickTemplate = (type: "youtube" | "discord" | "general" | "combo") => {
-    setEngine("winws");
+    // NOTE: the engine selection is intentionally left untouched — applying a
+    // template must not silently reset the user's chosen engine.
     let templateArgs = "";
     if (type === "youtube") {
-      setName((prev) => (prev.trim() ? prev : "YouTube 4K 60FPS"));
-      setDescription("Оптимизировано для обхода замедлений YouTube (QUIC + TCP fake/multisplit seqovl=681)");
+      setName((prev) => (prev.trim() ? prev : t.modal.templateYoutube));
+      setDescription(t.modal.templateYoutubeDesc);
       templateArgs = `--wf-tcp=80,443 --wf-udp=443 --filter-udp=443 --hostlist="lists/list-general.txt" --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic="bin/quic_initial_www_google_com.bin" --new --filter-tcp=443 --hostlist="lists/list-google.txt" --ip-id=zero --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls="bin/tls_clienthello_www_google_com.bin"`;
     } else if (type === "discord") {
-      setName((prev) => (prev.trim() ? prev : "Discord Голос & Стримы"));
-      setDescription("Обход голосовых шлюзов Discord (UDP 50000-50100) и медиа-серверов");
+      setName((prev) => (prev.trim() ? prev : t.modal.templateDiscord));
+      setDescription(t.modal.templateDiscordDesc);
       templateArgs = `--wf-tcp=2053,2083,2087,2096,8443 --wf-udp=19294-19344,50000-50100 --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-fake-stun="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls="bin/tls_clienthello_www_google_com.bin"`;
     } else if (type === "general") {
-      setName((prev) => (prev.trim() ? prev : "Обход сайтов РКН"));
-      setDescription("Универсальная маскировка блокировок сайтов (tls_max_ru, seqovl=664)");
+      setName((prev) => (prev.trim() ? prev : t.modal.templateGeneral));
+      setDescription(t.modal.templateGeneralDesc);
       templateArgs = `--wf-tcp=80,443 --filter-tcp=80,443 --hostlist="lists/list-general.txt" --hostlist-exclude="lists/list-exclude.txt" --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=664 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_max_ru.bin" --dpi-desync-fake-tls="bin/stun2.bin" --dpi-desync-fake-tls="bin/tls_clienthello_max_ru.bin" --dpi-desync-fake-http="bin/tls_clienthello_max_ru.bin"`;
     } else if (type === "combo") {
-      setName((prev) => (prev.trim() ? prev : "Комбо (YouTube + Discord + Сайты)"));
-      setDescription("Полный комплексный обход всех видов блокировок ТСПУ");
+      setName((prev) => (prev.trim() ? prev : t.modal.templateCombo));
+      setDescription(t.modal.templateComboDesc);
       templateArgs = `--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist="lists/list-general.txt" --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic="bin/quic_initial_www_google_com.bin" --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-fake-stun="bin/ACTIVE_DISCORD_UDP.bin" --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls="bin/tls_clienthello_www_google_com.bin" --new --filter-tcp=443 --hostlist="lists/list-google.txt" --ip-id=zero --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls="bin/tls_clienthello_www_google_com.bin" --new --filter-tcp=80,443 --hostlist="lists/list-general.txt" --hostlist-exclude="lists/list-exclude.txt" --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=664 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern="bin/tls_clienthello_max_ru.bin" --dpi-desync-fake-tls="bin/stun2.bin" --dpi-desync-fake-tls="bin/tls_clienthello_max_ru.bin" --dpi-desync-fake-http="bin/tls_clienthello_max_ru.bin"`;
     }
     setArgsInput(templateArgs);
@@ -342,7 +343,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                   <span>{t.modal.cheatsheetTitle}</span>
                 </div>
                 <span className="text-[11px] text-slate-500">
-                  {showCheatsheet ? "▲ Скрыть" : "▼ Раскрыть"}
+                  {showCheatsheet ? t.modal.cheatsheetShow : t.modal.cheatsheetHide}
                 </span>
               </button>
 
@@ -350,27 +351,27 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                 <div className="mt-2.5 pt-2.5 border-t border-slate-800/80 space-y-2 text-[11px] text-slate-300 leading-relaxed">
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--filter-tcp=80,443 / --filter-udp=443,50000-50100</span>
-                    <p className="text-slate-400">Фильтрует сетевые порты. Для YouTube нужен TCP 443 + UDP 443 (QUIC), для Discord Voice — UDP 50000-50100.</p>
+                    <p className="text-slate-400">{t.modal.cheat1}</p>
                   </div>
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--hostlist="lists/list-general.txt"</span>
-                    <p className="text-slate-400">Применяет обход только к доменам из списка. Можно указать несколько раз для разных списков.</p>
+                    <p className="text-slate-400">{t.modal.cheat2}</p>
                   </div>
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--dpi-desync=fake,multisplit</span>
-                    <p className="text-slate-400"><span className="text-white font-medium">fake</span> отправляет поддельный ClientHello/QUIC, <span className="text-white font-medium">multisplit</span> делит реальный TCP пакет на части, сбивая сигнатурный анализ ТСПУ.</p>
+                    <p className="text-slate-400"><span className="text-white font-medium">fake</span> {t.modal.cheat3a} <span className="text-white font-medium">multisplit</span> {t.modal.cheat3b}</p>
                   </div>
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--dpi-desync-split-seqovl=681</span>
-                    <p className="text-slate-400">Смещение перекрытия TCP-сегментов. Значение 681 идеально работает под YouTube/Google, а 664 — для остальных сайтов в РФ.</p>
+                    <p className="text-slate-400">{t.modal.cheat4}</p>
                   </div>
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--dpi-desync-fooling=ts</span>
-                    <p className="text-slate-400">Маскировка фейкового пакета таймштампами TCP Timestamp. ТСПУ пропускает фейк, а сервер отбрасывает его и принимает ваши настоящие данные.</p>
+                    <p className="text-slate-400">{t.modal.cheat5}</p>
                   </div>
                   <div>
                     <span className="font-mono text-cyan-300 font-semibold">--new</span>
-                    <p className="text-slate-400">Разделитель блоков правил. Позволяет задать разные методы обхода для YouTube, Discord и заблокированных сайтов в одной строке.</p>
+                    <p className="text-slate-400">{t.modal.cheat6}</p>
                   </div>
                 </div>
               )}

@@ -100,21 +100,21 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                     }`}
                   />
                   {isRunning
-                    ? "Обход Активен"
+                    ? t.dashboard.active
                     : isStarting
-                    ? "Подключение..."
+                    ? t.dashboard.connecting
                     : isStopping
-                    ? "Остановка..."
-                    : "Обход Остановлен"}
+                    ? t.dashboard.stopping
+                    : t.dashboard.stopped}
                 </span>
 
                 {isRunning && status.uptime_secs > 0 && (
                   <span className="text-xs font-mono text-slate-400">
-                    Время работы: {formatUptime(status.uptime_secs)}
+                    {t.dashboard.uptime} {formatUptime(status.uptime_secs)}
                   </span>
                 )}
                 {isRunning && status.pid && (
-                  <span className="text-xs font-mono text-slate-500">PID: {status.pid}</span>
+                  <span className="text-xs font-mono text-slate-500">{t.status.pid}: {status.pid}</span>
                 )}
               </div>
 
@@ -128,14 +128,14 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                 <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
                   {isRunning ? (
                     <>
-                      Активный пресет:{" "}
+                      {t.dashboard.activePreset}{" "}
                       <span className="font-semibold text-white">
-                        {activeStrat ? activeStrat.name : status.active_strategy || "Стандартный"}
+                        {activeStrat ? activeStrat.name : status.active_strategy || t.dashboard.defaultStrategy}
                       </span>
-                      . WinWS фильтрует трафик через WFP драйвер.
+                      .{" "}{t.dashboard.filteringNote}
                     </>
                   ) : (
-                    "Выберите нужный пресет или режим туннелирования и нажмите кнопку запуска."
+                    t.dashboard.hint
                   )}
                 </p>
               </div>
@@ -206,7 +206,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                   />
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {diagnostics.youtube.message || "Проверка связи..."}
+                  {diagnostics.youtube.message || t.dashboard.checkingConnection}
                 </p>
               </div>
             </div>
@@ -241,7 +241,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                   />
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {diagnostics.discord.message || "Проверка связи..."}
+                  {diagnostics.discord.message || t.dashboard.checkingConnection}
                 </p>
               </div>
             </div>

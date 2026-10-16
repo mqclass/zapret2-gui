@@ -7,16 +7,27 @@ export interface Translations {
     subtitle: string;
     adminReady: string;
     adminRequired: string;
+    adminShort: string;
+    adminRequiredShort: string;
+    adminTooltip: string;
+    adminRequiredTooltip: string;
     cleanProcesses: string;
     cleanProcessesTooltip: string;
+    cleanShort: string;
     autostart: string;
     autostartEnabledTooltip: string;
     autostartDisabledTooltip: string;
+    autostartOnTitle: string;
+    autostartOffTitle: string;
     autostartSuccessEnabled: string;
     autostartSuccessDisabled: string;
     langRu: string;
     langEn: string;
     langUk: string;
+    changeLanguage: string;
+    minimizeTitle: string;
+    maximizeTitle: string;
+    closeTitle: string;
     sitesManager: string;
   };
   conflicts: {
@@ -101,12 +112,26 @@ export interface Translations {
     fieldRequired: string;
     quickTemplates: string;
     templateYoutube: string;
+    templateYoutubeDesc: string;
     templateDiscord: string;
+    templateDiscordDesc: string;
     templateGeneral: string;
+    templateGeneralDesc: string;
     templateCombo: string;
+    templateComboDesc: string;
     cheatsheetTitle: string;
     cheatsheetDesc: string;
+    cheatsheetShow: string;
+    cheatsheetHide: string;
+    cheat1: string;
+    cheat2: string;
+    cheat3a: string;
+    cheat3b: string;
+    cheat4: string;
+    cheat5: string;
+    cheat6: string;
     guideTitle: string;
+    guideSubtitle: string;
     guideFlowsealTitle: string;
     guideFlowsealText: string;
     guideFlowsealAltTitle: string;
@@ -115,9 +140,15 @@ export interface Translations {
     guideZapret2Text: string;
     guideCustomTitle: string;
     guideCustomText: string;
+    guideUltimateTitle: string;
+    guideUltimateText: string;
+    guideTagStrict: string;
+    guideTagLua: string;
+    guideTagModular: string;
     closeBtn: string;
   };
   diagnostics: {
+    cardTitle: string;
     youtubeTitle: string;
     youtubeSubtitle: string;
     discordTitle: string;
@@ -167,6 +198,11 @@ export interface Translations {
     copyAll: string;
     copiedSuccess: string;
     logFilePath: string;
+    refreshTitle: string;
+    refreshShort: string;
+    emptyTitle: string;
+    emptyDesc: string;
+    refreshNow: string;
   };
   alerts: {
     faultTitle: string;
@@ -174,6 +210,7 @@ export interface Translations {
     conflictsResolved: string;
     configSaved: string;
     configDeleted: string;
+    tunnelModeChanged: string;
   };
   domainManager: {
     title: string;
@@ -216,6 +253,16 @@ export interface Translations {
     stepFixed: string;
     stepFailed: string;
     closeBtn: string;
+    errorTitle: string;
+    warnBadge: string;
+    introTitle: string;
+    introItem1a: string;
+    introItem1b: string;
+    introItem2: string;
+    introItem3: string;
+    introItem4: string;
+    introItem5: string;
+    introItem6: string;
   };
   dns: {
     title: string;
@@ -240,6 +287,9 @@ export interface Translations {
     scopeBannerSynergy: string;
     scopeBannerSynergyDesc: string;
     scopeBannerHint: string;
+    refreshCurrentTitle: string;
+    dhcpAuto: string;
+    dhcpProvider: string;
   };
   speedtest: {
     title: string;
@@ -251,12 +301,18 @@ export interface Translations {
     resultPayload: string;
     resultVerdict: string;
     closeBtn: string;
+    tier4kDesc: string;
+    tier2kDesc: string;
+    tierFhdDesc: string;
+    tierHdDesc: string;
   };
   syncLists: {
     syncBtn: string;
+    syncBtnTitle: string;
     syncing: string;
     successTitle: string;
     filesUpdated: string;
+    flushDnsTitle: string;
   };
   nav: {
     dashboard: string;
@@ -286,5 +342,45 @@ export interface Translations {
     warningFakesTitle: string;
     warningFakesBody: string;
     originalRepos: string;
+  };
+  adminGate: {
+    title: string;
+    message: string;
+    relaunch: string;
+    continueAnyway: string;
+  };
+  tabMeta: {
+    dashboardTitle: string;
+    dashboardSubtitle: string;
+    strategiesTitle: string;
+    strategiesSubtitle: string;
+    diagnosticsTitle: string;
+    diagnosticsSubtitle: string;
+    dnsTitle: string;
+    dnsSubtitle: string;
+    listsTitle: string;
+    listsSubtitle: string;
+    logsTitle: string;
+    logsSubtitle: string;
+    settingsTitle: string;
+    settingsSubtitle: string;
+  };
+  sidebar: {
+    active: string;
+    inactive: string;
+    starting: string;
+    stopping: string;
+  };
+  dashboard: {
+    active: string;
+    stopped: string;
+    connecting: string;
+    stopping: string;
+    uptime: string;
+    activePreset: string;
+    filteringNote: string;
+    hint: string;
+    defaultStrategy: string;
+    checkingConnection: string;
   };
 }

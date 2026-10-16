@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Globe,
@@ -52,11 +52,15 @@ export const ListsView: React.FC = React.memo(() => {
     }
   }, [feedback]);
 
+  // Mirror of the selected file for the stable loadFiles callback below.
+  const selectedFileRef = useRef(selectedFile);
+  selectedFileRef.current = selectedFile;
+
   const loadFiles = useCallback(async () => {
     try {
       const fileList = await invoke<string[]>("list_domain_files");
       setFiles(fileList);
-      if (fileList.length > 0 && !fileList.includes(selectedFile)) {
+      if (fileList.length > 0 && !fileList.includes(selectedFileRef.current)) {
         const saved = localStorage.getItem("zapret2_selected_host_list");
         const preferred =
           (saved && fileList.includes(saved) ? saved : null) ||
@@ -66,9 +70,9 @@ export const ListsView: React.FC = React.memo(() => {
         setSelectedFile(preferred);
       }
     } catch (e) {
-      console.error("Failed to load domain files:", e);
+      setFeedback({ type: "error", text: `Не удалось загрузить список файлов: ${String(e)}` });
     }
-  }, [selectedFile]);
+  }, []);
 
   const loadDomains = useCallback(async (file: string) => {
     if (!file) return;
@@ -190,7 +194,7 @@ export const ListsView: React.FC = React.memo(() => {
             onClick={handleSyncRemoteLists}
             disabled={isSyncing}
             className="flex items-center gap-1.5 rounded-xl border border-blue-500/30 bg-blue-500/15 hover:bg-blue-500/25 px-3.5 py-2 text-xs font-semibold text-blue-300 transition-all cursor-pointer disabled:opacity-50"
-            title="Загрузить актуальные списки заблокированных ресурсов с Flowseal GitHub"
+            title={t.syncLists.syncBtnTitle}
           >
             {isSyncing ? (
               <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-400" />
@@ -205,7 +209,7 @@ export const ListsView: React.FC = React.memo(() => {
             onClick={handleFlushDns}
             disabled={isFlushingDns}
             className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] px-3.5 py-2 text-xs font-semibold text-slate-300 transition-all cursor-pointer disabled:opacity-50"
-            title="Очистить системный кэш DNS (ipconfig /flushdns)"
+            title={t.syncLists.flushDnsTitle}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFlushingDns ? "animate-spin" : ""}`} />
             <span>{t.domainManager.flushDnsBtn}</span>

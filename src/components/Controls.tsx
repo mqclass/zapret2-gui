@@ -53,9 +53,10 @@ export const Controls: React.FC<ControlsProps> = React.memo(
           for (let i = 0; i < raw.length; i++) {
             const ch = raw[i];
             if ((ch === '"' || ch === "'") && (!inQuotes || quoteChar === ch)) {
+              // Toggle quote state but do NOT keep the quote characters in the token
+              // (they are grouping syntax, not part of the argument value).
               inQuotes = !inQuotes;
               quoteChar = inQuotes ? ch : "";
-              current += ch;
             } else if (/\s/.test(ch) && !inQuotes) {
               if (current.trim().length > 0) {
                 tokens.push(current.trim());

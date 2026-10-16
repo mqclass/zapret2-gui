@@ -21,6 +21,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { DiagnosticsReport, ProbeMetric, ProbeStatus, StrategyBenchmarkResult } from "../types";
 import { useI18n } from "../i18n";
+import { formatErrorMessage } from "../utils/error";
 
 interface DiagnosticsCardProps {
   report: DiagnosticsReport;
@@ -43,17 +44,22 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
     const [benchmarkResults, setBenchmarkResults] = useState<StrategyBenchmarkResult[] | null>(null);
     const [isAutoTuneModalOpen, setIsAutoTuneModalOpen] = useState(false);
 
+    // Visible error for user-initiated actions (previously only console.error)
+    const [actionError, setActionError] = useState<string | null>(null);
+
     const handlePingCustom = useCallback(async (e: React.FormEvent) => {
       e.preventDefault();
       const trimmed = customTarget.trim();
       if (!trimmed) return;
 
       setIsPingingCustom(true);
+      setActionError(null);
       try {
         const metric = await invoke<ProbeMetric>("ping_custom_target", { target: trimmed });
         setCustomMetric(metric);
       } catch (err) {
         console.error("Custom ping error:", err);
+        setActionError(formatErrorMessage(err));
       } finally {
         setIsPingingCustom(false);
       }
@@ -61,12 +67,14 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
 
     const handleAutoTune = useCallback(async () => {
       setIsAutoTuning(true);
+      setActionError(null);
       try {
-        const results = await invoke<StrategyBenchmarkResult[]>("benchmark_strategies");
+        const results = await invoke<StrategyBenchmarkResult[]>("estimate_strategies");
         setBenchmarkResults(results);
         setIsAutoTuneModalOpen(true);
       } catch (err) {
-        console.error("Benchmark error:", err);
+        console.error("Estimate error:", err);
+        setActionError(formatErrorMessage(err));
       } finally {
         setIsAutoTuning(false);
       }
@@ -183,11 +191,25 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
 
     return (
       <div className="space-y-3">
+        {actionError && (
+          <div className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+            <span className="leading-relaxed">{actionError}</span>
+            <button
+              type="button"
+              onClick={() => setActionError(null)}
+              className="ml-auto shrink-0 text-rose-400 hover:text-rose-200 cursor-pointer"
+              aria-label={t.doctor.closeBtn}
+            >
+              ×
+            </button>
+          </div>
+        )}
         {/* Top Header with Auto-Tune and Refresh */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4 text-cyan-400" />
-            <h2 className="text-sm font-semibold text-white">Диагностика сети и блокировок</h2>
+            <h2 className="text-sm font-semibold text-white">{t.diagnostics.cardTitle}</h2>
             {onRefresh && (
               <button
                 type="button"
