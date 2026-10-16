@@ -67,6 +67,9 @@ pub enum ProcessError {
     #[error("Некорректная стратегия: {0}")]
     InvalidStrategy(String),
 
+    #[error("Транспорт: {0}")]
+    Transport(String),
+
     #[error("I/O error during process management: {0}")]
     Io(#[from] io::Error),
 }

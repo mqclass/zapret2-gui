@@ -61,6 +61,8 @@ pub struct SupervisorStatus {
     pub state: SupervisorState,
     pub pid: Option<u32>,
     pub active_strategy: Option<String>,
+    /// Active camouflage transport id, if one was applied at launch.
+    pub active_transport: Option<String>,
     pub binary_path: Option<String>,
     pub uptime_secs: u64,
     pub total_logs_buffered: usize,
@@ -76,6 +78,7 @@ pub struct Supervisor {
     active_pid: Arc<RwLock<Option<u32>>>,
     active_child: Arc<Mutex<Option<tokio::process::Child>>>,
     active_strategy: Arc<RwLock<Option<String>>>,
+    active_transport: Arc<RwLock<Option<String>>>,
     binary_path: Arc<RwLock<Option<String>>>,
     start_time: Arc<RwLock<Option<Instant>>>,
 
@@ -107,6 +110,7 @@ impl Supervisor {
             active_pid: Arc::new(RwLock::new(None)),
             active_child: Arc::new(Mutex::new(None)),
             active_strategy: Arc::new(RwLock::new(None)),
+            active_transport: Arc::new(RwLock::new(None)),
             binary_path: Arc::new(RwLock::new(None)),
             start_time: Arc::new(RwLock::new(None)),
             job_object,
@@ -242,6 +246,7 @@ impl Supervisor {
         let state = *self.state.read();
         let pid = *self.active_pid.read();
         let active_strategy = self.active_strategy.read().clone();
+        let active_transport = self.active_transport.read().clone();
         let binary_path = self.binary_path.read().clone();
         let uptime_secs = self
             .start_time
@@ -254,6 +259,7 @@ impl Supervisor {
             state,
             pid,
             active_strategy,
+            active_transport,
             binary_path,
             uptime_secs,
             total_logs_buffered,
@@ -409,6 +415,28 @@ impl Supervisor {
                 return Err(e);
             }
         };
+
+        // 3b. Apply the active camouflage transport (if any) on top of the
+        // strategy arguments. Transports never change which strategy was
+        // selected — they only transform the final argument list, and they
+        // fail closed with an explicit reason instead of silently doing nothing.
+        let (args, applied_transport) = match crate::engine::transport::apply_active_transport(args) {
+            Ok(result) => result,
+            Err(e) => {
+                self.log("error", &format!("Transport refused engine start: {}", e));
+                *self.state.write() = SupervisorState::Error;
+                self.emit_state_change(SupervisorState::Error);
+                return Err(e.into());
+            }
+        };
+        if let Some(ref transport_id) = applied_transport {
+            self.log(
+                "info",
+                &format!("Camouflage transport '{}' applied to launch arguments", transport_id),
+            );
+        }
+        *self.active_transport.write() = applied_transport;
+
         self.log(
             "info",
             &format!("Bypass parameters: {}", args.join(" ")),
@@ -542,6 +570,7 @@ impl Supervisor {
                                 // The engine is gone — drop stale strategy/binary or the UI
                                 // would keep advertising a configuration that no longer runs.
                                 *supervisor_clone.active_strategy.write() = None;
+                                *supervisor_clone.active_transport.write() = None;
                                 *supervisor_clone.binary_path.write() = None;
                             }
 
@@ -601,6 +630,7 @@ impl Supervisor {
             *self.active_pid.write() = None;
             *self.start_time.write() = None;
             *self.active_strategy.write() = None;
+            *self.active_transport.write() = None;
         }
 
         self.emit_state_change(SupervisorState::Stopped);

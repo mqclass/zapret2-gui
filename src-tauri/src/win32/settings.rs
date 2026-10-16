@@ -5,10 +5,13 @@
 //! - Game Filter port ranges and enabled status
 //! - Preferred DNS provider (DoH / System)
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+
+use crate::engine::transport::TransportConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +53,14 @@ pub struct AppSettings {
     /// Whether Windows toast notifications are shown for engine events.
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
+    /// Active camouflage transport id (see engine::transport). `None` means
+    /// the legacy direct launch — the only fully working mode today.
+    pub active_transport_id: Option<String>,
+    /// Per-transport JSON configs, keyed by transport id.
+    /// `#[serde(default)]` keeps old settings files loadable: missing field
+    /// defaults to empty instead of resetting all settings.
+    #[serde(default)]
+    pub transport_configs: HashMap<String, TransportConfig>,
 }
 
 fn default_true() -> bool {
@@ -67,6 +78,8 @@ impl Default for AppSettings {
             last_strategy_id: Some("flowseal-alt".into()),
             auto_start_bypass: true,
             notifications_enabled: true,
+            active_transport_id: None,
+            transport_configs: HashMap::new(),
         }
     }
 }
