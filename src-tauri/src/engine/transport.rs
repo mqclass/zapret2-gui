@@ -38,7 +38,10 @@ pub struct TransportConfig {
     /// Transport this config belongs to.
     #[serde(default)]
     pub transport_id: String,
-    /// Master switch; a disabled transport behaves like "direct".
+    /// Master switch; a disabled transport behaves like "direct":
+    /// transparent passthrough, skipped *before* the availability gate.
+    /// "Disabled" means "off" — nothing is applied, so there is nothing
+    /// to refuse, even if the transport itself is unavailable.
     #[serde(default = "default_true")]
     pub enabled: bool,
     /// Transport-specific options (validated by each transport's `validate_config`).
@@ -112,10 +115,17 @@ pub struct TransportView {
     pub available: bool,
     pub unavailable_reason: Option<String>,
     pub default_config: TransportConfig,
+    /// Example JSON for `TransportConfig.options` (from [`TransportDescriptor`];
+    /// documentation for the UI / researchers).
+    pub config_example: serde_json::Value,
 }
 
 /// Errors of the transport framework. All variants carry enough context to be
 /// shown to the user verbatim — explicit refusal, never silence.
+///
+/// The message strings are Russian by design and are shown in the UI verbatim
+/// (this is intentional and documented — see docs/TRANSPORTS.md, "Локализация
+/// ошибок бэкенда").
 #[derive(Debug, Error)]
 pub enum TransportError {
     #[error("Неизвестный транспорт «{id}». Доступные: {known}")]
@@ -223,13 +233,15 @@ impl TransportRegistry {
                     available: availability.is_available(),
                     unavailable_reason: availability.reason().map(|s| s.to_string()),
                     default_config: TransportConfig::for_transport(&desc.id),
+                    config_example: desc.config_example.clone(),
                 }
             })
             .collect()
     }
 
-    /// Full pipeline for one launch: lookup → availability gate → config
-    /// validation → argument transformation. Every refusal is explicit.
+    /// Full pipeline for one launch: lookup → disabled check (passthrough) →
+    /// availability gate → config validation → argument transformation.
+    /// Every refusal is explicit.
     pub fn apply(
         &self,
         id: &TransportId,
@@ -241,7 +253,19 @@ impl TransportRegistry {
             known: self.ids().join(", "),
         })?;
 
-        // 1. Availability gate FIRST: a transport that cannot work must refuse
+        // 1. Master switch FIRST: a disabled transport is a transparent
+        //    passthrough, same as "direct". Nothing is applied, so the
+        //    availability gate is deliberately skipped: "disabled" means
+        //    "off", and there is nothing to refuse. (A stale selection of an
+        //    unavailable transport is still surfaced in the UI via
+        //    list()/TransportView, and set_active_transport refuses to store
+        //    unavailable transports in the first place.)
+        let effective = config.cloned().unwrap_or_else(|| TransportConfig::for_transport(id));
+        if !effective.enabled {
+            return Ok(args);
+        }
+
+        // 2. Availability gate: a transport that cannot work must refuse
         //    before we even look at its config.
         if let TransportAvailability::Unavailable { reason } = transport.is_available() {
             return Err(TransportError::Unavailable {
@@ -250,15 +274,10 @@ impl TransportRegistry {
             });
         }
 
-        // 2. Validate the effective config (stored one, or defaults).
-        let effective = config.cloned().unwrap_or_else(|| TransportConfig::for_transport(id));
-        if !effective.enabled {
-            // Disabled transport = transparent passthrough, same as "direct".
-            return Ok(args);
-        }
+        // 3. Validate the effective config (stored one, or defaults).
         transport.validate_config(&effective)?;
 
-        // 3. Transform the launch arguments.
+        // 4. Transform the launch arguments.
         transport.apply_args(&effective, args)
     }
 }
@@ -526,7 +545,10 @@ pub fn apply_active_transport(
         .unwrap_or_else(|| "direct".to_string());
     let config = settings.transport_configs.get(&transport_id).cloned();
     let final_args = global_registry().apply(&transport_id, config.as_ref(), args)?;
-    let applied = if transport_id == "direct" {
+    // A disabled transport is a transparent passthrough (see apply()), so it
+    // is *not* reported as applied — the log must not claim otherwise.
+    let enabled = config.as_ref().map(|c| c.enabled).unwrap_or(true);
+    let applied = if transport_id == "direct" || !enabled {
         None
     } else {
         Some(transport_id)
@@ -640,20 +662,22 @@ mod tests {
     #[test]
     fn disabled_transport_is_transparent_passthrough() {
         let registry = TransportRegistry::new();
-        // Even an unavailable transport must not block the launch when disabled:
-        // the availability gate is skipped for disabled configs.
+        // A disabled transport behaves like "direct": transparent passthrough,
+        // even when the transport itself is unavailable. The availability gate
+        // is skipped on purpose — "disabled" means "off": nothing is applied,
+        // so there is nothing to refuse. (An *enabled* but unavailable
+        // transport still refuses explicitly — see
+        // domain_fronting_refuses_with_explicit_reason.)
         let cfg = TransportConfig {
             transport_id: "domain-fronting".to_string(),
             enabled: false,
             options: serde_json::Value::Null,
         };
         let args = vec!["--wf-tcp=80,443".to_string()];
-        // NOTE: apply() checks availability BEFORE the enabled flag on purpose —
-        // a disabled transport still refuses explicitly so the user notices the
-        // stale selection instead of silently running unprotected. This test
-        // documents that fail-closed choice.
-        let err = registry.apply("domain-fronting", Some(&cfg), args).unwrap_err();
-        assert!(matches!(err, TransportError::Unavailable { .. }));
+        let out = registry
+            .apply("domain-fronting", Some(&cfg), args.clone())
+            .unwrap();
+        assert_eq!(out, args);
     }
 
     #[test]

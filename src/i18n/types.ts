@@ -427,5 +427,6 @@ export interface Translations {
     loadError: string;
     unavailableHint: string;
     docsHint: string;
+    configExampleLabel: string;
   };
 }

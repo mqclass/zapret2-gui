@@ -192,6 +192,8 @@ export interface TransportView {
   available: boolean;
   unavailable_reason: string | null;
   default_config: TransportConfig;
+  /** Example JSON for `options` (from the backend descriptor); documentation for researchers. */
+  config_example: unknown;
 }
 
 /** Per-transport JSON config (stored in AppSettings.transport_configs). */

@@ -211,6 +211,7 @@ async fn main() {
             commands::list_transports,
             commands::get_active_transport,
             commands::set_active_transport,
+            commands::set_transport_config,
             commands::validate_transport_config,
             commands::export_diagnostics_bundle,
             commands::set_split_tunnel_mode,

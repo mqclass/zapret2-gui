@@ -435,5 +435,6 @@ export const en: Translations = {
     loadError: "Failed to load transport list",
     unavailableHint: "This transport cannot be enabled — see the reason above.",
     docsHint: "Architecture, honest limitations and how to write your own transport: docs/TRANSPORTS.md",
+    configExampleLabel: "Config example (for researchers)",
   },
 };

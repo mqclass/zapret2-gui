@@ -489,6 +489,60 @@ pub async fn set_active_transport(transport_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Saves a transport's config options (as a JSON string) after validating
+/// them against the transport's own schema — without starting the engine.
+///
+/// The existing `enabled` flag of the stored config is preserved; a missing
+/// config entry is created with `enabled: true`.
+///
+/// Known limitation (honest scope): there is no UI editor for transport
+/// options yet — `TransportsSection` only selects transports, and
+/// `validate_transport_config` exists for a future field-level editor. Until
+/// then this command is the only way to persist options (e.g. for
+/// researchers); see docs/TRANSPORTS.md.
+#[tauri::command]
+pub async fn set_transport_config(
+    transport_id: String,
+    config_json: String,
+) -> Result<(), String> {
+    use crate::engine::transport::TransportError;
+
+    let registry = crate::engine::transport::global_registry();
+    let transport = registry
+        .get(&transport_id)
+        .ok_or_else(|| {
+            TransportError::UnknownTransport {
+                id: transport_id.clone(),
+                known: registry.ids().join(", "),
+            }
+            .to_string()
+        })?;
+
+    let options: serde_json::Value = serde_json::from_str(&config_json).map_err(|e| {
+        TransportError::InvalidConfig {
+            id: transport_id.clone(),
+            message: format!("Некорректный JSON: {}", e),
+        }
+        .to_string()
+    })?;
+
+    let mut settings = crate::win32::settings::load_settings();
+    let enabled = settings
+        .transport_configs
+        .get(&transport_id)
+        .map(|c| c.enabled)
+        .unwrap_or(true);
+    let config = crate::engine::transport::TransportConfig {
+        transport_id: transport_id.clone(),
+        enabled,
+        options,
+    };
+    transport.validate_config(&config).map_err(|e| e.to_string())?;
+    settings.transport_configs.insert(transport_id, config);
+    crate::win32::settings::save_settings(settings)?;
+    Ok(())
+}
+
 /// Validates a transport config JSON without starting the engine, so the UI
 /// can surface field-level errors early.
 #[tauri::command]

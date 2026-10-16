@@ -183,6 +183,19 @@ export const TransportsSection: React.FC = React.memo(() => {
                   </div>
                 )}
 
+                {v.config_example != null &&
+                  typeof v.config_example === "object" &&
+                  Object.keys(v.config_example as Record<string, unknown>).length > 0 && (
+                    <details className="rounded-panel border border-line bg-hovert px-2.5 py-1.5">
+                      <summary className="cursor-pointer text-[11px] text-ink4 hover:text-ink3 select-none">
+                        {t.transports.configExampleLabel}
+                      </summary>
+                      <pre className="mt-1.5 overflow-x-auto font-mono text-[10px] leading-relaxed text-ink3">
+                        {JSON.stringify(v.config_example, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+
                 <div className="flex justify-end">
                   {isActive ? (
                     <span className="t-badge t-badge-accent">
