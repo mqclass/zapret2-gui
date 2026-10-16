@@ -558,6 +558,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             <div className="font-mono text-[11px] text-ink5">
               WinWS v2.1.8 • WinDivert v2.2.2-F • Tauri v2
             </div>
+            <div className="font-mono text-[10px] text-ink5">
+              Telegram bridge: tg-ws-proxy-rs v2.5.4 (MIT, © valnesfjord)
+            </div>
           </div>
         </div>
       </div>

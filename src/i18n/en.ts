@@ -461,16 +461,8 @@ export const en: Translations = {
   },
   telegram: {
     title: "Telegram mode",
-    subtitle: "Local MTProto bridge for the Telegram client (official tg-ws-proxy)",
-    notDownloaded: "Proxy not downloaded",
-    notDownloadedDesc:
-      "Download the official TgWsProxy_windows.exe binary from Flowseal/tg-ws-proxy releases. SHA-256 is verified automatically against the release digest.",
-    download: "Download proxy",
-    downloading: "Downloading…",
-    downloaded: "Proxy downloaded",
-    version: "Version",
-    versionUntested:
-      "Version is newer than the verified one — the new config format is unverified",
+    subtitle: "Local MTProto bridge for the Telegram client (embedded, no download needed)",
+    embeddedNote: "The bridge is built into the app — nothing to download, no extra processes.",
     enable: "Enable",
     disable: "Disable",
     starting: "Starting…",
@@ -478,7 +470,6 @@ export const en: Translations = {
     running: "Running",
     stopped: "Stopped",
     error: "Error",
-    pid: "PID",
     uptime: "Uptime",
     uptimeH: "h",
     uptimeM: "m",
@@ -508,14 +499,10 @@ export const en: Translations = {
     noLogs: "No log lines yet",
     parallelNote:
       "Telegram mode runs alongside the main bypass engine: winws2 intercepts traffic at the driver level and occupies no ports, while the proxy listens only on 127.0.0.1. They can be used at the same time.",
-    trayNote:
-      "The official binary is a tray application: its icon will appear in the system tray, that is expected.",
     notifyStartedTitle: "Telegram proxy",
     notifyStartedBody: "Local MTProto bridge started",
     notifyStoppedTitle: "Telegram proxy",
     notifyStoppedBody: "Local MTProto bridge stopped",
-    notifyDownloadedTitle: "Telegram proxy",
-    notifyDownloadedBody: "Official binary downloaded and verified",
     notifyErrorTitle: "Telegram proxy: error",
   },
   transports: {

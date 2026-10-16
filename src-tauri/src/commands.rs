@@ -240,9 +240,11 @@ pub async fn parse_args_string(raw: String) -> Result<Vec<String>, String> {
     Ok(crate::win32::custom_profiles::parse_command_line_args(&raw, &resolved.bin_dir, &lists_dir))
 }
 
-/// Exits the application cleanly, stopping the background supervisor and WinDivert first.
+/// Exits the application cleanly, stopping the Telegram bridge, the background
+/// supervisor and WinDivert first.
 #[tauri::command]
 pub async fn exit_app(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+    let _ = state.tgproxy.stop().await;
     let _ = state.supervisor.stop().await;
     app.exit(0);
     Ok(())
@@ -438,26 +440,19 @@ pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
     Ok(enable)
 }
 
-/// Returns the Telegram MTProxy-mode sidecar status snapshot.
+/// Returns the embedded Telegram bridge status snapshot.
 #[tauri::command]
 pub async fn get_tgproxy_status(state: State<'_, AppState>) -> Result<TgProxyStatus, String> {
     Ok(state.tgproxy.get_status())
 }
 
-/// Downloads the official TgWsProxy_windows.exe from the latest Flowseal
-/// release with mandatory SHA-256 verification. Returns the release version.
-#[tauri::command]
-pub async fn download_tgproxy(state: State<'_, AppState>) -> Result<String, String> {
-    state.tgproxy.download_binary().await.map_err(|e| e.to_string())
-}
-
-/// Starts the Telegram proxy sidecar (supervised via a dedicated Job Object).
+/// Starts the embedded Telegram MTProto→WebSocket bridge.
 #[tauri::command]
 pub async fn start_tgproxy(state: State<'_, AppState>) -> Result<(), String> {
     state.tgproxy.clone().start().await.map_err(|e| e.to_string())
 }
 
-/// Stops the Telegram proxy sidecar.
+/// Stops the embedded Telegram bridge.
 #[tauri::command]
 pub async fn stop_tgproxy(state: State<'_, AppState>) -> Result<(), String> {
     state.tgproxy.stop().await.map_err(|e| e.to_string())

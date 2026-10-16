@@ -37,13 +37,10 @@ async fn main() {
     let supervisor_clone = supervisor.clone();
     let diagnostics_clone = diagnostics.clone();
 
-    // 2b. Initialize the Telegram MTProxy-mode sidecar manager with its own
-    // dedicated Windows Job Object (KILL_ON_JOB_CLOSE), sharing the
-    // supervisor only as a funnel into the common log buffer.
-    let tgproxy = Arc::new(
-        engine::tgproxy::TgProxyManager::new(supervisor.clone())
-            .expect("Failed to initialize Telegram proxy Job Object"),
-    );
+    // 2b. Initialize the native Telegram bridge manager. The MTProto→WebSocket
+    // bridge runs in-process as a Tokio task (no external executable), sharing
+    // the supervisor only as a funnel into the common log buffer.
+    let tgproxy = Arc::new(engine::tgproxy::TgProxyManager::new(supervisor.clone()));
     let tgproxy_clone = tgproxy.clone();
 
     // 3. Build Tauri v2 application
@@ -66,10 +63,9 @@ async fn main() {
                 resolved: None,
                 resolved_at: None,
             })),
-            // Long-lived sidecars (e.g. the Telegram tgproxy sidecar) are
-            // registered here so install_update fails closed while any of
-            // them is active.
-            sidecars: vec![tgproxy_clone.clone() as Arc<dyn crate::engine::managed::ManagedSidecar>],
+            // No external sidecars: the Telegram bridge runs in-process,
+            // so there is nothing holding files for install_update to gate on.
+            sidecars: Vec::new(),
             tgproxy: tgproxy_clone,        })
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -124,6 +120,7 @@ async fn main() {
             )?;
 
             let supervisor_tray = supervisor.clone();
+            let tgproxy_tray = tgproxy.clone();
 
             let icon = match app.default_window_icon().cloned() {
                 Some(i) => i,
@@ -162,8 +159,10 @@ async fn main() {
                         }
                         "quit" => {
                             let sup = supervisor_tray.clone();
+                            let tgp = tgproxy_tray.clone();
                             let h = app_h.clone();
                             tokio::spawn(async move {
+                                let _ = tgp.stop().await;
                                 let _ = sup.stop().await;
                                 h.exit(0);
                             });
@@ -245,7 +244,6 @@ async fn main() {
             commands::get_dns_status,
             commands::set_system_dns,
             commands::get_tgproxy_status,
-            commands::download_tgproxy,
             commands::start_tgproxy,
             commands::stop_tgproxy,
             commands::set_tgproxy_config,
