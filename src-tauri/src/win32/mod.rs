@@ -20,3 +20,13 @@ pub use process::{
     spawn_winws2, stop_winws2_gracefully, LuaStrategy, ProcessError, SupervisedProcess,
     ZapretBinaries,
 };
+
+/// Returns the absolute path of a Windows system binary (L-3 hardening).
+///
+/// System tools are resolved via `%SystemRoot%\\System32` instead of PATH: a
+/// writable directory earlier in PATH could otherwise shadow e.g. `schtasks.exe`
+/// with an attacker-controlled executable running with our privileges.
+pub fn system32(binary: &str) -> std::path::PathBuf {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+    std::path::PathBuf::from(root).join("System32").join(binary)
+}

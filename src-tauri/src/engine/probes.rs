@@ -108,6 +108,8 @@ impl DiagnosticsReport {
 pub struct DiagnosticsService {
     report: Arc<RwLock<DiagnosticsReport>>,
     client: reqwest::Client,
+    /// Redirect-limited client for IPC-supplied (untrusted) probe targets (M-6).
+    untrusted_client: reqwest::Client,
 }
 
 impl DiagnosticsService {
@@ -121,9 +123,21 @@ impl DiagnosticsService {
             .build()
             .unwrap_or_default();
 
+        // SECURITY (M-6): untrusted probe targets get at most 2 redirects so a
+        // malicious redirect chain cannot be used to bounce requests around.
+        let untrusted_client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(3500))
+            .connect_timeout(Duration::from_millis(2500))
+            .redirect(reqwest::redirect::Policy::limited(2))
+            .danger_accept_invalid_certs(false)
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .build()
+            .unwrap_or_default();
+
         Self {
             report: Arc::new(RwLock::new(DiagnosticsReport::default())),
             client,
+            untrusted_client,
         }
     }
 
@@ -135,6 +149,20 @@ impl DiagnosticsService {
     /// High-precision probe that measures DNS lookup, TCP connection time, and HTTP response.
     pub async fn measure_endpoint(
         &self,
+        name: &str,
+        host: &str,
+        port: u16,
+        url: &str,
+    ) -> ProbeMetric {
+        self.measure_endpoint_with(&self.client, name, host, port, url)
+            .await
+    }
+
+    /// Same as [`Self::measure_endpoint`], but with an explicitly supplied HTTP
+    /// client (used for untrusted targets with a redirect-limited client, M-6).
+    async fn measure_endpoint_with(
+        &self,
+        client: &reqwest::Client,
         name: &str,
         host: &str,
         port: u16,
@@ -182,7 +210,7 @@ impl DiagnosticsService {
         //    NOTE: the previous explicit raw TcpStream::connect phase was removed — it
         //    doubled every probe connection for marginal diagnostic value.
         let http_start = Instant::now();
-        let http_res = self.client.get(url).send().await;
+        let http_res = client.get(url).send().await;
         let http_time_ms = http_start.elapsed().as_millis() as u64;
 
         match http_res {
@@ -291,21 +319,94 @@ impl DiagnosticsService {
         ).await
     }
 
-    /// User-initiated custom ping for ANY domain or URL.
+    /// User-initiated custom ping for a domain or URL.
+    ///
+    /// SECURITY (M-6): this is reachable via IPC, so it must not become a blind
+    /// SSRF oracle running with admin rights: HTTPS only, no private/loopback/
+    /// link-local targets (including a DNS-rebinding check), max 2 redirects.
     pub async fn probe_custom(&self, target_input: &str) -> ProbeMetric {
         let clean = target_input.trim();
-        let (host, port, url) = if clean.starts_with("http://") || clean.starts_with("https://") {
-            let parsed = reqwest::Url::parse(clean).unwrap_or_else(|_| reqwest::Url::parse("https://google.com").unwrap());
-            let h = parsed.host_str().unwrap_or("google.com").to_string();
-            let p = parsed.port_or_known_default().unwrap_or(443);
-            (h, p, clean.to_string())
-        } else {
-            let hostport = clean.split('/').next().unwrap_or(clean);
-            let (h, p) = parse_host_port(hostport);
-            (h, p, format!("https://{}", hostport))
+        let now_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let blocked = |msg: &str| ProbeMetric {
+            target: clean.into(),
+            status: ProbeStatus::Blocked,
+            latency_ms: None,
+            dns_ms: None,
+            tcp_ms: None,
+            http_status: None,
+            packet_loss_pct: 100.0,
+            last_checked_epoch: now_epoch,
+            ip_address: None,
+            message: msg.into(),
         };
 
-        self.measure_endpoint(&host, &host, port, &url).await
+        if clean.is_empty() {
+            return blocked("Пустая цель для пробы");
+        }
+        if clean.starts_with("http://") {
+            return blocked("HTTP запрещён для произвольных проб — используйте HTTPS");
+        }
+        let url_str = if clean.starts_with("https://") {
+            clean.to_string()
+        } else {
+            let hostport = clean.split('/').next().unwrap_or(clean);
+            format!("https://{}", hostport)
+        };
+        let parsed = match reqwest::Url::parse(&url_str) {
+            Ok(u) if u.scheme() == "https" => u,
+            _ => return blocked("Некорректный URL — разрешён только HTTPS"),
+        };
+        let host = parsed.host_str().unwrap_or_default().to_string();
+        if host.is_empty() {
+            return blocked("Не указан хост цели");
+        }
+        let port = parsed.port_or_known_default().unwrap_or(443);
+
+        // 1. IP literals must be publicly routable.
+        if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+            if !is_public_ip(&ip) {
+                return blocked("Приватные и локальные IP запрещены для проб");
+            }
+        } else {
+            // 2. Block localhost-style hostnames outright.
+            let h = host.to_lowercase();
+            if h == "localhost"
+                || h.ends_with(".localhost")
+                || h.ends_with(".local")
+                || h.ends_with(".internal")
+                || h.ends_with(".invalid")
+            {
+                return blocked("Локальные хосты запрещены для проб");
+            }
+            // 3. DNS-rebinding guard: resolve and require every returned
+            // address to be publicly routable.
+            match timeout(
+                Duration::from_millis(2000),
+                lookup_host(format!("{}:{}", host, port)),
+            )
+            .await
+            {
+                Ok(Ok(addrs)) => {
+                    let mut any = false;
+                    for a in addrs {
+                        any = true;
+                        if !is_public_ip(&a.ip()) {
+                            return blocked("Хост резолвится в приватный IP — проба запрещена");
+                        }
+                    }
+                    if !any {
+                        return blocked("Хост не резолвится в IP-адреса");
+                    }
+                }
+                _ => return blocked("Ошибка DNS при проверке цели пробы"),
+            }
+        }
+
+        self.measure_endpoint_with(&self.untrusted_client, &host, &host, port, &url_str)
+            .await
     }
 
     /// Runs all diagnostic probes concurrently and updates current report.
@@ -350,6 +451,65 @@ impl DiagnosticsService {
                 sleep(Duration::from_secs(30)).await;
             }
         });
+    }
+}
+
+/// Returns true only for publicly routable IP addresses (M-6 SSRF guard).
+/// Uses explicit range checks (no nightly-only `is_global`) so the result does
+/// not depend on the toolchain version.
+fn is_public_ip(ip: &std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let o = v4.octets();
+            if o[0] == 10 {
+                return false;
+            } // 10.0.0.0/8
+            if o[0] == 172 && (16..=31).contains(&o[1]) {
+                return false;
+            } // 172.16.0.0/12
+            if o[0] == 192 && o[1] == 168 {
+                return false;
+            } // 192.168.0.0/16
+            if o[0] == 127 {
+                return false;
+            } // 127.0.0.0/8 loopback
+            if o[0] == 169 && o[1] == 254 {
+                return false;
+            } // 169.254.0.0/16 link-local
+            if o[0] >= 224 {
+                return false;
+            } // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
+            if o[0] == 0 {
+                return false;
+            } // 0.0.0.0/8 ("this network")
+            if o[0] == 100 && (64..=127).contains(&o[1]) {
+                return false;
+            } // 100.64.0.0/10 CGNAT
+            // Documentation / TEST-NET ranges
+            if (o[0] == 192 && o[1] == 0 && o[2] == 2)
+                || (o[0] == 198 && o[1] == 51 && o[2] == 100)
+                || (o[0] == 203 && o[1] == 0 && o[2] == 113)
+            {
+                return false;
+            }
+            true
+        }
+        std::net::IpAddr::V6(v6) => {
+            if v6.is_loopback() || v6.is_multicast() || v6.is_unspecified() {
+                return false;
+            }
+            let seg = v6.segments();
+            if (seg[0] & 0xfe00) == 0xfc00 {
+                return false;
+            } // fc00::/7 unique local
+            if (seg[0] & 0xffc0) == 0xfe80 {
+                return false;
+            } // fe80::/10 link-local
+            if seg[0] == 0x2001 && seg[1] == 0x0db8 {
+                return false;
+            } // 2001:db8::/32 documentation
+            true
+        }
     }
 }
 

@@ -10,10 +10,14 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use parking_lot::Mutex;
+
+/// Creation flag to spawn helper processes without a console window.
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// Maximum log file size before rotation (5 MB).
 const MAX_LOG_SIZE_BYTES: u64 = 5 * 1024 * 1024;
@@ -52,33 +56,58 @@ impl FileLogger {
         logger
     }
 
-    /// Resolves the optimal log directory, preferring adjacent `./logs` or `%LOCALAPPDATA%\zapret2\logs`.
+    /// Resolves the optimal log directory.
+    ///
+    /// SECURITY (L-5): `%LOCALAPPDATA%` is preferred — it is per-user with a
+    /// restrictive default ACL. Whichever directory is chosen, its ACL is
+    /// locked down to the current user + SYSTEM + Administrators, because logs
+    /// contain adapter names, DNS configuration and full engine arguments.
     fn resolve_log_directory() -> PathBuf {
-        // 1. Try adjacent to current executable
+        // 1. Per-user LocalAppData (restrictive ACL by default)
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            let app_logs = PathBuf::from(local_appdata).join("zapret2").join("logs");
+            if fs::create_dir_all(&app_logs).is_ok() {
+                Self::harden_log_dir_acl(&app_logs);
+                return app_logs;
+            }
+        }
+
+        // 2. Adjacent to current executable (portable installs)
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(parent) = exe_path.parent() {
                 let candidate = parent.join("logs");
                 if fs::create_dir_all(&candidate).is_ok() {
+                    Self::harden_log_dir_acl(&candidate);
                     return candidate;
                 }
             }
         }
 
-        // 2. Try current working directory
-        let cwd_logs = PathBuf::from("logs");
-        if fs::create_dir_all(&cwd_logs).is_ok() {
-            return cwd_logs;
+        // 3. Last resort: temp dir (potentially shared) — locked down explicitly.
+        let tmp = std::env::temp_dir().join("zapret2-logs");
+        if fs::create_dir_all(&tmp).is_ok() {
+            Self::harden_log_dir_acl(&tmp);
         }
+        tmp
+    }
 
-        // 3. Fallback to LocalAppData
-        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
-            let app_logs = PathBuf::from(local_appdata).join("zapret2").join("logs");
-            let _ = fs::create_dir_all(&app_logs);
-            return app_logs;
-        }
-
-        // 4. Ultimate fallback to temp
-        std::env::temp_dir().join("zapret2-logs")
+    /// Restricts a log directory ACL to the current user, SYSTEM and
+    /// Administrators (inheritance removed). Best-effort: failures are ignored
+    /// and the directory remains usable.
+    fn harden_log_dir_acl(dir: &Path) {
+        let username = std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string());
+        let dir_str = dir.to_string_lossy().to_string();
+        let _ = std::process::Command::new(crate::win32::system32("icacls.exe"))
+            .args([
+                dir_str.as_str(),
+                "/inheritance:r",
+                "/grant:r",
+                "*S-1-5-18:(OI)(CI)F", // SYSTEM
+                "*S-1-5-32-544:(OI)(CI)F", // Administrators
+                &format!("{}:(OI)(CI)F", username),
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
     }
 
     /// Formats current time into readable string `YYYY-MM-DD HH:MM:SS.mmm` (UTC).
@@ -184,7 +213,7 @@ impl FileLogger {
         let dir = &self.log_dir;
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new("explorer.exe")
+            std::process::Command::new(crate::win32::system32("explorer.exe"))
                 .arg(dir)
                 .spawn()
                 .map_err(|e| format!("Failed to open Explorer: {}", e))?;

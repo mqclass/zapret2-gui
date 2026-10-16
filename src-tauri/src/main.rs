@@ -40,6 +40,7 @@ async fn main() {
     // 3. Build Tauri v2 application
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Intercept close button and hide to system tray instead of terminating

@@ -38,8 +38,31 @@ pub fn load_custom_profiles() -> Vec<LuaStrategy> {
 
 /// Saves or updates a custom profile and writes to disk.
 pub fn save_custom_profile(mut strategy: LuaStrategy) -> Result<(), String> {
-    let mut profiles = load_custom_profiles();
+    // SECURITY (M-5): IPC is a trust boundary — never accept path/filename from
+    // the caller for custom profiles. The UI sanitizes them, but a malicious
+    // local IPC caller could otherwise smuggle an arbitrary Lua path into the
+    // privileged engine's command line (see resolve_strategy_args §4).
+    // Generate both server-side, deterministically from the profile id.
+    let safe_id: String = strategy
+        .id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
+    if safe_id.is_empty() {
+        return Err("Некорректный идентификатор профиля".to_string());
+    }
+    strategy.id = safe_id.clone();
+    strategy.filename = format!("{}.conf", safe_id);
+    strategy.path = PathBuf::from(format!("configs/{}.json", safe_id));
+    // The engine must be a known value; anything else falls back to winws2
+    // instead of trusting an IPC-supplied string.
+    if strategy.engine != "winws" && strategy.engine != "winws2" {
+        strategy.engine = "winws2".to_string();
+    }
     strategy.category = "custom".to_string();
+
+    let mut profiles = load_custom_profiles();
 
     if let Some(pos) = profiles.iter().position(|p| p.id == strategy.id) {
         profiles[pos] = strategy;

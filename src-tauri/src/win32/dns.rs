@@ -94,7 +94,7 @@ pub fn get_adapter_and_dns() -> (String, Vec<String>) {
         [string]::Format('{0}::{1}', $alias, $dnsStr)
     "#;
 
-    let output = Command::new("powershell")
+    let output = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output();
@@ -102,7 +102,10 @@ pub fn get_adapter_and_dns() -> (String, Vec<String>) {
     if let Ok(out) = output {
         let stdout = String::from_utf8_lossy(&out.stdout);
         let line = stdout.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").trim();
-        if let Some((adapter, dns_csv)) = line.split_once("::") {
+        // SECURITY (L-7): split on the LAST "::" — the DNS part is a comma-joined
+        // IPv4 list which can never contain "::", so any "::" must belong to
+        // the adapter name. split_once would misattribute it.
+        if let Some((adapter, dns_csv)) = line.rsplit_once("::") {
             let adapter_name = if adapter.trim().is_empty() {
                 "Ethernet".to_string()
             } else {
@@ -134,7 +137,7 @@ pub fn get_active_dns_servers(adapter: &str) -> Vec<String> {
         escape_ps(adapter)
     );
 
-    let output = Command::new("powershell")
+    let output = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .output();
@@ -162,7 +165,7 @@ fn escape_ps(value: &str) -> String {
 /// Runs a PowerShell script silently, returning an error when PowerShell itself
 /// fails to launch or the script exits with a non-zero status.
 fn run_powershell(script: &str) -> Result<(), String> {
-    let output = Command::new("powershell")
+    let output = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output()
@@ -258,7 +261,7 @@ pub fn check_split_dns_status() -> (bool, Vec<String>) {
         }
     "#;
 
-    let output = Command::new("powershell")
+    let output = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output();
@@ -308,7 +311,7 @@ pub fn apply_split_dns_nrpt(primary: &str, secondary: &str) -> Result<(), String
         ns_list, primary, secondary
     );
 
-    let output = Command::new("powershell")
+    let output = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .output()
@@ -332,7 +335,7 @@ pub fn clear_split_dns_nrpt() -> Result<(), String> {
         }
     "#;
 
-    let _ = Command::new("powershell")
+    let _ = Command::new(crate::win32::system32("WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output();
@@ -420,7 +423,7 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
     }
 
     // Flush Windows DNS resolver cache immediately and silently
-    let _ = Command::new("ipconfig")
+    let _ = Command::new(crate::win32::system32("ipconfig.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .arg("/flushdns")
         .output();

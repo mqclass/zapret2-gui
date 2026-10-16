@@ -137,12 +137,9 @@ pub async fn start_supervisor(
     custom_args: Option<Vec<String>>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // The WinDivert driver and system DNS changes strictly require Administrator
-    // privileges. Refuse to start the engine unprivileged instead of silently
-    // running in a broken state; the UI surfaces an admin gate for this error.
-    if !is_elevated().unwrap_or(false) {
-        return Err("ADMIN_REQUIRED: для запуска движка нужны права администратора. Перезапустите приложение с правами администратора.".into());
-    }
+    // NOTE (M-1): the fail-closed admin gate lives inside Supervisor::start()
+    // itself, so tray/autostart callers get the same protection. This command
+    // only translates the error for the UI (ADMIN_REQUIRED -> admin modal).
     state
         .supervisor
         .clone()

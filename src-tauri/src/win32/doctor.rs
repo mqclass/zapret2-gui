@@ -86,7 +86,7 @@ pub async fn run_auto_doctor(active_pid: Option<u32>, engine_running: bool) -> D
     }
 
     // 3. Flush DNS Cache
-    let dns_res = Command::new("ipconfig")
+    let dns_res = Command::new(crate::win32::system32("ipconfig.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .arg("/flushdns")
         .output();
@@ -106,7 +106,7 @@ pub async fn run_auto_doctor(active_pid: Option<u32>, engine_running: bool) -> D
     });
 
     // 4. Purge ARP table cache
-    let arp_res = Command::new("netsh")
+    let arp_res = Command::new(crate::win32::system32("netsh.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["interface", "ip", "delete", "arpcache"])
         .output();
@@ -126,7 +126,7 @@ pub async fn run_auto_doctor(active_pid: Option<u32>, engine_running: bool) -> D
     });
 
     // 5. Enforce TCP Timestamps
-    let ts_res = Command::new("netsh")
+    let ts_res = Command::new(crate::win32::system32("netsh.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["interface", "tcp", "set", "global", "timestamps=enabled"])
         .output();

@@ -22,7 +22,10 @@ use windows::Win32::System::Services::{
     SC_MANAGER_CONNECT, SERVICE_CONTROL_STOP, SERVICE_QUERY_STATUS, SERVICE_RUNNING,
     SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STOP,
 };
-use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+use windows::Win32::System::Threading::{
+    OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+};
+use crate::win32::process::process_image_matches;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -202,11 +205,11 @@ pub fn resolve_all_conflicts_excluding(active_pid: Option<u32>) -> Result<usize,
         if is_service_running(svc_name) {
             let stopped = stop_service_native(svc_name);
             if !stopped {
-                let _ = Command::new("net.exe")
+                let _ = Command::new(crate::win32::system32("net.exe"))
                     .args(["stop", svc_name, "/y"])
                     .creation_flags(CREATE_NO_WINDOW)
                     .output();
-                let _ = Command::new("sc.exe")
+                let _ = Command::new(crate::win32::system32("sc.exe"))
                     .args(["stop", svc_name])
                     .creation_flags(CREATE_NO_WINDOW)
                     .output();
@@ -240,8 +243,16 @@ pub fn resolve_all_conflicts_excluding(active_pid: Option<u32>) -> Result<usize,
 
                         for (target_name, _) in CONFLICTING_PROCESSES {
                             if exe_name.eq_ignore_ascii_case(target_name) {
-                                if let Ok(proc_handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
-                                    if TerminateProcess(proc_handle, 1).is_ok() {
+                                // L-6 TOCTOU guard: re-verify the image name from the
+                                // handle — the PID may have been reused since the snapshot.
+                                if let Ok(proc_handle) = OpenProcess(
+                                    PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+                                    false,
+                                    pid,
+                                ) {
+                                    if process_image_matches(proc_handle, target_name)
+                                        && TerminateProcess(proc_handle, 1).is_ok()
+                                    {
                                         resolved_count += 1;
                                     }
                                     let _ = CloseHandle(proc_handle);
@@ -262,11 +273,11 @@ pub fn resolve_all_conflicts_excluding(active_pid: Option<u32>) -> Result<usize,
     // 3. Reset WinDivert driver service state natively and via silent commands
     stop_service_native("WinDivert");
     stop_service_native("WinDivert14");
-    let _ = Command::new("sc.exe")
+    let _ = Command::new(crate::win32::system32("sc.exe"))
         .args(["stop", "WinDivert"])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
-    let _ = Command::new("sc.exe")
+    let _ = Command::new(crate::win32::system32("sc.exe"))
         .args(["stop", "WinDivert14"])
         .creation_flags(CREATE_NO_WINDOW)
         .output();

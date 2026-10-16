@@ -284,6 +284,20 @@ impl Supervisor {
         strategy_id: Option<String>,
         custom_args: Option<Vec<String>>,
     ) -> Result<(), ProcessError> {
+        // SECURITY (M-1): fail-closed privilege gate lives INSIDE start(), not
+        // only in the IPC command. The tray "Включить обход" item and the
+        // --autostart path call start() directly; without this gate the engine
+        // would start half-broken (WinDivert fails without admin rights) and
+        // the UI would never show the admin prompt. The error string keeps the
+        // ADMIN_REQUIRED prefix so the frontend opens the admin gate modal.
+        if !crate::win32::privileges::is_elevated().unwrap_or(false) {
+            self.log(
+                "error",
+                "Запуск движка требует прав администратора — пропуск запуска",
+            );
+            return Err(ProcessError::NotElevated);
+        }
+
         // Hold the lifecycle lock for the whole start sequence so a concurrent
         // stop() cannot observe a half-initialized engine (see 1.1).
         let _lifecycle_guard = self.lifecycle.lock().await;
@@ -376,7 +390,7 @@ impl Supervisor {
         // 2. Fast pre-launch setup: enable TCP timestamps asynchronously without blocking
         if use_winws1 {
             tokio::spawn(async {
-                let _ = tokio::process::Command::new("netsh")
+                let _ = tokio::process::Command::new(crate::win32::system32("netsh.exe"))
                     .args(["interface", "tcp", "set", "global", "timestamps=enabled"])
                     .creation_flags(0x08000000)
                     .output()
@@ -1046,10 +1060,14 @@ impl Supervisor {
         };
 
         // 1. If Game Mode is active, attach game port filtering and ACTIVE_GAME_UDP desync
+        // SECURITY (L-4): game port specs come from user settings — sanitize them
+        // like everywhere else so a malformed value cannot break engine startup.
+        let game_tcp = Self::sanitize_port_spec(&settings.game_filter_tcp);
+        let game_udp = Self::sanitize_port_spec(&settings.game_filter_udp);
         if is_game {
             args.extend([
                 "--new".into(),
-                format!("--filter-tcp={}", settings.game_filter_tcp),
+                format!("--filter-tcp={}", game_tcp),
                 format!("--ipset={}", l("ipset-all.txt")),
                 format!("--ipset-exclude={}", l("ipset-exclude.txt")),
                 format!("--ipset-exclude={}", l("ipset-exclude-user.txt")),
@@ -1065,7 +1083,7 @@ impl Supervisor {
                 format!("--dpi-desync-fake-unknown={}", b("stun.bin")),
                 format!("--dpi-desync-fake-unknown={}", b("tls_clienthello_www_google_com.bin")),
                 "--new".into(),
-                format!("--filter-udp={}", settings.game_filter_udp),
+                format!("--filter-udp={}", game_udp),
                 format!("--ipset={}", l("ipset-all.txt")),
                 format!("--ipset-exclude={}", l("ipset-exclude.txt")),
                 format!("--ipset-exclude={}", l("ipset-exclude-user.txt")),
@@ -1287,6 +1305,16 @@ impl Supervisor {
         }
 
         if let Some(strat) = target_strategy {
+            // SECURITY (M-5): a custom profile without explicit custom_args has
+            // no trustworthy Lua script — its path/filename are server-generated
+            // placeholders (see save_custom_profile), never a real script.
+            // Refuse fail-closed instead of loading an IPC-supplied path into
+            // the privileged engine's command line.
+            if strat.category == "custom" {
+                return Err(ProcessError::InvalidStrategy(
+                    "Кастомный профиль не содержит аргументов запуска".to_string(),
+                ));
+            }
             if binaries.bin_dir.join(&strat.filename).is_file() {
                 if strat.filename != "zapret-lib.lua" {
                     args.push(format!("--lua-init=@{}", strat.filename));

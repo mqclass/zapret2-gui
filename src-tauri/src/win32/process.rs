@@ -19,14 +19,15 @@ use thiserror::Error;
 use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::time::timeout;
 
-use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::Threading::{
-    GetExitCodeProcess, OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    PROCESS_TERMINATE,
+    GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW, TerminateProcess,
+    PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
+use windows::core::PWSTR;
 
 use crate::win32::conflicts::stop_service_native;
 use crate::win32::job_object::{JobObject, JobObjectError};
@@ -59,6 +60,12 @@ pub enum ProcessError {
 
     #[error("Failed to wait for child process: {0}")]
     WaitFailed(#[source] io::Error),
+
+    #[error("ADMIN_REQUIRED: для запуска движка нужны права администратора. Перезапустите приложение с правами администратора.")]
+    NotElevated,
+
+    #[error("Некорректная стратегия: {0}")]
+    InvalidStrategy(String),
 
     #[error("I/O error during process management: {0}")]
     Io(#[from] io::Error),
@@ -100,51 +107,45 @@ pub struct SupervisedProcess {
 }
 
 /// Resolves `winws2.exe`, `winws.exe`, `WinDivert.dll`, and `lists/`.
+///
+/// SECURITY (M-3): binaries are resolved strictly relative to the directory
+/// containing the current executable. We deliberately do NOT consult the
+/// current working directory, parent directories, or environment variables:
+/// this application runs elevated, and executing a `winws2.exe` planted by a
+/// local attacker in a writable CWD (or pointed to via env) would be a
+/// privilege-escalation vector.
+/// The `ZAPRET2_BIN_DIR` override is honored only when the `--dev` flag is
+/// passed explicitly (developer workflows), never in production.
 pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
     let mut candidates = Vec::new();
     let mut searched = Vec::new();
 
-    // 1. Environment variable override
-    if let Ok(env_dir) = std::env::var("ZAPRET2_BIN_DIR") {
-        candidates.push(PathBuf::from(env_dir));
+    // Anchor: the directory containing the current executable.
+    let exe_dir: Option<PathBuf> = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+    // Developer override: only behind an explicit --dev flag. In production
+    // the process environment is untrusted, so the env var alone is ignored.
+    let dev_mode = std::env::args().any(|a| a == "--dev");
+    if dev_mode {
+        if let Ok(env_dir) = std::env::var("ZAPRET2_BIN_DIR") {
+            candidates.push(PathBuf::from(env_dir));
+        }
     }
 
-    // 2. Relative paths from current working directory
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    candidates.push(cwd.join("bin"));
-    candidates.push(cwd.join("bin/windows-x86_64"));
-    candidates.push(cwd.clone());
-    candidates.push(cwd.join("vendor/zapret-discord-youtube-main/bin"));
-    candidates.push(cwd.join("vendor/zapret2 releases/binaries/windows-x86_64"));
-    candidates.push(cwd.join("zapret-discord-youtube-main/bin"));
-    candidates.push(cwd.join("zapret2 releases/binaries/windows-x86_64"));
-    candidates.push(cwd.join("zapret2-releases/binaries/windows-x86_64"));
-    candidates.push(cwd.join("../bin"));
-    candidates.push(cwd.join("../vendor/zapret-discord-youtube-main/bin"));
-    candidates.push(cwd.join("../zapret-discord-youtube-main/bin"));
+    // Production candidates: strictly anchored at the executable location.
+    if let Some(ref dir) = exe_dir {
+        candidates.push(dir.join("bin"));
+        candidates.push(dir.join("bin/windows-x86_64"));
+        candidates.push(dir.clone());
+    }
 
-    // 3. Adjacent production paths from the current executable
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            candidates.push(exe_dir.join("bin"));
-            candidates.push(exe_dir.join("bin/windows-x86_64"));
-            candidates.push(exe_dir.to_path_buf());
-            candidates.push(exe_dir.join("vendor/zapret-discord-youtube-main/bin"));
-            candidates.push(exe_dir.join("zapret-discord-youtube-main/bin"));
-            candidates.push(exe_dir.join("../bin"));
-
-            let mut curr = exe_dir.to_path_buf();
-            for _ in 0..4 {
-                if let Some(parent) = curr.parent() {
-                    curr = parent.to_path_buf();
-                    candidates.push(curr.join("bin"));
-                    candidates.push(curr.join("vendor/zapret-discord-youtube-main/bin"));
-                    candidates.push(curr.join("vendor/zapret2 releases/binaries/windows-x86_64"));
-                    candidates.push(curr.join("zapret-discord-youtube-main/bin"));
-                    candidates.push(curr.join("zapret2 releases/binaries/windows-x86_64"));
-                }
-            }
-        }
+    // Legacy repo-checkout layout, dev mode only (local development convenience).
+    if dev_mode {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        candidates.push(cwd.join("bin"));
+        candidates.push(cwd.join("bin/windows-x86_64"));
     }
 
     for candidate in candidates {
@@ -156,63 +157,30 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
         let windivert_dll = candidate.join("WinDivert.dll");
         let windivert_sys = candidate.join("WinDivert64.sys");
 
-        if winws2.is_file() || winws1.is_file() {
-            let winws2_path = if winws2.is_file() {
-                winws2
-            } else {
-                cwd.join("winws2.exe")
-            };
-
-            let winws1_path = if winws1.is_file() {
-                Some(winws1)
-            } else {
-                let fallback = cwd.join("bin/winws.exe");
-                if fallback.is_file() {
-                    Some(fallback)
-                } else {
-                    let fallback2 = cwd.join("zapret-discord-youtube-main/bin/winws.exe");
-                    if fallback2.is_file() {
-                        Some(fallback2)
-                    } else {
-                        None
-                    }
-                }
-            };
-
-            let dll = if windivert_dll.is_file() {
-                windivert_dll
-            } else {
-                cwd.join("WinDivert.dll")
-            };
-
-            let sys = if windivert_sys.is_file() {
-                windivert_sys
-            } else {
-                cwd.join("WinDivert64.sys")
-            };
-
-            // Resolve lists directory
-            let lists_dir = if cwd.join("lists").is_dir() {
-                Some(cwd.join("lists"))
-            } else if candidate.join("../lists").is_dir() {
-                Some(candidate.join("../lists"))
-            } else if cwd.join("vendor/zapret-discord-youtube-main/lists").is_dir() {
-                Some(cwd.join("vendor/zapret-discord-youtube-main/lists"))
-            } else if cwd.join("zapret-discord-youtube-main/lists").is_dir() {
-                Some(cwd.join("zapret-discord-youtube-main/lists"))
-            } else {
-                None
-            };
-
-            return Ok(ZapretBinaries {
-                bin_dir: candidate,
-                winws2_exe: winws2_path,
-                winws_exe: winws1_path,
-                windivert_dll: dll,
-                windivert_sys: sys,
-                lists_dir,
-            });
+        // All-or-nothing per candidate directory: the engine and the kernel
+        // driver components must come from the SAME directory, so a partial
+        // planting cannot mix attacker-controlled files into a legit install.
+        // winws2.exe is mandatory (primary engine); winws.exe is optional.
+        if !(winws2.is_file() && windivert_dll.is_file() && windivert_sys.is_file()) {
+            continue;
         }
+
+        let winws1_path = winws1.is_file().then(|| winws1.clone());
+
+        // Resolve lists directory relative to the install location.
+        let lists_dir = [candidate.join("lists")]
+            .into_iter()
+            .chain(exe_dir.iter().map(|d| d.join("lists")))
+            .find(|p| p.is_dir());
+
+        return Ok(ZapretBinaries {
+            bin_dir: candidate,
+            winws2_exe: winws2,
+            winws_exe: winws1_path,
+            windivert_dll,
+            windivert_sys,
+            lists_dir,
+        });
     }
 
     Err(ProcessError::BinariesNotFound { searched })
@@ -460,11 +428,39 @@ pub async fn cleanup_windivert_driver() {
 
     for name in &service_names {
         stop_service_native(name);
-        let _ = Command::new("sc.exe")
+        let _ = Command::new(crate::win32::system32("sc.exe"))
             .args(["stop", name])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .await;
+    }
+}
+
+/// Verifies through an open process handle that the process image file name still
+/// matches the expected executable name.
+///
+/// SECURITY (L-6, TOCTOU guard): the PID may have been reused between the
+/// ToolHelp32 snapshot and `OpenProcess` — never terminate based on the stale
+/// snapshot name alone. Querying the image path from the handle closes the race.
+pub fn process_image_matches(handle: HANDLE, expected_exe_name: &str) -> bool {
+    unsafe {
+        let mut buf = [0u16; 1024];
+        let mut size = buf.len() as u32;
+        if QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_FORMAT(0),
+            PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        )
+        .is_err()
+        {
+            return false;
+        }
+        let path = String::from_utf16_lossy(&buf[..size as usize]);
+        Path::new(&path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map_or(false, |n| n.eq_ignore_ascii_case(expected_exe_name))
     }
 }
 
@@ -491,8 +487,18 @@ pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
                     if targets.iter().any(|&t| exe_name.eq_ignore_ascii_case(t)) {
                         let pid = entry.th32ProcessID;
                         if Some(pid) != exclude_pid {
-                            if let Ok(proc_handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
-                                if TerminateProcess(proc_handle, 1).is_ok() {
+                            // Open with query rights too so we can re-verify the
+                            // image name from the handle (L-6 TOCTOU guard).
+                            if let Ok(proc_handle) = OpenProcess(
+                                PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+                                false,
+                                pid,
+                            ) {
+                                // Re-verify: the PID may have been reused since the snapshot.
+                                let confirmed = targets
+                                    .iter()
+                                    .any(|&t| process_image_matches(proc_handle, t));
+                                if confirmed && TerminateProcess(proc_handle, 1).is_ok() {
                                     terminated_count += 1;
                                 }
                                 let _ = CloseHandle(proc_handle);

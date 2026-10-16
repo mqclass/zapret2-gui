@@ -214,7 +214,7 @@ pub fn remove_domain_from_list(filename: &str, raw_domain: &str) -> Result<Vec<S
 
 /// Flushes Windows DNS client cache via ipconfig /flushdns.
 pub fn flush_dns_cache() -> Result<String, String> {
-    let output = Command::new("ipconfig.exe")
+    let output = Command::new(crate::win32::system32("ipconfig.exe"))
         .arg("/flushdns")
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -231,7 +231,7 @@ pub fn flush_dns_cache() -> Result<String, String> {
 /// Opens the lists directory in Windows Explorer.
 pub fn open_lists_folder() -> Result<(), String> {
     let dir = get_lists_dir()?;
-    Command::new("explorer.exe")
+    Command::new(crate::win32::system32("explorer.exe"))
         .arg(&dir)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
@@ -288,6 +288,19 @@ pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
                         if target_path.exists() {
                             let _ = fs::copy(&target_path, &bak_path);
                         }
+
+                        // SECURITY (H-2): record previous data-record count for
+                        // anomaly detection below (comments/blank lines excluded).
+                        let prev_count = fs::read_to_string(&target_path)
+                            .map(|c| {
+                                c.lines()
+                                    .filter(|l| {
+                                        let t = l.trim();
+                                        !t.is_empty() && !t.starts_with('#')
+                                    })
+                                    .count()
+                            })
+                            .unwrap_or(0);
 
                         let merged_text = if target_path.exists() {
                             let existing_content = fs::read_to_string(&target_path).unwrap_or_default();
@@ -347,6 +360,34 @@ pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
                         };
 
                         let lines_count = merged_text.lines().count();
+                        let data_count = merged_text
+                            .lines()
+                            .filter(|l| {
+                                let t = l.trim();
+                                !t.is_empty() && !t.starts_with('#')
+                            })
+                            .count();
+
+                        // SECURITY (H-2): anomaly rollback. If the merged list collapsed
+                        // to less than half of its previous size, treat the upstream
+                        // payload as corrupted or hostile, restore the backup and refuse
+                        // the update instead of silently breaking the user's bypass.
+                        if prev_count > 0 && data_count * 2 < prev_count {
+                            if bak_path.exists() {
+                                let _ = fs::copy(&bak_path, &target_path);
+                            }
+                            details.push(format!(
+                                "{}: АНОМАЛИЯ — новый список ({} записей) меньше половины предыдущего ({}). Откат к бэкапу, обновление отклонено. Источник: {}",
+                                filename, data_count, prev_count, url
+                            ));
+                            files.push(ListSyncItem {
+                                filename: filename.to_string(),
+                                lines_count: prev_count,
+                                status: "rolled_back".to_string(),
+                            });
+                            continue;
+                        }
+
                         if atomic_write(&target_path, merged_text.as_bytes()).is_ok() {
                             // Also mirror to bin/lists if it exists
                             if let Ok(exe_path) = std::env::current_exe() {
@@ -360,7 +401,12 @@ pub async fn update_remote_lists() -> Result<ListSyncReport, String> {
 
                             files_updated += 1;
                             total_domains += lines_count;
-                            details.push(format!("{}: актуализировано {} записей (с сохранением пользовательских)", filename, lines_count));
+                            // SECURITY (H-2): log the source and merged record counts
+                            // so every applied update is auditable by the user.
+                            details.push(format!(
+                                "{}: актуализировано {} записей (было {}, источник {})",
+                                filename, lines_count, prev_count, url
+                            ));
                             files.push(ListSyncItem {
                                 filename: filename.to_string(),
                                 lines_count,
