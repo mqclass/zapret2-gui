@@ -459,6 +459,7 @@ export const en: Translations = {
     defaultStrategy: "Default",
     checkingConnection: "Checking connection...",
   },
+<<<<<<< HEAD
   telegram: {
     title: "Telegram mode",
     subtitle: "Local MTProto bridge for the Telegram client (official tg-ws-proxy)",
@@ -517,5 +518,29 @@ export const en: Translations = {
     notifyDownloadedTitle: "Telegram proxy",
     notifyDownloadedBody: "Official binary downloaded and verified",
     notifyErrorTitle: "Telegram proxy: error",
+=======
+  transports: {
+    title: "Transports (experimental)",
+    description:
+      "Camouflage transports — a research framework on top of bypass strategies. A transport can change how the engine is launched, but no experimental transport is operational today: real camouflage needs server-side exit infrastructure that is not shipped. An unavailable transport refuses explicitly with a reason instead of pretending to work.",
+    experimentalBadge: "Experimental",
+    requiresExitInfra: "Requires exit infrastructure",
+    statusAvailable: "Available",
+    statusUnavailable: "Unavailable",
+    reasonLabel: "Reason",
+    select: "Select",
+    selected: "Active",
+    name_direct: "No transport (direct launch)",
+    desc_direct: "Standard winws2 launch without camouflage. The well-tested behavior.",
+    name_domain_fronting: "Domain Fronting (skeleton)",
+    desc_domain_fronting:
+      "Research skeleton: SNI fronting to an allowed front domain. No server side — unavailable by design.",
+    setSuccess: "Transport “{name}” selected. It will be applied on the next engine start.",
+    setError: "Failed to select transport: ",
+    loadError: "Failed to load transport list",
+    unavailableHint: "This transport cannot be enabled — see the reason above.",
+    docsHint: "Architecture, honest limitations and how to write your own transport: docs/TRANSPORTS.md",
+    configExampleLabel: "Config example (for researchers)",
+>>>>>>> feature/transport-framework
   },
 };

@@ -5,6 +5,7 @@
 //! - Game Filter port ranges and enabled status
 //! - Preferred DNS provider (DoH / System)
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,6 +17,8 @@ use windows::Win32::Foundation::{LocalFree, HLOCAL, PVOID};
 use windows::Win32::Security::Cryptography::{
     CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
 };
+
+use crate::engine::transport::TransportConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -57,6 +60,7 @@ pub struct AppSettings {
     /// Whether Windows toast notifications are shown for engine events.
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
+<<<<<<< HEAD
     /// Whether the app periodically checks GitHub for new releases.
     #[serde(default = "default_true")]
     pub auto_update_enabled: bool,
@@ -72,6 +76,17 @@ pub struct AppSettings {
     /// Whether the Telegram proxy was left enabled (auto-start on app launch).
     #[serde(default)]
     pub tgproxy_enabled: bool,}
+=======
+    /// Active camouflage transport id (see engine::transport). `None` means
+    /// the legacy direct launch — the only fully working mode today.
+    pub active_transport_id: Option<String>,
+    /// Per-transport JSON configs, keyed by transport id.
+    /// `#[serde(default)]` keeps old settings files loadable: missing field
+    /// defaults to empty instead of resetting all settings.
+    #[serde(default)]
+    pub transport_configs: HashMap<String, TransportConfig>,
+}
+>>>>>>> feature/transport-framework
 
 fn default_true() -> bool {
     true
@@ -92,11 +107,17 @@ impl Default for AppSettings {
             last_strategy_id: Some("flowseal-alt".into()),
             auto_start_bypass: true,
             notifications_enabled: true,
+<<<<<<< HEAD
             auto_update_enabled: true,
             last_update_check: None,
             tgproxy_port: 1443,
             tgproxy_secret: String::new(),
             tgproxy_enabled: false,        }
+=======
+            active_transport_id: None,
+            transport_configs: HashMap::new(),
+        }
+>>>>>>> feature/transport-framework
     }
 }
 

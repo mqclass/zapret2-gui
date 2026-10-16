@@ -438,6 +438,7 @@ pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
     Ok(enable)
 }
 
+<<<<<<< HEAD
 /// Returns the Telegram MTProxy-mode sidecar status snapshot.
 #[tauri::command]
 pub async fn get_tgproxy_status(state: State<'_, AppState>) -> Result<TgProxyStatus, String> {
@@ -479,6 +480,127 @@ pub async fn set_tgproxy_config(
 #[tauri::command]
 pub async fn regenerate_tgproxy_secret(state: State<'_, AppState>) -> Result<String, String> {
     state.tgproxy.regenerate_secret().map_err(|e| e.to_string())
+=======
+/// Lists all registered camouflage transports with live availability for the UI.
+///
+/// The registry is the single source of truth: the frontend never hardcodes
+/// transport ids, names or readiness — it renders exactly this snapshot.
+#[tauri::command]
+pub async fn list_transports() -> Result<Vec<crate::engine::transport::TransportView>, String> {
+    Ok(crate::engine::transport::global_registry().list())
+}
+
+/// Returns the currently selected transport id, if any (`None` = direct launch).
+#[tauri::command]
+pub async fn get_active_transport() -> Result<Option<String>, String> {
+    Ok(crate::win32::settings::load_settings().active_transport_id)
+}
+
+/// Selects the active camouflage transport.
+///
+/// Fail-closed and explicit: unknown ids and unavailable transports
+/// (e.g. experimental ones without server-side infrastructure) are refused
+/// with a reason — the selection is never stored silently.
+#[tauri::command]
+pub async fn set_active_transport(transport_id: String) -> Result<(), String> {
+    let registry = crate::engine::transport::global_registry();
+    let transport = registry.get(&transport_id).ok_or_else(|| {
+        format!(
+            "Неизвестный транспорт «{}». Доступные: {}",
+            transport_id,
+            registry.ids().join(", ")
+        )
+    })?;
+
+    if let crate::engine::transport::TransportAvailability::Unavailable { reason } =
+        transport.is_available()
+    {
+        return Err(format!(
+            "Транспорт «{}» недоступен: {}",
+            transport.name(),
+            reason
+        ));
+    }
+
+    let mut settings = crate::win32::settings::load_settings();
+    if transport_id == "direct" {
+        settings.active_transport_id = None;
+    } else {
+        settings.active_transport_id = Some(transport_id.clone());
+    }
+    // Ensure a config entry exists so the UI can offer editing later.
+    settings
+        .transport_configs
+        .entry(transport_id.clone())
+        .or_insert_with(|| crate::engine::transport::TransportConfig::for_transport(&transport_id));
+    crate::win32::settings::save_settings(settings)?;
+    Ok(())
+}
+
+/// Saves a transport's config options (as a JSON string) after validating
+/// them against the transport's own schema — without starting the engine.
+///
+/// The existing `enabled` flag of the stored config is preserved; a missing
+/// config entry is created with `enabled: true`.
+///
+/// Known limitation (honest scope): there is no UI editor for transport
+/// options yet — `TransportsSection` only selects transports, and
+/// `validate_transport_config` exists for a future field-level editor. Until
+/// then this command is the only way to persist options (e.g. for
+/// researchers); see docs/TRANSPORTS.md.
+#[tauri::command]
+pub async fn set_transport_config(
+    transport_id: String,
+    config_json: String,
+) -> Result<(), String> {
+    use crate::engine::transport::TransportError;
+
+    let registry = crate::engine::transport::global_registry();
+    let transport = registry
+        .get(&transport_id)
+        .ok_or_else(|| {
+            TransportError::UnknownTransport {
+                id: transport_id.clone(),
+                known: registry.ids().join(", "),
+            }
+            .to_string()
+        })?;
+
+    let options: serde_json::Value = serde_json::from_str(&config_json).map_err(|e| {
+        TransportError::InvalidConfig {
+            id: transport_id.clone(),
+            message: format!("Некорректный JSON: {}", e),
+        }
+        .to_string()
+    })?;
+
+    let mut settings = crate::win32::settings::load_settings();
+    let enabled = settings
+        .transport_configs
+        .get(&transport_id)
+        .map(|c| c.enabled)
+        .unwrap_or(true);
+    let config = crate::engine::transport::TransportConfig {
+        transport_id: transport_id.clone(),
+        enabled,
+        options,
+    };
+    transport.validate_config(&config).map_err(|e| e.to_string())?;
+    settings.transport_configs.insert(transport_id, config);
+    crate::win32::settings::save_settings(settings)?;
+    Ok(())
+}
+
+/// Validates a transport config JSON without starting the engine, so the UI
+/// can surface field-level errors early.
+#[tauri::command]
+pub async fn validate_transport_config(
+    transport_id: String,
+    config_json: String,
+) -> Result<(), String> {
+    crate::engine::transport::validate_transport_config_json(&transport_id, &config_json)
+        .map_err(|e| e.to_string())
+>>>>>>> feature/transport-framework
 }
 
 /// Exports a diagnostic bundle for bug reports: app/system info, settings,

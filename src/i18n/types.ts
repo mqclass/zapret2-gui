@@ -502,5 +502,23 @@ export interface Translations {
     notifyDownloadedTitle: string;
     notifyDownloadedBody: string;
     notifyErrorTitle: string;
-  };
+  transports: {
+    description: string;
+    experimentalBadge: string;
+    requiresExitInfra: string;
+    statusAvailable: string;
+    statusUnavailable: string;
+    reasonLabel: string;
+    select: string;
+    selected: string;
+    name_direct: string;
+    desc_direct: string;
+    name_domain_fronting: string;
+    desc_domain_fronting: string;
+    setSuccess: string;
+    setError: string;
+    loadError: string;
+    unavailableHint: string;
+    docsHint: string;
+    configExampleLabel: string;  };
 }

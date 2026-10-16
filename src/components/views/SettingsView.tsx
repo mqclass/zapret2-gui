@@ -22,7 +22,11 @@ import { useI18n } from "../../i18n";
 import { Language } from "../../i18n/types";
 import { useTheme, ThemeId } from "../../theme/ThemeContext";
 import { openUrl } from "@tauri-apps/plugin-opener";
+<<<<<<< HEAD
 import { UpdateInfo } from "../../types";
+=======
+import { TransportsSection } from "../TransportsSection";
+>>>>>>> feature/transport-framework
 
 /** External links opened via the opener plugin (L-2). The capability allowlist
  *  restricts this to https://github.com/* — no webview navigation is enabled. */
@@ -518,6 +522,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             })}
           </div>
         </div>
+
+        {/* Camouflage Transports (experimental framework) */}
+        <TransportsSection />
 
         {/* Security & Warning Against Fakes */}
         <div className="rounded-card border border-warnline bg-warnwash p-4 space-y-2">
