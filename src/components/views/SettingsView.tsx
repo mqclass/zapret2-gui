@@ -9,10 +9,60 @@ import {
   Globe,
   ExternalLink,
   Shield,
+  Palette,
+  Check,
 } from "lucide-react";
 import { ZapretLogo } from "../ZapretLogo";
 import { useI18n } from "../../i18n";
 import { Language } from "../../i18n/types";
+import { useTheme, ThemeId } from "../../theme/ThemeContext";
+
+/** Static miniature mock of each theme — pure CSS, no app state involved. */
+const ThemePreview: React.FC<{ id: ThemeId }> = ({ id }) => {
+  const isMacos = id === "macos";
+  const bar = isMacos ? "#0f141d" : "#090c10";
+  const line = isMacos ? "#232c40" : "#1a222b";
+  const cardBg = isMacos ? "rgba(19,25,36,.92)" : "#0b0f14";
+  const accent = isMacos ? "#0a84ff" : "#a3e635";
+  const fill = isMacos ? "#0a84ff" : "#4d7c0f";
+  const r = isMacos ? 8 : 3;
+  return (
+    <div
+      className="theme-preview h-[76px] w-full"
+      style={{ background: isMacos ? "#0a0d13" : "#05070a", borderRadius: r }}
+      aria-hidden
+    >
+      <div className="flex h-full">
+        <div
+          className="flex flex-col gap-1 p-1.5"
+          style={{ width: 30, background: bar, borderRight: `1px solid ${line}` }}
+        >
+          <div style={{ height: 6, borderRadius: 3, background: accent, opacity: 0.95 }} />
+          <div style={{ height: 4, borderRadius: 2, background: line }} />
+          <div style={{ height: 4, borderRadius: 2, background: line }} />
+          <div style={{ height: 4, borderRadius: 2, background: line, opacity: 0.55 }} />
+        </div>
+        <div className="flex-1 space-y-1.5 p-1.5">
+          <div
+            style={{ height: 16, borderRadius: r - 2, background: cardBg, border: `1px solid ${line}` }}
+          />
+          <div className="flex gap-1.5">
+            <div style={{ flex: 1, height: 11, borderRadius: r - 2, background: fill }} />
+            <div
+              style={{
+                flex: 1,
+                height: 11,
+                borderRadius: r - 2,
+                background: "transparent",
+                border: `1px solid ${isMacos ? "#35415e" : "#2c3947"}`,
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface SettingsViewProps {
   isElevated: boolean;
@@ -39,6 +89,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     isResolvingConflicts,
   }) => {
     const { language, setLanguage, t } = useI18n();
+    const { theme, setTheme } = useTheme();
 
     const languages: { code: Language; label: string; full: string }[] = [
       { code: "ru", label: "RU", full: "Русский" },
@@ -46,35 +97,48 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
       { code: "uk", label: "UK", full: "Українська" },
     ];
 
+    const themes: { id: ThemeId; name: string; desc: string }[] = [
+      {
+        id: "macos",
+        name: t.settingsTab.themeMacosName,
+        desc: t.settingsTab.themeMacosDesc,
+      },
+      {
+        id: "hyprland",
+        name: t.settingsTab.themeHyprlandName,
+        desc: t.settingsTab.themeHyprlandDesc,
+      },
+    ];
+
     return (
       <div className="space-y-4 pb-4 max-w-4xl">
         {/* System & Engine Section */}
-        <div className="rounded-2xl border border-[#212635] bg-[#141720] p-5 space-y-4">
-          <div className="border-b border-[#202534] pb-3">
-            <h3 className="text-xs font-semibold text-white flex items-center gap-2">
-              <Shield className="h-4 w-4 text-blue-400" />
+        <div className="rounded-card border border-line bg-card p-5 space-y-4">
+          <div className="border-b border-line pb-3">
+            <h3 className="t-section-title">
+              <Shield className="h-4 w-4 text-accent" />
               <span>{t.settingsTab.systemSection}</span>
             </h3>
           </div>
 
           <div className="space-y-2.5">
             {/* Autostart Card */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#202534] bg-[#12151d] p-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <Rocket className="h-4 w-4 text-blue-400" />
-                  <span className="text-xs font-semibold text-white">Автозапуск при входе в Windows</span>
+                  <Rocket className="h-4 w-4 text-accent" />
+                  <span className="text-xs font-semibold text-ink">Автозапуск при входе в Windows</span>
                   <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    className={`rounded-chip px-1.5 py-0.5 text-[10px] font-medium ${
                       isAutostart
-                        ? "bg-blue-500/15 text-blue-300 border border-blue-500/30"
-                        : "bg-[#1d222e] text-slate-400"
+                        ? "bg-accent-wash text-accent-soft border border-accent-line"
+                        : "bg-hovert text-ink4"
                     }`}
                   >
                     {isAutostart ? "Включен" : "Отключен"}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 max-w-lg leading-relaxed">
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
                   {t.settingsTab.autostartDesc}
                 </p>
               </div>
@@ -83,23 +147,23 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 type="button"
                 onClick={onToggleAutostart}
                 disabled={isTogglingAutostart}
-                className={`flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 ${
+                className={`flex items-center justify-center gap-2 rounded-control px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 ${
                   isAutostart
-                    ? "bg-blue-600/15 hover:bg-blue-600/25 text-blue-300 border border-blue-500/30"
-                    : "bg-[#181d28] hover:bg-[#202636] text-slate-200 border border-[#2b3345]"
+                    ? "bg-accent-wash hover:bg-accent-wash text-accent-soft border border-accent-line"
+                    : "bg-hovert hover:bg-hovert text-ink2 border border-line"
                 }`}
               >
                 {isTogglingAutostart ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-400" />
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent" />
                 ) : (
-                  <Rocket className="h-3.5 w-3.5 text-blue-400" />
+                  <Rocket className="h-3.5 w-3.5 text-accent" />
                 )}
                 <span>{isAutostart ? "Отключить автозапуск" : "Включить автозапуск"}</span>
               </button>
             </div>
 
             {/* Elevation Status Card */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#202534] bg-[#12151d] p-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   {isElevated ? (
@@ -107,9 +171,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                   ) : (
                     <ShieldAlert className="h-4 w-4 text-amber-400" />
                   )}
-                  <span className="text-xs font-semibold text-white">{t.settingsTab.elevationTitle}</span>
+                  <span className="text-xs font-semibold text-ink">{t.settingsTab.elevationTitle}</span>
                   <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    className={`rounded-chip px-1.5 py-0.5 text-[10px] font-medium ${
                       isElevated
                         ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
                         : "bg-amber-500/15 text-amber-400 border border-amber-500/30"
@@ -118,7 +182,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     {isElevated ? "Администратор" : "Ограниченный"}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 max-w-lg leading-relaxed">
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
                   {t.settingsTab.elevationDesc}
                 </p>
               </div>
@@ -127,7 +191,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 <button
                   type="button"
                   onClick={onRelaunchElevated}
-                  className="flex items-center justify-center gap-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 px-3.5 py-2 text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer shrink-0"
+                  className="flex items-center justify-center gap-2 rounded-control bg-amber-500 hover:bg-amber-400 text-slate-950 px-3.5 py-2 text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer shrink-0"
                 >
                   <ShieldAlert className="h-3.5 w-3.5" />
                   <span>{t.settingsTab.elevationBtn}</span>
@@ -136,13 +200,13 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             </div>
 
             {/* Stray Processes Cleanup Card */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#202534] bg-[#12151d] p-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Trash2 className="h-4 w-4 text-rose-400" />
-                  <span className="text-xs font-semibold text-white">{t.settingsTab.strayTitle}</span>
+                  <span className="text-xs font-semibold text-ink">{t.settingsTab.strayTitle}</span>
                 </div>
-                <p className="text-[11px] text-slate-400 max-w-lg leading-relaxed">
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
                   {t.settingsTab.strayDesc}
                 </p>
               </div>
@@ -151,7 +215,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 type="button"
                 onClick={onKillStray}
                 disabled={isStrayCleaning}
-                className="flex items-center justify-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 px-3.5 py-2 text-xs font-semibold text-rose-300 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                className="flex items-center justify-center gap-2 rounded-control border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 px-3.5 py-2 text-xs font-semibold text-rose-300 transition-all cursor-pointer disabled:opacity-50 shrink-0"
               >
                 <Trash2 className={`h-3.5 w-3.5 ${isStrayCleaning ? "animate-spin" : ""}`} />
                 <span>{t.settingsTab.strayBtn}</span>
@@ -159,13 +223,13 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             </div>
 
             {/* Conflict Resolver Card */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#202534] bg-[#12151d] p-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-amber-400" />
-                  <span className="text-xs font-semibold text-white">{t.settingsTab.conflictsTitle}</span>
+                  <span className="text-xs font-semibold text-ink">{t.settingsTab.conflictsTitle}</span>
                 </div>
-                <p className="text-[11px] text-slate-400 max-w-lg leading-relaxed">
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
                   {t.settingsTab.conflictsDesc}
                 </p>
               </div>
@@ -174,7 +238,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 type="button"
                 onClick={onResolveConflicts}
                 disabled={isResolvingConflicts}
-                className="flex items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 px-3.5 py-2 text-xs font-semibold text-amber-300 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                className="flex items-center justify-center gap-2 rounded-control border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 px-3.5 py-2 text-xs font-semibold text-amber-300 transition-all cursor-pointer disabled:opacity-50 shrink-0"
               >
                 <AlertTriangle className={`h-3.5 w-3.5 ${isResolvingConflicts ? "animate-spin" : ""}`} />
                 <span>{t.settingsTab.conflictsBtn}</span>
@@ -183,11 +247,57 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
           </div>
         </div>
 
+        {/* Theme Selection Card */}
+        <div className="rounded-card border border-line bg-card p-5 space-y-3 shadow-card">
+          <div className="border-b border-line pb-3">
+            <h3 className="t-section-title">
+              <Palette className="h-4 w-4 text-accent" />
+              <span>{t.settingsTab.themeSection}</span>
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            {themes.map((item) => {
+              const isSelected = theme === item.id;
+              return (
+                <button
+                  type="button"
+                  key={item.id}
+                  onClick={() => setTheme(item.id)}
+                  aria-pressed={isSelected}
+                  className={`group space-y-2.5 rounded-panel border p-3 text-left transition-all cursor-pointer ${
+                    isSelected
+                      ? "border-accent-line bg-accent-wash shadow-glow"
+                      : "border-line bg-cardin hover:border-linestrong hover:bg-raise"
+                  }`}
+                >
+                  <ThemePreview id={item.id} />
+                  <div className="space-y-0.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-ink">
+                        {item.name}
+                      </span>
+                      {isSelected && (
+                        <span className="t-badge t-badge-accent">
+                          <Check className="h-3 w-3" />
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-ink4">
+                      {item.desc}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Language Selection Card */}
-        <div className="rounded-2xl border border-[#212635] bg-[#141720] p-5 space-y-3">
-          <div className="border-b border-[#202534] pb-3">
-            <h3 className="text-xs font-semibold text-white flex items-center gap-2">
-              <Globe className="h-4 w-4 text-blue-400" />
+        <div className="rounded-card border border-line bg-card p-5 space-y-3">
+          <div className="border-b border-line pb-3">
+            <h3 className="t-section-title">
+              <Globe className="h-4 w-4 text-accent" />
               <span>{t.settingsTab.languageSection}</span>
             </h3>
           </div>
@@ -200,14 +310,14 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                   type="button"
                   key={item.code}
                   onClick={() => setLanguage(item.code)}
-                  className={`flex items-center justify-between p-3 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
+                  className={`flex items-center justify-between p-3 rounded-panel border text-xs font-medium transition-all cursor-pointer ${
                     isSelected
-                      ? "border-[#384359] bg-[#1d2332] text-white shadow-sm"
-                      : "border-[#202534] bg-[#12151d] text-slate-400 hover:text-slate-200 hover:bg-[#161a23]"
+                      ? "border-linestrong bg-hovert text-ink shadow-sm"
+                      : "border-line bg-cardin text-ink4 hover:text-ink2 hover:bg-raise"
                   }`}
                 >
                   <span className="font-semibold">{item.full}</span>
-                  <span className="font-mono text-[10px] text-slate-500">{item.label}</span>
+                  <span className="font-mono text-[10px] text-ink5">{item.label}</span>
                 </button>
               );
             })}
@@ -215,12 +325,12 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Security & Warning Against Fakes */}
-        <div className="rounded-2xl border border-[#2d261a] bg-[#161411] p-4 space-y-2">
+        <div className="rounded-card border border-warnline bg-warnwash p-4 space-y-2">
           <div className="flex items-center gap-2 text-amber-400">
             <AlertTriangle className="h-4 w-4" />
-            <h4 className="text-xs font-semibold text-white">{t.settingsTab.warningFakesTitle}</h4>
+            <h4 className="text-xs font-semibold text-ink">{t.settingsTab.warningFakesTitle}</h4>
           </div>
-          <p className="text-[11px] text-slate-300 leading-relaxed">
+          <p className="text-[11px] text-ink3 leading-relaxed">
             {t.settingsTab.warningFakesBody}
           </p>
           <div className="flex flex-wrap gap-4 pt-1 text-xs">
@@ -228,7 +338,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               href="https://github.com/bol-van/zapret"
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 hover:underline"
+              className="flex items-center gap-1.5 text-accent hover:text-accent-soft hover:underline"
             >
               <span>GitHub bol-van/zapret</span>
               <ExternalLink className="h-3 w-3" />
@@ -237,7 +347,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               href="https://github.com/Flowseal/zapret-discord-youtube"
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 hover:underline"
+              className="flex items-center gap-1.5 text-accent hover:text-accent-soft hover:underline"
             >
               <span>GitHub Flowseal (Пресеты)</span>
               <ExternalLink className="h-3 w-3" />
@@ -246,7 +356,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               href="https://github.com/mqclass/zapret2-gui"
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 hover:underline"
+              className="flex items-center gap-1.5 text-accent hover:text-accent-soft hover:underline"
             >
               <span>GitHub mqclass/zapret2-gui</span>
               <ExternalLink className="h-3 w-3" />
@@ -255,14 +365,14 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Application Architecture & Versions */}
-        <div className="rounded-2xl border border-[#212635] bg-[#141720] p-4">
-          <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="rounded-card border border-line bg-card p-4">
+          <div className="flex items-center justify-between text-xs text-ink4">
             <div className="flex items-center gap-2">
               <ZapretLogo className="h-4 w-4" />
-              <span className="font-semibold text-white">zapret2</span>
-              <span className="font-mono text-blue-400 font-semibold">{t.header.version}</span>
+              <span className="font-semibold text-ink">zapret2</span>
+              <span className="font-mono text-accent font-semibold">{t.header.version}</span>
             </div>
-            <div className="font-mono text-[11px] text-slate-500">
+            <div className="font-mono text-[11px] text-ink5">
               WinWS v2.1.8 • WinDivert v2.2.2-F • Tauri v2
             </div>
           </div>

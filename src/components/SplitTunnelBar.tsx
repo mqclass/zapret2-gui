@@ -45,16 +45,16 @@ export const SplitTunnelBar: React.FC<SplitTunnelBarProps> = ({
   ];
 
   return (
-    <div className="rounded-xl border border-[#202534] bg-[#12151d] p-3 space-y-2.5">
+    <div className="rounded-panel border border-line bg-cardin p-3 space-y-2.5">
       <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
-          <SlidersHorizontal className="h-3.5 w-3.5 text-blue-400" />
-          <span className="font-semibold text-slate-300">
+          <SlidersHorizontal className="h-3.5 w-3.5 text-accent" />
+          <span className="font-semibold text-ink3">
             {t.splitTunnel.title}
           </span>
         </div>
         {isRunning && (
-          <span className="text-[10px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md font-medium">
+          <span className="text-[10px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-chip font-medium">
             Перезапустите обход для применения
           </span>
         )}
@@ -69,28 +69,28 @@ export const SplitTunnelBar: React.FC<SplitTunnelBarProps> = ({
               type="button"
               onClick={() => onModeChange(m.id)}
               disabled={disabled}
-              className={`flex flex-col text-left p-2.5 rounded-lg border transition-all cursor-pointer ${
+              className={`flex flex-col text-left p-2.5 rounded-control border transition-all cursor-pointer ${
                 isSelected
-                  ? "bg-[#1d2332] border-[#384359] text-white shadow-sm"
-                  : "bg-[#151922] border-[#222735] hover:bg-[#1a1f2b] hover:border-[#2d3445] text-slate-400"
+                  ? "bg-hovert border-linestrong text-ink shadow-sm"
+                  : "bg-cardin border-line hover:bg-hovert hover:border-line text-ink4"
               } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               <div className="flex items-center justify-between gap-1.5">
                 <div className="flex items-center gap-1.5">
-                  <span className={isSelected ? "text-blue-400" : "text-slate-500"}>
+                  <span className={isSelected ? "text-accent" : "text-ink5"}>
                     {m.icon}
                   </span>
-                  <span className={`text-xs font-semibold ${isSelected ? "text-white" : "text-slate-300"}`}>
+                  <span className={`text-xs font-semibold ${isSelected ? "text-ink" : "text-ink3"}`}>
                     {m.label}
                   </span>
                 </div>
                 {isSelected && (
-                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-500/20 text-blue-400">
+                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-accent-wash text-accent">
                     <Check className="h-2.5 w-2.5 stroke-[3]" />
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-400 mt-1 leading-normal font-normal">
+              <p className="text-[11px] text-ink4 mt-1 leading-normal font-normal">
                 {m.desc}
               </p>
             </button>

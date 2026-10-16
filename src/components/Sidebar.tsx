@@ -94,35 +94,35 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
     }, []);
 
     return (
-      <aside className="w-56 shrink-0 flex flex-col justify-between border-r border-[#1f2430] bg-[#11141c] select-none">
+      <aside className="glass-bar w-56 shrink-0 flex flex-col justify-between border-r border-line select-none">
         {/* Top Brand Header (Draggable) */}
         <div
           data-tauri-drag-region
           onMouseDown={handleHeaderMouseDown}
-          className="p-4 border-b border-[#1f2430] cursor-default"
+          className="p-4 border-b border-line cursor-default"
         >
           <div data-tauri-drag-region className="flex items-center gap-3">
-            <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-[#161a24] border border-[#272f40]">
+            <div className="relative flex h-9 w-9 items-center justify-center rounded-panel bg-raise border border-line">
               <ZapretLogo className="h-5 w-5" glow={isRunning} />
               {/* Status dot */}
               <span
-                className={`absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 items-center justify-center rounded-full border-2 border-[#11141c] ${
+                className={`absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 items-center justify-center rounded-full border-2 border-sidebar ${
                   isRunning
                     ? "bg-emerald-500"
                     : isStarting || isStopping
                     ? "bg-amber-500"
-                    : "bg-slate-600"
+                    : "bg-ink5"
                 }`}
               />
             </div>
             <div data-tauri-drag-region>
               <div data-tauri-drag-region className="flex items-center gap-1.5">
-                <span data-tauri-drag-region className="text-sm font-bold tracking-tight text-white">zapret2</span>
-                <span className="rounded bg-blue-500/10 border border-blue-500/25 px-1 py-0.2 text-[9px] font-mono font-semibold text-blue-400">
+                <span data-tauri-drag-region className="text-sm font-bold tracking-tight text-ink">zapret2</span>
+                <span className="rounded-chip bg-accent-wash border border-accent-line px-1 py-0.2 text-[9px] font-mono font-semibold text-accent">
                   {t.header.version}
                 </span>
               </div>
-              <p data-tauri-drag-region className="text-[10px] font-medium text-slate-400">DPI Bypass Utility</p>
+              <p data-tauri-drag-region className="text-[10px] font-medium text-ink4">DPI Bypass Utility</p>
             </div>
           </div>
         </div>
@@ -135,14 +135,10 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
               <button
                 key={item.id}
                 onClick={() => onTabChange(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                  isActive
-                    ? "bg-[#1d2331] text-white border border-[#2e374d]"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
-                }`}
+                className={`t-navitem ${isActive ? "t-navitem-active" : ""}`}
               >
                 <div className="flex items-center gap-2.5">
-                  <span className={isActive ? "text-blue-400" : "text-slate-500"}>
+                  <span className="t-navitem-icon">
                     {item.icon}
                   </span>
                   <span>{item.label}</span>
@@ -154,7 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                         ? "bg-emerald-400"
                         : isStarting || isStopping
                         ? "bg-amber-400 animate-pulse"
-                        : "bg-slate-600"
+                        : "bg-ink5"
                     }`}
                   />
                 )}
@@ -164,11 +160,11 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
         </nav>
 
         {/* Bottom Status Card */}
-        <div className="p-3 border-t border-[#1f2430] space-y-1.5">
+        <div className="p-3 border-t border-line space-y-1.5">
           {/* Active Mode Pill */}
-          <div className="flex items-center justify-between rounded-lg bg-[#151922] border border-[#222836] px-2.5 py-1.5 text-[11px]">
-            <span className="text-slate-400 font-medium">Режим:</span>
-            <div className="flex items-center gap-1 font-semibold text-slate-200">
+          <div className="flex items-center justify-between rounded-control bg-cardin border border-line px-2.5 py-1.5 text-[11px]">
+            <span className="text-ink4 font-medium">Режим:</span>
+            <div className="flex items-center gap-1 font-semibold text-ink2">
               {splitTunnelMode === "game_mode" ? (
                 <>
                   <Gamepad2 className="h-3 w-3 text-purple-400" />
@@ -181,7 +177,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                 </>
               ) : (
                 <>
-                  <Layers className="h-3 w-3 text-blue-400" />
+                  <Layers className="h-3 w-3 text-accent" />
                   <span>Полный</span>
                 </>
               )}
@@ -189,8 +185,8 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
           </div>
 
           {/* Engine Status Pill */}
-          <div className="flex items-center justify-between rounded-lg bg-[#151922] border border-[#222836] px-2.5 py-1.5 text-[11px]">
-            <span className="text-slate-400 font-medium">Служба:</span>
+          <div className="flex items-center justify-between rounded-control bg-cardin border border-line px-2.5 py-1.5 text-[11px]">
+            <span className="text-ink4 font-medium">Служба:</span>
             <div className="flex items-center gap-1.5">
               <span
                 className={`h-1.5 w-1.5 rounded-full ${
@@ -198,7 +194,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                     ? "bg-emerald-400"
                     : isStarting || isStopping
                     ? "bg-amber-400 animate-pulse"
-                    : "bg-slate-600"
+                    : "bg-ink5"
                 }`}
               />
               <span
@@ -207,7 +203,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                     ? "text-emerald-400"
                     : isStarting || isStopping
                     ? "text-amber-400"
-                    : "text-slate-400"
+                    : "text-ink4"
                 }`}
               >
                 {isRunning

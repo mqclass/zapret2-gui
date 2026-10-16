@@ -2,19 +2,414 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════════
+   Dual-theme design tokens for zapret2-gui
+   Switching theme = changing `data-theme` on <html> ("macos" | "hyprland").
+   All Tailwind token classes (bg-card, text-ink, border-line, …) read
+   these variables, so every screen follows the active theme.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="macos"] {
+  /* ── macOS: calm dark, frosted glass, generous radii ──
+     Solid colors are space-separated RGB triplets so Tailwind opacity
+     modifiers (bg-card/40, …) keep working via <alpha-value>. */
+  --c-app: 10 13 19;
+  --c-sidebar: 15 20 29;
+  --c-card: 19 25 36;
+  --c-cardin: 15 20 29;
+  --c-raise: 26 33 48;
+  --c-hovert: 30 38 55;
+  --c-overlay: rgba(8, 11, 17, 0.72);
+
+  --c-line: 35 44 64;
+  --c-linestrong: 53 65 94;
+
+  --c-ink: 244 246 250;
+  --c-ink2: 216 222 233;
+  --c-ink3: 180 189 207;
+  --c-ink4: 138 148 169;
+  --c-ink5: 92 101 121;
+
+  --c-accent: 76 154 255;
+  --c-accent-soft: 168 204 255;
+  --c-accent-fill: 10 132 255;
+  --c-accent-fill-hover: 61 157 255;
+  --c-accent-contrast: 255 255 255;
+  --c-accent-wash: rgba(10, 132, 255, 0.13);
+  --c-accent-line: rgba(76, 154, 255, 0.38);
+
+  --c-danger-fill: 255 69 58;
+  --c-danger-fill-hover: 255 107 97;
+  --c-danger-wash: rgba(255, 69, 58, 0.12);
+  --c-danger-line: rgba(255, 69, 58, 0.35);
+
+  --c-ok-wash: rgba(52, 211, 153, 0.09);
+
+  --c-warn-wash: rgba(255, 159, 10, 0.07);
+  --c-warn-line: rgba(255, 159, 10, 0.28);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    Inter, system-ui, sans-serif;
+
+  --r-card: 18px;
+  --r-panel: 14px;
+  --r-control: 10px;
+  --r-chip: 7px;
+
+  --shadow-card: 0 10px 32px rgba(0, 0, 0, 0.38);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 0 0 1px rgba(76, 154, 255, 0.12),
+    0 0 28px rgba(10, 132, 255, 0.1);
+
+  --glass-blur: blur(24px) saturate(1.6);
+  --glass-card-bg: rgba(19, 25, 36, 0.66);
+  --glass-bar-bg: rgba(15, 20, 29, 0.72);
+}
+
+[data-theme="hyprland"] {
+  /* ── Hyprland: near-black, flat, dense, neon accent ──
+     Solid colors are space-separated RGB triplets so Tailwind opacity
+     modifiers (bg-card/40, …) keep working via <alpha-value>. */
+  --c-app: 5 7 10;
+  --c-sidebar: 9 12 16;
+  --c-card: 11 15 20;
+  --c-cardin: 7 10 13;
+  --c-raise: 16 21 27;
+  --c-hovert: 20 26 33;
+  --c-overlay: rgba(3, 5, 7, 0.84);
+
+  --c-line: 26 34 43;
+  --c-linestrong: 44 57 71;
+
+  --c-ink: 233 239 244;
+  --c-ink2: 194 204 214;
+  --c-ink3: 152 164 177;
+  --c-ink4: 105 115 127;
+  --c-ink5: 66 75 86;
+
+  --c-accent: 163 230 53;
+  --c-accent-soft: 217 249 157;
+  --c-accent-fill: 77 124 15;
+  --c-accent-fill-hover: 101 163 13;
+  --c-accent-contrast: 244 255 214;
+  --c-accent-wash: rgba(163, 230, 53, 0.09);
+  --c-accent-line: rgba(163, 230, 53, 0.32);
+
+  --c-danger-fill: 220 38 38;
+  --c-danger-fill-hover: 239 68 68;
+  --c-danger-wash: rgba(220, 38, 38, 0.1);
+  --c-danger-line: rgba(248, 113, 113, 0.32);
+
+  --c-ok-wash: rgba(52, 211, 153, 0.07);
+
+  --c-warn-wash: rgba(251, 191, 36, 0.06);
+  --c-warn-line: rgba(251, 191, 36, 0.25);
+
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+
+  --r-card: 8px;
+  --r-panel: 6px;
+  --r-control: 5px;
+  --r-chip: 4px;
+
+  --shadow-card: 0 4px 18px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.65);
+  --shadow-glow: 0 0 0 1px rgba(163, 230, 53, 0.14),
+    0 0 22px rgba(163, 230, 53, 0.08);
+
+  --glass-blur: none;
+  --glass-card-bg: rgb(var(--c-card));
+  --glass-bar-bg: rgb(var(--c-sidebar));
+}
+
 @layer base {
+  html {
+    background: rgb(var(--c-app));
+  }
+
+  body {
+    background: rgb(var(--c-app));
+    color: rgb(var(--c-ink));
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Keyboard-first: visible focus everywhere, accent-colored per theme */
+  :is(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid rgb(var(--c-accent));
+    outline-offset: 2px;
+    border-radius: var(--r-control);
+  }
+
+  ::selection {
+    background: var(--c-accent-wash);
+    color: rgb(var(--c-ink));
+  }
+
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
-    background: rgba(15, 23, 42, 0.6);
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(71, 85, 105, 0.6);
-    border-radius: 3px;
+    background: rgb(var(--c-linestrong));
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: content-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(100, 116, 139, 0.8);
+    background: rgb(var(--c-ink5));
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  [data-theme="macos"] ::-webkit-scrollbar-thumb {
+    border-radius: 8px;
+  }
+}
+
+@layer components {
+  /* ── App backdrop: subtle aurora tint on macOS, pure flat on Hyprland ── */
+  .app-bg {
+    background-color: rgb(var(--c-app));
+  }
+  [data-theme="macos"] .app-bg {
+    background-image:
+      radial-gradient(1100px 520px at 12% -8%, rgba(10, 132, 255, 0.09), transparent 62%),
+      radial-gradient(900px 480px at 92% 108%, rgba(94, 92, 230, 0.08), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  /* ── Frosted bars (sidebar / topbar): real glass on macOS, flat on Hyprland ── */
+  .glass-bar {
+    background: var(--glass-bar-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+  }
+
+  /* ── Cards ── */
+  .t-card {
+    background: var(--glass-card-bg);
+    border: 1px solid rgb(var(--c-line));
+    border-radius: var(--r-card);
+    box-shadow: var(--shadow-card);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+  }
+  .t-card-in {
+    background: rgb(var(--c-cardin));
+    border: 1px solid rgb(var(--c-line));
+    border-radius: var(--r-panel);
+  }
+  [data-theme="hyprland"] .t-card-in {
+    border-left: 2px solid var(--c-accent-line);
+  }
+
+  /* ── Buttons ── */
+  .t-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: var(--r-control);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.5rem 0.875rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease,
+      color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    user-select: none;
+  }
+  .t-btn:active {
+    transform: scale(0.98);
+  }
+  .t-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .t-btn-primary {
+    background: rgb(var(--c-accent-fill));
+    color: rgb(var(--c-accent-contrast));
+    box-shadow: var(--shadow-glow);
+  }
+  .t-btn-primary:hover:not(:disabled) {
+    background: rgb(var(--c-accent-fill-hover));
+  }
+  .t-btn-danger {
+    background: rgb(var(--c-danger-fill));
+    color: #ffffff;
+  }
+  .t-btn-danger:hover:not(:disabled) {
+    background: rgb(var(--c-danger-fill-hover));
+  }
+  .t-btn-ghost {
+    background: rgb(var(--c-raise));
+    border-color: rgb(var(--c-linestrong));
+    color: rgb(var(--c-ink2));
+  }
+  .t-btn-ghost:hover:not(:disabled) {
+    background: rgb(var(--c-hovert));
+    color: rgb(var(--c-ink));
+  }
+  .t-btn-accent-soft {
+    background: var(--c-accent-wash);
+    border-color: var(--c-accent-line);
+    color: rgb(var(--c-accent-soft));
+  }
+  .t-btn-accent-soft:hover:not(:disabled) {
+    background: var(--c-accent-line);
+    color: rgb(var(--c-ink));
+  }
+
+  /* ── Badges / pills ── */
+  .t-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 0.15rem 0.55rem;
+    border: 1px solid rgb(var(--c-line));
+    background: rgb(var(--c-cardin));
+    color: rgb(var(--c-ink4));
+    white-space: nowrap;
+  }
+  .t-badge-accent {
+    background: var(--c-accent-wash);
+    border-color: var(--c-accent-line);
+    color: rgb(var(--c-accent-soft));
+  }
+  .t-badge-ok {
+    background: rgba(52, 211, 153, 0.1);
+    border-color: rgba(52, 211, 153, 0.3);
+    color: #6ee7b7;
+  }
+  .t-badge-warn {
+    background: rgba(251, 191, 36, 0.1);
+    border-color: rgba(251, 191, 36, 0.3);
+    color: #fcd34d;
+  }
+  .t-badge-danger {
+    background: var(--c-danger-wash);
+    border-color: var(--c-danger-line);
+    color: #fca5a5;
+  }
+
+  /* ── Section headings ── */
+  .t-section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgb(var(--c-ink));
+    letter-spacing: 0.01em;
+  }
+  [data-theme="hyprland"] .t-section-title {
+    font-family: var(--font-mono, "JetBrains Mono", Consolas, monospace);
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgb(var(--c-ink3));
+  }
+  [data-theme="hyprland"] .t-section-title svg {
+    color: rgb(var(--c-accent));
+  }
+
+  /* ── Keyboard hints (Hyprland keyboard-first, subtle on macOS) ── */
+  .t-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    padding: 0.1rem 0.35rem;
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: rgb(var(--c-ink4));
+    background: rgb(var(--c-cardin));
+    border: 1px solid rgb(var(--c-line));
+    border-bottom-width: 2px;
+    border-radius: var(--r-chip);
+  }
+  [data-theme="hyprland"] .t-kbd {
+    color: rgb(var(--c-accent-soft));
+    border-color: var(--c-accent-line);
+  }
+
+  /* ── Inputs ── */
+  .t-input {
+    width: 100%;
+    background: rgb(var(--c-cardin));
+    border: 1px solid rgb(var(--c-line));
+    border-radius: var(--r-control);
+    color: rgb(var(--c-ink));
+    font-size: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .t-input::placeholder {
+    color: rgb(var(--c-ink5));
+  }
+  .t-input:focus {
+    outline: none;
+    border-color: var(--c-accent-line);
+    box-shadow: 0 0 0 3px var(--c-accent-wash);
+  }
+
+  /* ── Nav items ── */
+  .t-navitem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--r-control);
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: rgb(var(--c-ink4));
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .t-navitem:hover {
+    color: rgb(var(--c-ink2));
+    background: var(--c-accent-wash);
+  }
+  .t-navitem-active {
+    background: var(--c-accent-wash);
+    color: rgb(var(--c-ink));
+    border-color: var(--c-accent-line);
+  }
+  [data-theme="macos"] .t-navitem-active {
+    background: var(--glass-card-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-card);
+  }
+  [data-theme="hyprland"] .t-navitem-active {
+    border-left: 2px solid rgb(var(--c-accent));
+    box-shadow: var(--shadow-glow);
+  }
+  .t-navitem-active .t-navitem-icon {
+    color: rgb(var(--c-accent));
+  }
+
+  /* ── Dividers ── */
+  .t-divider {
+    border-color: rgb(var(--c-line));
+  }
+
+  /* ── Theme preview mock (settings cards) ── */
+  .theme-preview {
+    border-radius: var(--r-panel);
+    overflow: hidden;
+    border: 1px solid rgb(var(--c-line));
   }
 }

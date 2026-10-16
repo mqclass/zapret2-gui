@@ -341,6 +341,11 @@ export const en: Translations = {
     conflictsDesc: "Scan for background GoodbyeDPI or legacy Flowseal zapret services",
     conflictsBtn: "Scan & Resolve Conflicts",
     languageSection: "User Interface Language",
+    themeSection: "Interface Appearance",
+    themeMacosName: "macOS",
+    themeMacosDesc: "Frosted glass, soft corners, calm palette",
+    themeHyprlandName: "Hyprland",
+    themeHyprlandDesc: "Dark flat theme, dense layout, neon accent",
     creditsSection: "About & Credits",
     warningFakesTitle: "WARNING: OFFICIAL REPOSITORY & FAKE BUILDS",
     warningFakesBody:

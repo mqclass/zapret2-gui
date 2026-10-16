@@ -338,6 +338,11 @@ export interface Translations {
     conflictsDesc: string;
     conflictsBtn: string;
     languageSection: string;
+    themeSection: string;
+    themeMacosName: string;
+    themeMacosDesc: string;
+    themeHyprlandName: string;
+    themeHyprlandDesc: string;
     creditsSection: string;
     warningFakesTitle: string;
     warningFakesBody: string;

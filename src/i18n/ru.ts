@@ -341,6 +341,11 @@ export const ru: Translations = {
     conflictsDesc: "Проверка наличия запущенных служб GoodbyeDPI, Flowseal zapret или других прокси",
     conflictsBtn: "Сканировать и устранить конфликты",
     languageSection: "Язык интерфейса",
+    themeSection: "Оформление интерфейса",
+    themeMacosName: "macOS",
+    themeMacosDesc: "Матовое стекло, мягкие скругления, спокойная палитра",
+    themeHyprlandName: "Hyprland",
+    themeHyprlandDesc: "Тёмная плоская тема, плотная компоновка, неоновый акцент",
     creditsSection: "О программе и Авторские права",
     warningFakesTitle: "ОСТОРОЖНО: ОФИЦИАЛЬНЫЙ РЕПОЗИТОРИЙ И ФЕЙКИ",
     warningFakesBody:

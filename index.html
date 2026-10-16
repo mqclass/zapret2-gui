@@ -5,8 +5,18 @@
     <link rel="icon" type="image/x-icon" href="/src-tauri/icons/icon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>zapret2 Supervisor</title>
+    <script>
+      // Apply persisted UI theme before first paint (mirrors ThemeContext.initTheme).
+      try {
+        var t = localStorage.getItem("zapret2_theme");
+        document.documentElement.dataset.theme =
+          t === "hyprland" || t === "macos" ? t : "macos";
+      } catch (e) {
+        document.documentElement.dataset.theme = "macos";
+      }
+    </script>
   </head>
-  <body class="bg-slate-950 text-slate-100 antialiased select-none overflow-hidden">
+  <body class="bg-app text-ink antialiased select-none overflow-hidden">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
