@@ -17,6 +17,10 @@ use win32::privileges::{ensure_elevated, is_elevated};
 
 #[tokio::main]
 async fn main() {
+    // 0. WebView2 pre-flight: the UI cannot render without the system WebView2
+    //    runtime. Show a plain-language dialog instead of a raw framework error.
+    crate::win32::webview_check::ensure_webview2();
+
     // 1. Enforce Administrator elevation for WinDivert driver registration.
     //    If the user declines the UAC prompt, the app still starts but the UI shows
     //    an admin gate and engine start is refused until elevated (see start_supervisor).
