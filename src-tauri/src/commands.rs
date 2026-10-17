@@ -65,7 +65,8 @@ pub struct CachedBinaries {
 #[tauri::command]
 pub async fn get_system_status(state: State<'_, AppState>) -> Result<SystemStatusResponse, String> {
     let elevated = is_elevated().unwrap_or(false);
-    let supervisor_status = state.backend.read().clone().get_status().await;
+    let backend = state.backend.read().clone();
+    let supervisor_status = backend.get_status().await;
     let diag = state.diagnostics.get_report();
 
     // Cache resolved binaries in memory to eliminate repeated disk traversals,
@@ -133,9 +134,10 @@ pub struct SupervisorStatusResponse {
 /// Retrieves the lightweight supervisor heartbeat (state + elevation).
 #[tauri::command]
 pub async fn get_supervisor_status(state: State<'_, AppState>) -> Result<SupervisorStatusResponse, String> {
+    let backend = state.backend.read().clone();
     Ok(SupervisorStatusResponse {
         is_elevated: is_elevated().unwrap_or(false),
-        supervisor: state.backend.read().clone().get_status().await,
+        supervisor: backend.get_status().await,
     })
 }
 
@@ -155,7 +157,8 @@ pub async fn start_supervisor(
     // itself (and inside the svc), so tray/autostart callers get the same
     // protection. This command only translates the error for the UI
     // (ADMIN_REQUIRED -> admin modal).
-    if crate::svc_client::backend_needs_attach(&state.backend.read().clone()).await
+    let backend = state.backend.read().clone();
+    if crate::svc_client::backend_needs_attach(&backend).await
     {
         match crate::svc_client::ensure_svc_attached(std::time::Duration::from_secs(10)).await
         {
@@ -175,18 +178,15 @@ pub async fn start_supervisor(
             }
         }
     }
-    state
-        .backend
-        .read()
-        .clone()
-        .start(strategy_id, custom_args)
-        .await
+    let backend = state.backend.read().clone();
+    backend.start(strategy_id, custom_args).await
 }
 
 /// Stops the active `winws2.exe` instance and releases WinDivert.
 #[tauri::command]
 pub async fn stop_supervisor(state: State<'_, AppState>) -> Result<(), String> {
-    state.backend.read().clone().stop().await
+    let backend = state.backend.read().clone();
+    backend.stop().await
 }
 
 /// Retrieves the latest network probe diagnostics (YouTube TLS 1.3 & Discord).
@@ -209,13 +209,15 @@ pub async fn refresh_probes(state: State<'_, AppState>) -> Result<DiagnosticsRep
 /// Retrieves all buffered logs currently in the Ring Buffer.
 #[tauri::command]
 pub async fn get_logs(state: State<'_, AppState>) -> Result<Vec<LogEntry>, String> {
-    Ok(state.backend.read().clone().get_all_logs().await)
+    let backend = state.backend.read().clone();
+    Ok(backend.get_all_logs().await)
 }
 
 /// Clears the log ring buffer.
 #[tauri::command]
 pub async fn clear_logs(state: State<'_, AppState>) -> Result<(), String> {
-    state.backend.read().clone().clear_logs().await;
+    let backend = state.backend.read().clone();
+    backend.clear_logs().await;
     Ok(())
 }
 
@@ -229,7 +231,8 @@ pub async fn relaunch_elevated() -> Result<(), String> {
 /// protecting the actively running process from accidental termination.
 #[tauri::command]
 pub async fn kill_stray_processes(state: State<'_, AppState>) -> Result<usize, String> {
-    let active_pid = state.backend.read().clone().get_status().await.pid;
+    let backend = state.backend.read().clone();
+    let active_pid = backend.get_status().await.pid;
     let count = kill_stray_winws2_processes(active_pid);
     Ok(count)
 }
@@ -237,14 +240,16 @@ pub async fn kill_stray_processes(state: State<'_, AppState>) -> Result<usize, S
 /// Scans for conflicting DPI bypass processes and Windows services.
 #[tauri::command]
 pub async fn scan_conflicts(state: State<'_, AppState>) -> Result<Vec<ConflictItem>, String> {
-    let pid = state.backend.read().clone().get_status().await.pid;
+    let backend = state.backend.read().clone();
+    let pid = backend.get_status().await.pid;
     Ok(win32_scan_conflicts(pid))
 }
 
 /// Terminates conflicting DPI bypass processes and stops conflicting Windows services.
 #[tauri::command]
 pub async fn resolve_conflicts(state: State<'_, AppState>) -> Result<usize, String> {
-    let pid = state.backend.read().clone().get_status().await.pid;
+    let backend = state.backend.read().clone();
+    let pid = backend.get_status().await.pid;
     win32_resolve_all_conflicts(pid)
 }
 
@@ -274,11 +279,13 @@ pub async fn parse_args_string(raw: String) -> Result<Vec<String>, String> {
 /// supervisor and WinDivert first.
 #[tauri::command]
 pub async fn exit_app(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    let _ = state.tgproxy.read().clone().stop().await;
+    let tgproxy = state.tgproxy.read().clone();
+    let _ = tgproxy.stop().await;
     // A remote svc outlives the GUI by design (the bypass stays up); only
     // stop the engine when it runs in this process.
     if !state.backend.read().clone().is_remote() {
-        let _ = state.backend.read().clone().stop().await;
+        let backend = state.backend.read().clone();
+        let _ = backend.stop().await;
     }
     app.exit(0);
     Ok(())
@@ -477,7 +484,8 @@ pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
 /// Returns the Telegram bridge status snapshot (local or via svc pipe).
 #[tauri::command]
 pub async fn get_tgproxy_status(state: State<'_, AppState>) -> Result<TgProxyStatus, String> {
-    Ok(state.tgproxy.read().clone().get_status().await)
+    let tgproxy = state.tgproxy.read().clone();
+    Ok(tgproxy.get_status().await)
 }
 
 /// Starts the Telegram MTProto→WebSocket bridge (local or via svc pipe).
@@ -486,13 +494,15 @@ pub async fn start_tgproxy(state: State<'_, AppState>) -> Result<(), String> {
     // Same svc-migration policy as the Start button: prefer the svc when
     // its binary is available so the bridge outlives the GUI.
     ensure_tgproxy_backend(&state).await;
-    state.tgproxy.read().clone().start().await
+    let tgproxy = state.tgproxy.read().clone();
+    tgproxy.start().await
 }
 
 /// Stops the Telegram bridge.
 #[tauri::command]
 pub async fn stop_tgproxy(state: State<'_, AppState>) -> Result<(), String> {
-    state.tgproxy.read().clone().stop().await
+    let tgproxy = state.tgproxy.read().clone();
+    tgproxy.stop().await
 }
 
 /// Updates the Telegram proxy listen port and MTProto secret.
@@ -503,21 +513,24 @@ pub async fn set_tgproxy_config(
     port: u16,
     secret: String,
 ) -> Result<(), String> {
-    state.tgproxy.read().clone().set_config(port, secret).await
+    let tgproxy = state.tgproxy.read().clone();
+    tgproxy.set_config(port, secret).await
 }
 
 /// Generates a fresh CSPRNG secret for the Telegram proxy.
 /// Refused while the bridge is running.
 #[tauri::command]
 pub async fn regenerate_tgproxy_secret(state: State<'_, AppState>) -> Result<String, String> {
-    state.tgproxy.read().clone().regenerate_secret().await
+    let tgproxy = state.tgproxy.read().clone();
+    tgproxy.regenerate_secret().await
 }
 
 /// Sets the Telegram bridge connection mode: "auto", "cfproxy" or "direct".
 /// Refused while the bridge is running (it reads the mode only at startup).
 #[tauri::command]
 pub async fn set_tgproxy_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
-    state.tgproxy.read().clone().set_mode(mode).await
+    let tgproxy = state.tgproxy.read().clone();
+    tgproxy.set_mode(mode).await
 }
 
 /// Honest end-to-end test of the Telegram bridge: handshake through the
@@ -525,20 +538,16 @@ pub async fn set_tgproxy_mode(state: State<'_, AppState>, mode: String) -> Resul
 /// milliseconds. Fails with the broken step named when the chain is down.
 #[tauri::command]
 pub async fn test_tgproxy_connection(state: State<'_, AppState>) -> Result<u64, String> {
-    Ok(state
-        .tgproxy
-        .read()
-        .clone()
-        .test_connection()
-        .await
-        .map(|d| d.as_millis() as u64)?)
+    let tgproxy = state.tgproxy.read().clone();
+    Ok(tgproxy.test_connection().await.map(|d| d.as_millis() as u64)?)
 }
 
 /// Toggles LAN access for the Telegram bridge (bind 0.0.0.0 so phones on
 /// the local network can use it). Refused while the bridge is running.
 #[tauri::command]
 pub async fn set_tgproxy_lan(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
-    state.tgproxy.read().clone().set_lan(enabled).await
+    let tgproxy = state.tgproxy.read().clone();
+    tgproxy.set_lan(enabled).await
 }
 
 /// Migrates the Telegram-bridge backend to follow the supervisor backend:
@@ -765,7 +774,8 @@ pub async fn export_diagnostics_bundle(
 
     // 3. Supervisor state.
     let _ = writeln!(out, "----- supervisor -----");
-    let status = state.backend.read().clone().get_status().await;
+    let backend = state.backend.read().clone();
+    let status = backend.get_status().await;
     let _ = writeln!(out, "state: {:?}", status.state);
     let _ = writeln!(out, "pid: {:?}", status.pid);
     let _ = writeln!(out);
@@ -784,7 +794,8 @@ pub async fn export_diagnostics_bundle(
 
     // 5. Recent engine logs (last 200 entries).
     let _ = writeln!(out, "----- engine logs (last 200) -----");
-    let logs = state.backend.read().clone().get_all_logs().await;
+    let backend = state.backend.read().clone();
+    let logs = backend.get_all_logs().await;
     let tail: Vec<_> = logs.iter().rev().take(200).collect();
     if tail.is_empty() {
         let _ = writeln!(out, "<no logs buffered>");
@@ -815,7 +826,8 @@ pub async fn set_split_tunnel_mode(
 pub async fn run_auto_doctor(
     state: State<'_, AppState>,
 ) -> Result<crate::win32::doctor::DoctorReport, String> {
-    let status = state.backend.read().clone().get_status().await;
+    let backend = state.backend.read().clone();
+    let status = backend.get_status().await;
     // Never let the doctor tear the WinDivert driver down from under a running engine.
     let engine_running = status.state == SupervisorState::Running;
     Ok(crate::win32::doctor::run_auto_doctor(status.pid, engine_running).await)
@@ -884,7 +896,8 @@ pub async fn download_update(app: tauri::AppHandle) -> Result<String, String> {
 pub async fn install_update(state: State<'_, AppState>) -> Result<(), String> {
     // Fail fast when the engine is running: installing over a live engine
     // (local or svc) would rename files out from under it.
-    let engine_state = state.backend.read().clone().get_status().await.state;
+    let backend = state.backend.read().clone();
+    let engine_state = backend.get_status().await.state;
     let sidecars = state.sidecars.clone();
     tokio::task::spawn_blocking(move || {
         crate::win32::updater::install_update(engine_state, &sidecars)
