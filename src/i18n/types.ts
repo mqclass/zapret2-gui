@@ -448,6 +448,10 @@ export interface Translations {
     hint: string;
     defaultStrategy: string;
     checkingConnection: string;
+    startBypass: string;
+    stopBypass: string;
+    pleaseWait: string;
+
   };
   telegram: {
     title: string;
@@ -492,6 +496,7 @@ export interface Translations {
     notifyStoppedTitle: string;
     notifyStoppedBody: string;
     notifyErrorTitle: string;
+
   },
   transports: {
     title: string;

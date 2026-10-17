@@ -21,6 +21,8 @@ import {
 } from "../../types";
 import { useI18n } from "../../i18n";
 import { SplitTunnelBar } from "../SplitTunnelBar";
+import { HeroOrb, OrbState } from "../HeroOrb";
+import { Sparkline } from "../Sparkline";
 import { UpdateBanner } from "../UpdateBanner";
 import { NavTab } from "../Sidebar";
 
@@ -64,10 +66,32 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
   }) => {
     const { t } = useI18n();
 
+    // Rolling ping history for sparklines (real probe data, 40 samples).
+    const pingHist = React.useRef<Record<string, (number | null)[]>>({});
+    const pushPing = (key: string, v: number | null) => {
+      const h = pingHist.current[key] ?? [];
+      h.push(v);
+      if (h.length > 40) h.shift();
+      pingHist.current[key] = h;
+      return h;
+    };
+    const ytHist = pushPing("yt", diagnostics.youtube.latency_ms);
+    const dcHist = pushPing("dc", diagnostics.discord.latency_ms);
+
     const isRunning = status.state === "running";
     const isStarting = status.state === "starting";
     const isStopping = status.state === "stopping";
     const isTransitioning = isStarting || isStopping;
+    const orbState: OrbState = isRunning
+      ? "connected"
+      : isTransitioning
+      ? "connecting"
+      : "idle";
+    const orbLabel = isRunning
+      ? t.dashboard.stopBypass
+      : isTransitioning
+      ? t.dashboard.pleaseWait
+      : t.dashboard.startBypass;
 
     const activeStrat = strategies.find((s) => s.id === status.active_strategy);
     const selectedStrat = strategies.find((s) => s.id === selectedStrategyId);
@@ -157,35 +181,14 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               </div>
             </div>
 
-            {/* Main Power Toggle Button */}
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={isRunning ? onStop : onStart}
+            {/* Hero Power Orb */}
+            <div className="flex items-center justify-center md:justify-end md:pr-4">
+              <HeroOrb
+                state={orbState}
+                onToggle={isRunning ? onStop : onStart}
                 disabled={isTransitioning}
-                className={`relative flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-panel text-sm font-semibold tracking-wide transition-all shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isRunning
-                    ? "bg-danger-fill hover:bg-danger-fill-hover text-white active:scale-[0.98]"
-                    : "bg-accent-fill hover:bg-accent-fill-hover text-accent-contrast active:scale-[0.98]"
-                }`}
-              >
-                {isTransitioning ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Подождите...</span>
-                  </>
-                ) : isRunning ? (
-                  <>
-                    <Square className="h-4 w-4 fill-current" />
-                    <span>ОСТАНОВИТЬ ОБХОД</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4 fill-current" />
-                    <span>ЗАПУСТИТЬ ОБХОД</span>
-                  </>
-                )}
-              </button>
+                label={orbLabel}
+              />
             </div>
           </div>
 
@@ -203,7 +206,10 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
         {/* Live Service Diagnostics Quick Matrix */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* YouTube Probe Card */}
-          <div className="rounded-panel border border-line bg-card p-4 flex items-center justify-between">
+          <div
+            className="rounded-panel border border-line bg-card p-4 flex items-center justify-between hover-lift stagger-item"
+            style={{ "--stagger-i": 0 } as React.CSSProperties}
+          >
             <div className="flex items-center gap-3.5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-panel bg-red-500/10 border border-red-500/20 text-red-400">
                 <Tv className="h-5 w-5" />
@@ -226,7 +232,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                 </p>
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right flex flex-col items-end gap-1">
               {diagnostics.youtube.latency_ms !== null ? (
                 <span className="text-xs font-mono font-semibold text-emerald-400">
                   {diagnostics.youtube.latency_ms} ms
@@ -234,11 +240,15 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               ) : (
                 <span className="text-xs font-mono text-ink5">—</span>
               )}
+              <Sparkline values={ytHist} width={110} height={30} />
             </div>
           </div>
 
           {/* Discord Voice & Gateway Probe Card */}
-          <div className="rounded-panel border border-line bg-card p-4 flex items-center justify-between">
+          <div
+            className="rounded-panel border border-line bg-card p-4 flex items-center justify-between hover-lift stagger-item"
+            style={{ "--stagger-i": 1 } as React.CSSProperties}
+          >
             <div className="flex items-center gap-3.5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-panel bg-accent-wash border border-accent-line text-accent">
                 <Mic className="h-5 w-5" />
@@ -261,7 +271,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                 </p>
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right flex flex-col items-end gap-1">
               {diagnostics.discord.latency_ms !== null ? (
                 <span className="text-xs font-mono font-semibold text-emerald-400">
                   {diagnostics.discord.latency_ms} ms
@@ -269,6 +279,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               ) : (
                 <span className="text-xs font-mono text-ink5">—</span>
               )}
+              <Sparkline values={dcHist} width={110} height={30} />
             </div>
           </div>
         </div>

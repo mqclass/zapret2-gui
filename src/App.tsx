@@ -767,6 +767,7 @@ const AppContent: React.FC = () => {
             isTogglingAutostart={isTogglingAutostart}
             onKillStray={handleKillStray}
             isStrayCleaning={isStrayCleaning}
+            onNavigateTab={setActiveTab}
           />
         </div>
 

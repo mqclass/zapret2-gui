@@ -458,6 +458,10 @@ export const en: Translations = {
     hint: "Select a preset or tunneling mode and press the start button.",
     defaultStrategy: "Default",
     checkingConnection: "Checking connection...",
+    startBypass: "Start bypass",
+    stopBypass: "Stop bypass",
+    pleaseWait: "Please wait...",
+
   },
   telegram: {
     title: "Telegram mode",

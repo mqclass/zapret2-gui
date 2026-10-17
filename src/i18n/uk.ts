@@ -458,6 +458,10 @@ export const uk: Translations = {
     hint: "Виберіть потрібний пресет або режим тунелювання та натисніть кнопку запуску.",
     defaultStrategy: "Стандартний",
     checkingConnection: "Перевірка зв'язку...",
+    startBypass: "Запустити обхід",
+    stopBypass: "Зупинити обхід",
+    pleaseWait: "Зачекайте...",
+
   },
   telegram: {
     title: "Telegram-режим",

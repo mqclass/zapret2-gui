@@ -458,6 +458,10 @@ export const ru: Translations = {
     hint: "Выберите нужный пресет или режим туннелирования и нажмите кнопку запуска.",
     defaultStrategy: "Стандартный",
     checkingConnection: "Проверка связи...",
+    startBypass: "Запустить обход",
+    stopBypass: "Остановить обход",
+    pleaseWait: "Подождите...",
+
   },
   telegram: {
     title: "Telegram-режим",
