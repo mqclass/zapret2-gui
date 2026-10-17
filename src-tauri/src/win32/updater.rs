@@ -40,7 +40,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
 use crate::engine::managed::ManagedSidecar;
-use crate::engine::supervisor::{Supervisor, SupervisorState};
+use crate::engine::supervisor::SupervisorState;
 use crate::win32::settings::{load_settings, save_settings};
 
 /// GitHub API endpoint for the latest zapret2-gui release.
@@ -713,6 +713,11 @@ pub fn install_update(
 ) -> Result<(), String> {
     check_engines_stopped(engine_state, sidecars)?;
 
+    // Stop a running svc before the file swap: its exe cannot be replaced
+    // while the process is alive, and an old svc would otherwise keep
+    // serving the new GUI from the pipe (version skew).
+    crate::svc_client::shutdown_svc_blocking();
+
     let staged = STAGED_UPDATE
         .write()
         .take()
@@ -791,7 +796,7 @@ pub fn install_update(
 
     // Narrow the TOCTOU window on the engine state: re-check immediately
     // before the first rename of the swap.
-    check_engines_stopped(supervisor, sidecars)?;
+    check_engines_stopped(engine_state, sidecars)?;
 
     let backup_name = match install_dir.file_name() {
         Some(n) => format!("{}.bak", n.to_string_lossy()),

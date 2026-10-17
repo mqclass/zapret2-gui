@@ -44,6 +44,9 @@ pub enum ClientMessage {
     ClearLogs,
     /// Start receiving [`ServerMessage::Event`] lines on this connection.
     Subscribe,
+    /// Graceful shutdown: stop the engine and terminate the svc process.
+    /// Used by the updater/installer so the exe can be replaced.
+    Shutdown,
 }
 
 /// A reply or pushed event from the service.

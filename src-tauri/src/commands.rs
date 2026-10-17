@@ -153,8 +153,7 @@ pub async fn start_supervisor(
     // itself (and inside the svc), so tray/autostart callers get the same
     // protection. This command only translates the error for the UI
     // (ADMIN_REQUIRED -> admin modal).
-    if !state.backend.read().clone().is_remote()
-        && crate::svc_client::find_svc_exe().is_some()
+    if crate::svc_client::backend_needs_attach(&state.backend.read().clone()).await
     {
         match crate::svc_client::ensure_svc_attached(std::time::Duration::from_secs(10)).await
         {

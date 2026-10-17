@@ -127,8 +127,10 @@ async fn main() {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
                     // Migrate to the detached svc when its binary is present.
-                    if !backend_auto.read().clone().is_remote()
-                        && crate::svc_client::find_svc_exe().is_some()
+                    if crate::svc_client::backend_needs_attach(
+                        &backend_auto.read().clone(),
+                    )
+                    .await
                     {
                         if let Ok(client) = crate::svc_client::ensure_svc_attached(
                             std::time::Duration::from_secs(10),
@@ -195,8 +197,10 @@ async fn main() {
                             let h = app_h.clone();
                             tokio::spawn(async move {
                                 // Same svc-migration policy as the Start button.
-                                if !backend.read().clone().is_remote()
-                                    && crate::svc_client::find_svc_exe().is_some()
+                                if crate::svc_client::backend_needs_attach(
+                                    &backend.read().clone(),
+                                )
+                                .await
                                 {
                                     if let Ok(client) =
                                         crate::svc_client::ensure_svc_attached(

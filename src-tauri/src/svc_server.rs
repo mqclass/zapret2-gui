@@ -157,21 +157,33 @@ async fn handle_client(
                         }
                         let _ = write_msg(&writer, &ServerMessage::ok()).await;
                     }
+                    ClientMessage::Shutdown => {
+                        let _ = write_msg(&writer, &ServerMessage::ok()).await;
+                        // Graceful: stop the engine (Job Object kills winws2),
+                        // then terminate. The updater waits for the pipe to
+                        // vanish before replacing files.
+                        let _ = supervisor.stop().await;
+                        std::process::exit(0);
+                    }
                 }
             }
             // Forward broadcast events on the subscribed receiver, if any.
             ev = async {
                 match event_rx.as_mut() {
-                    Some(rx) => rx.recv().await.map_err(|_| ()),
+                    Some(rx) => Some(rx.recv().await),
                     None => std::future::pending().await,
                 }
             } => {
-                if let Ok(ev) = ev {
-                    if write_msg(&writer, &ServerMessage::Event(ev)).await.is_err() {
-                        break;
+                match ev {
+                    Some(Ok(ev)) => {
+                        if write_msg(&writer, &ServerMessage::Event(ev)).await.is_err() {
+                            break;
+                        }
                     }
-                } else {
-                    break; // broadcast channel closed
+                    // Slow client: drop the missed events, keep the subscription alive.
+                    Some(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                    // Channel closed or no subscription: done.
+                    _ => break,
                 }
             }
         }

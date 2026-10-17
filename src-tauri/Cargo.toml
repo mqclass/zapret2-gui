@@ -5,6 +5,10 @@ description = "zapret2 Windows DPI Bypass Utility"
 authors = ["zapret2-gui"]
 edition = "2021"
 
+[[bin]]
+name = "zapret2-svc"
+path = "src/bin/svc.rs"
+
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
 embed-resource = "2.5"

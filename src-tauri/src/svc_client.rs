@@ -138,6 +138,16 @@ impl SvcClient {
         Self::into_response(msg).map(|_| ())
     }
 
+    /// Asks the svc to stop its engine and terminate. Used by the
+    /// updater/installer so the svc executable can be replaced.
+    pub async fn shutdown(&self) -> Result<(), String> {
+        let msg = self
+            .roundtrip(&ClientMessage::Shutdown)
+            .await
+            .map_err(|e| e.to_string())?;
+        Self::into_response(msg).map(|_| ())
+    }
+
     /// Subscribes on a dedicated connection and re-emits every [`SvcEvent`]
     /// as a Tauri frontend event using the exact channel names the UI
     /// already listens to — the frontend needs no changes.
@@ -325,6 +335,42 @@ pub fn spawn_svc_detached(path: &PathBuf) -> io::Result<()> {
         .stderr(std::process::Stdio::null())
         .spawn()?;
     Ok(())
+}
+
+/// Synchronously asks a running svc to shut down, then waits for its pipe
+/// to vanish. For the updater/installer: the svc exe cannot be replaced
+/// while the process is alive. Best-effort and silent when no svc runs.
+///
+/// Must be called from a blocking thread (e.g. inside `spawn_blocking`).
+pub fn shutdown_svc_blocking() {
+    let handle = match tokio::runtime::Handle::try_current() {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let _ = tokio::task::block_in_place(|| {
+        handle.block_on(async {
+            let client = match SvcClient::connect().await {
+                Ok(c) => c,
+                Err(_) => return, // no svc running
+            };
+            let _ = client.shutdown().await;
+            for _ in 0..50 {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                if SvcClient::connect().await.is_err() {
+                    break;
+                }
+            }
+        })
+    });
+}
+
+/// True when the backend needs (re-)attachment: local mode with a svc
+/// binary available, or remote mode with a dead pipe (svc died under us).
+pub async fn backend_needs_attach(backend: &SupervisorBackend) -> bool {
+    match backend {
+        SupervisorBackend::Local(_) => find_svc_exe().is_some(),
+        SupervisorBackend::Remote(c) => c.hello().await.is_err(),
+    }
 }
 
 /// Attach to a running svc, spawning it first if necessary. Polls the pipe

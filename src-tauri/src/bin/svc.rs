@@ -55,16 +55,19 @@ async fn main() {
         return;
     }
 
-    if !claim_single_instance() {
-        eprintln!("zapret2-svc is already running.");
-        std::process::exit(11);
-    }
-
     // The engine needs admin rights for WinDivert/WFP. If we are not elevated,
     // this relaunches zapret2-svc.exe via UAC and terminates this copy.
+    // Done BEFORE the single-instance claim: a non-elevated process cannot
+    // create a mutex in the Global\ namespace, which would misleadingly
+    // report "already running".
     if let Err(e) = win32::privileges::ensure_elevated() {
         eprintln!("zapret2-svc requires administrator rights: {e}");
         std::process::exit(12);
+    }
+
+    if !claim_single_instance() {
+        eprintln!("zapret2-svc is already running.");
+        std::process::exit(11);
     }
 
     let supervisor = Arc::new(
