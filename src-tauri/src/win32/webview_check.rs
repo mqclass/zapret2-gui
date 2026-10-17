@@ -16,7 +16,8 @@
 use windows::core::{w, HSTRING, PCWSTR};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Registry::{
-    RegGetValueW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ,
+    RegGetValueW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_EXPAND_SZ,
+    RRF_RT_REG_SZ,
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -26,10 +27,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 /// WebView2 Runtime client product ID as registered by the EdgeUpdate service.
 const WEBVIEW2_CLIENT_ID: &str = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
-/// Minimum supported runtime: 120.x. Older runtimes lack WebView2 APIs that
-/// wry/Tauri v2 rely on; the evergreen updater keeps real installs far above.
+/// Recommended floor: 120.x. Not a documented hard requirement of wry/Tauri v2
+/// (the runtime itself works from ~92), just a sane recency line: anything older
+/// is years behind evergreen and deserves a nudge. The warning is soft — the
+/// user may always continue.
 const MIN_WEBVIEW2_VERSION: (u32, u32, u32, u32) = (120, 0, 0, 0);
 const DOWNLOAD_URL: &str = "https://developer.microsoft.com/microsoft-edge/webview2/";
+/// Process exit code when WebView2 is missing entirely.
+const EXIT_NO_WEBVIEW2: i32 = 3;
+/// Process exit code when the user declines to continue with an outdated WebView2.
+const EXIT_WEBVIEW2_DECLINED: i32 = 4;
 
 fn registry_version(hkey: HKEY, subkey: &HSTRING) -> Option<String> {
     unsafe {
@@ -39,7 +46,7 @@ fn registry_version(hkey: HKEY, subkey: &HSTRING) -> Option<String> {
             hkey,
             PCWSTR(subkey.as_ptr()),
             w!("pv"),
-            RRF_RT_REG_SZ,
+            RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ,
             None,
             Some(buf.as_mut_ptr() as *mut _),
             Some(&mut len),
@@ -114,9 +121,9 @@ fn open_download_page() {
     }
 }
 
-/// Pre-flight WebView2 check. Returns `true` when the app may continue,
-/// or terminates the process after showing a user-facing dialog.
-pub fn ensure_webview2() -> bool {
+/// Pre-flight WebView2 check. Returns only when the app may continue;
+/// otherwise shows a user-facing dialog and terminates the process.
+pub fn ensure_webview2() {
     match installed_webview2_version() {
         None => {
             let title = HSTRING::from("zapret2-gui — нужен WebView2");
@@ -129,7 +136,7 @@ pub fn ensure_webview2() -> bool {
             if msg_box(&title, &text, MB_OKCANCEL | MB_ICONERROR) == IDOK.0 {
                 open_download_page();
             }
-            std::process::exit(3);
+            std::process::exit(EXIT_NO_WEBVIEW2);
         }
         Some(ver) => {
             let too_old = parse_version(&ver)
@@ -144,10 +151,9 @@ pub fn ensure_webview2() -> bool {
                     ver, MIN_WEBVIEW2_VERSION.0
                 ));
                 if msg_box(&title, &text, MB_YESNO | MB_ICONWARNING) != IDYES.0 {
-                    std::process::exit(4);
+                    std::process::exit(EXIT_WEBVIEW2_DECLINED);
                 }
             }
-            true
         }
     }
 }
