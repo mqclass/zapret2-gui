@@ -295,8 +295,6 @@ async fn write_msg(
 /// The SDDL is deliberately small and auditable:
 /// `D:P` (protected DACL) + full access for SY / BA / OW.
 fn create_secure_pipe() -> std::io::Result<NamedPipeServer> {
-    use std::os::windows::io::FromRawHandle;
-
     unsafe {
         // SDDL: D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)
         let sddl: Vec<u16> = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)"
