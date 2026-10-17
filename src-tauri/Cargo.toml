@@ -46,6 +46,7 @@ features = [
     # L-3: DPAPI (CryptProtectData) for the MTProto secret at rest.
     "Win32_Security_Cryptography",
     "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
     "Win32_System_Registry",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Services",
