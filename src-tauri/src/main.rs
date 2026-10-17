@@ -121,7 +121,10 @@ async fn main() {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                 let enabled = crate::win32::settings::load_settings().tgproxy_enabled;
                 if enabled {
-                    if let Err(e) = tgproxy_auto.read().clone().start().await {
+                    // Drop the parking_lot guard before .await: the guard is
+                    // not Send, and spawn requires a Send future.
+                    let tgproxy = tgproxy_auto.read().clone();
+                    if let Err(e) = tgproxy.start().await {
                         eprintln!("Warning: Failed to auto-start Telegram proxy: {}", e);
                     }
                 }
@@ -165,7 +168,8 @@ async fn main() {
                             });
                         }
                     }
-                    if let Err(e) = backend_auto.read().clone().start(None, None).await {
+                    let b = backend_auto.read().clone();
+                    if let Err(e) = b.start(None, None).await {
                         eprintln!("Warning: Failed to auto-start bypass on boot: {}", e);
                     }
                 });
@@ -243,13 +247,15 @@ async fn main() {
                                         );
                                     }
                                 }
-                                let _ = backend.read().clone().start(None, None).await;
+                                let b = backend.read().clone();
+                                let _ = b.start(None, None).await;
                             });
                         }
                         "stop" => {
                             let backend = app_h.state::<crate::commands::AppState>().backend.clone();
                             tokio::spawn(async move {
-                                let _ = backend.read().clone().stop().await;
+                                let b = backend.read().clone();
+                                let _ = b.stop().await;
                             });
                         }
                         "quit" => {
@@ -260,11 +266,13 @@ async fn main() {
                                 // A remote svc outlives the GUI by design (the bypass
                                 // and the bridge stay up); only stop what runs
                                 // in this process.
-                                if !tgp.read().clone().is_remote() {
-                                    let _ = tgp.read().clone().stop().await;
+                                let t = tgp.read().clone();
+                                if !t.is_remote() {
+                                    let _ = t.stop().await;
                                 }
-                                if !backend.read().clone().is_remote() {
-                                    let _ = backend.read().clone().stop().await;
+                                let b = backend.read().clone();
+                                if !b.is_remote() {
+                                    let _ = b.stop().await;
                                 }
                                 h.exit(0);
                             });
