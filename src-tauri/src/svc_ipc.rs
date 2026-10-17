@@ -18,13 +18,17 @@ use crate::engine::{DiagnosticsReport, LogEntry, SupervisorState, SupervisorStat
 pub const SVC_PIPE_NAME: &str = r"\\.\pipe\zapret2-svc";
 /// Named mutex used for single-instance enforcement of the svc process.
 pub const SVC_SINGLE_INSTANCE_MUTEX: &str = "Global\\zapret2-svc-single-instance";
+/// IPC protocol version. Bumped on any breaking change; the Hello handshake
+/// rejects mismatched peers instead of miscommunicating silently.
+pub const PROTOCOL_VERSION: u32 = 1;
 
 /// A command sent by a GUI client to the service.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 pub enum ClientMessage {
-    /// Health check.
-    Ping,
+    /// Version handshake. The server rejects unknown versions instead of
+    /// miscommunicating; the reply carries an atomic status snapshot.
+    Hello { version: u32 },
     /// Full supervisor snapshot.
     GetStatus,
     /// Start the bypass engine.
@@ -46,6 +50,11 @@ pub enum ClientMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ServerMessage {
+    /// Answer to the Hello handshake: protocol version + atomic snapshot.
+    Welcome {
+        version: u32,
+        status: SupervisorStatus,
+    },
     /// Response to a command. `ok: false` carries a human-readable error.
     Response {
         ok: bool,

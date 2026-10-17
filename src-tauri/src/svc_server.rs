@@ -11,12 +11,20 @@
 use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+use tokio::net::windows::named_pipe::NamedPipeServer;
 use tokio::sync::{broadcast, Mutex};
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{LocalFree, INVALID_HANDLE_VALUE};
+use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
+use windows::Win32::System::Pipes::{
+    CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+};
 
 use crate::engine::{EventSink, LogEntry, Supervisor, SupervisorState};
 use crate::svc_ipc::{
-    ClientMessage, ServerMessage, SvcEvent, SVC_PIPE_NAME,
+    ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION, SVC_PIPE_NAME,
 };
 use crate::engine::DiagnosticsReport;
 
@@ -83,8 +91,25 @@ async fn handle_client(
                     }
                 };
                 match msg {
-                    ClientMessage::Ping => {
-                        let _ = write_msg(&writer, &ServerMessage::ok()).await;
+                    ClientMessage::Hello { version } => {
+                        if version != PROTOCOL_VERSION {
+                            let _ = write_msg(
+                                &writer,
+                                &ServerMessage::err(format!(
+                                    "protocol version mismatch: client={version}, svc={PROTOCOL_VERSION}"
+                                )),
+                            )
+                            .await;
+                        } else {
+                            let _ = write_msg(
+                                &writer,
+                                &ServerMessage::Welcome {
+                                    version: PROTOCOL_VERSION,
+                                    status: supervisor.get_status(),
+                                },
+                            )
+                            .await;
+                        }
                     }
                     ClientMessage::GetStatus => {
                         let _ = write_msg(&writer, &ServerMessage::Response {
@@ -164,6 +189,62 @@ async fn write_msg(
     w.flush().await
 }
 
+/// Creates one pipe instance with a restrictive DACL: only SYSTEM, the
+/// Administrators group, and the owning user may connect. Without this, the
+/// default descriptor would let any local process drive an elevated
+/// supervisor (start/stop the bypass, read the log stream).
+///
+/// The SDDL is deliberately small and auditable:
+/// `D:P` (protected DACL) + full access for SY / BA / OW.
+fn create_secure_pipe() -> std::io::Result<NamedPipeServer> {
+    use std::os::windows::io::FromRawHandle;
+
+    unsafe {
+        // SDDL: D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)
+        let sddl: Vec<u16> = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let name: Vec<u16> = SVC_PIPE_NAME
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let mut sd = PSECURITY_DESCRIPTOR::default();
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            PCWSTR(sddl.as_ptr()),
+            1, // SDDL_REVISION_1
+            &mut sd,
+            None,
+        )
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e.to_string()))?;
+
+        let sa = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: sd.0,
+            bInheritHandle: false.into(),
+        };
+
+        let handle = CreateNamedPipeW(
+            PCWSTR(name.as_ptr()),
+            PIPE_ACCESS_DUPLEX,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            PIPE_UNLIMITED_INSTANCES,
+            65536,
+            65536,
+            0,
+            Some(&sa),
+        );
+        // The pipe captured the descriptor; free our copy.
+        let _ = LocalFree(windows::Win32::Foundation::HLOCAL(sd.0));
+
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(std::io::Error::last_os_error());
+        }
+        NamedPipeServer::from_raw_handle(handle.0 as *mut std::ffi::c_void)
+    }
+}
+
 /// Runs the pipe server until the process exits. Each loop iteration creates a
 /// fresh pipe instance, waits for one client, and hands it to its own task —
 /// the standard multi-client named-pipe pattern.
@@ -171,7 +252,7 @@ pub async fn run_pipe_server(supervisor: Arc<Supervisor>, event_tx: broadcast::S
     use std::time::Duration;
 
     loop {
-        let server = match ServerOptions::new().create(SVC_PIPE_NAME) {
+        let server = match create_secure_pipe() {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("svc: cannot create named pipe {SVC_PIPE_NAME}: {e}");

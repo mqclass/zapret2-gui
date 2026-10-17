@@ -50,4 +50,8 @@ features = [
     "Win32_System_Registry",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Services",
+    # svc-split: CreateNamedPipeW + SDDL DACL for the IPC pipe.
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    "Win32_Security_Authorization",
 ]

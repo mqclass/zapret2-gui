@@ -17,7 +17,7 @@ use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::Mutex;
 
 use crate::engine::{LogEntry, Supervisor, SupervisorStatus};
-use crate::svc_ipc::{ClientMessage, ServerMessage, SvcEvent, SVC_PIPE_NAME};
+use crate::svc_ipc::{ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION, SVC_PIPE_NAME};
 
 /// Connected client to a running svc instance. Commands are serialized
 /// through a mutex: one in-flight request at a time.
@@ -33,11 +33,25 @@ impl SvcClient {
         })
     }
 
-    /// Quick liveness check: the pipe accepts connections and speaks the protocol.
-    pub async fn ping(&self) -> io::Result<()> {
-        match self.roundtrip(&ClientMessage::Ping).await? {
-            ServerMessage::Response { ok: true, .. } => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "bad ping response")),
+    /// Version handshake + liveness check. Returns the svc's atomic status
+    /// snapshot; rejects the peer on protocol mismatch instead of
+    /// miscommunicating silently.
+    pub async fn hello(&self) -> io::Result<SupervisorStatus> {
+        match self
+            .roundtrip(&ClientMessage::Hello {
+                version: PROTOCOL_VERSION,
+            })
+            .await?
+        {
+            ServerMessage::Welcome { version, status } if version == PROTOCOL_VERSION => Ok(status),
+            ServerMessage::Response { ok: false, error, .. } => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                error.unwrap_or_else(|| "hello rejected".to_string()),
+            )),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "bad hello response",
+            )),
         }
     }
 
@@ -62,12 +76,11 @@ impl SvcClient {
 
     fn into_response(msg: ServerMessage) -> Result<ServerMessage, String> {
         match msg {
-            ServerMessage::Response {
-                ok: true, ..
-            } => Ok(msg),
+            ServerMessage::Response { ok: true, .. } => Ok(msg),
             ServerMessage::Response {
                 ok: false, error, ..
             } => Err(error.unwrap_or_else(|| "svc error".to_string())),
+            ServerMessage::Welcome { .. } => Err("unexpected welcome".to_string()),
             ServerMessage::Event(_) => Err("unexpected event".to_string()),
         }
     }
@@ -295,12 +308,18 @@ pub fn find_svc_exe() -> Option<PathBuf> {
 }
 
 /// Spawn the svc detached so it outlives this GUI process.
+///
+/// `CREATE_BREAKAWAY_FROM_JOB` is the critical flag: if this GUI ever runs
+/// inside a Job Object, the child must not inherit it — otherwise killing the
+/// GUI's job would take the svc (and the bypass) down with it, defeating the
+/// entire split. No-op when no job is present.
 pub fn spawn_svc_detached(path: &PathBuf) -> io::Result<()> {
     use std::os::windows::process::CommandExt;
     const DETACHED_PROCESS: u32 = 0x00000008;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
+    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
     std::process::Command::new(path)
-        .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+        .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -313,7 +332,7 @@ pub fn spawn_svc_detached(path: &PathBuf) -> io::Result<()> {
 pub async fn ensure_svc_attached(timeout: Duration) -> Result<Arc<SvcClient>, String> {
     // Fast path: svc already running.
     if let Ok(client) = SvcClient::connect().await {
-        if client.ping().await.is_ok() {
+        if client.hello().await.is_ok() {
             return Ok(Arc::new(client));
         }
     }
@@ -324,7 +343,7 @@ pub async fn ensure_svc_attached(timeout: Duration) -> Result<Arc<SvcClient>, St
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         if let Ok(client) = SvcClient::connect().await {
-            if client.ping().await.is_ok() {
+            if client.hello().await.is_ok() {
                 return Ok(Arc::new(client));
             }
         }

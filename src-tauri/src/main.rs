@@ -85,7 +85,7 @@ async fn main() {
                 let handle_clone = handle.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Ok(client) = crate::svc_client::SvcClient::connect().await {
-                        if client.ping().await.is_ok() {
+                        if client.hello().await.is_ok() {
                             *backend.write() =
                                 crate::svc_client::SupervisorBackend::Remote(std::sync::Arc::new(client));
                             tauri::async_runtime::spawn(
