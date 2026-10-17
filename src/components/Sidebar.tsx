@@ -1,5 +1,4 @@
 import React, { useCallback } from "react";
-import { motion } from "framer-motion";
 import {
   Shield,
   Zap,
@@ -145,13 +144,6 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                 onClick={() => onTabChange(item.id)}
                 className={`t-navitem ${isActive ? "t-navitem-active" : ""}`}
               >
-                {isActive && (
-                  <motion.span
-                    layoutId="sidebar-active-pill"
-                    className="nav-active-pill"
-                    transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.9 }}
-                  />
-                )}
                 <span className="relative flex items-center gap-2.5">
                   <span className="t-navitem-icon">
                     {item.icon}

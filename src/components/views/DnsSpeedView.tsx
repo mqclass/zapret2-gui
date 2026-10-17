@@ -432,7 +432,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div className="space-y-1">
-              <label className="text-[10px] font-medium text-ink4">{t.dns.customNameLabel}</label>
+              <label className="text-[10px] font-medium text-ink4 min-h-8 flex items-end">{t.dns.customNameLabel}</label>
               <input
                 type="text"
                 value={customName}
@@ -443,7 +443,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] font-medium text-ink4">{t.dns.customPrimaryLabel}</label>
+              <label className="text-[10px] font-medium text-ink4 min-h-8 flex items-end">{t.dns.customPrimaryLabel}</label>
               <input
                 type="text"
                 value={customPrimary}
@@ -454,7 +454,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] font-medium text-ink4">{t.dns.customSecondaryLabel}</label>
+              <label className="text-[10px] font-medium text-ink4 min-h-8 flex items-end">{t.dns.customSecondaryLabel}</label>
               <input
                 type="text"
                 value={customSecondary}

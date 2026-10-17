@@ -269,7 +269,8 @@ impl TgProxyManager {
     /// controls: port, bind host, secret and connection mode.
     ///
     /// The mode pins the upstream tier order: "auto" leaves the library's
-    /// default ladder alone (CF-proxy → direct WS → TCP); "cfproxy" tries
+    /// default ladder alone (CF-proxy → TCP fallback; the direct WS tier is
+    /// skipped when no --dc-ip targets are configured); "cfproxy" tries
     /// Cloudflare first; "direct" skips Cloudflare entirely. A pinned list
     /// never falls through to unlisted tiers — that is the point of pinning.
     fn bridge_config(
@@ -302,8 +303,15 @@ impl TgProxyManager {
         ];
         // Pin the tier order for non-default modes. Media connections keep
         // the default ladder (pinning media too aggressively breaks calls).
+        //
+        // --default-domains enables the cfproxy tier via the community CF
+        // domain list. Without it the cfproxy tier is silently skipped in
+        // auto mode (leaving only DPI-blocked direct TCP), and in cfproxy
+        // mode the bridge refuses to start at all (pinned to an unconfigured
+        // tier). "direct" intentionally skips Cloudflare entirely.
         match normalize_mode(mode) {
             "cfproxy" => {
+                args.push("--default-domains".to_string());
                 args.push("--pinned-upstream".to_string());
                 args.push("cfproxy,ws,tcp".to_string());
             }
@@ -311,7 +319,9 @@ impl TgProxyManager {
                 args.push("--pinned-upstream".to_string());
                 args.push("ws,tcp".to_string());
             }
-            _ => {}
+            _ => {
+                args.push("--default-domains".to_string());
+            }
         }
         tg_ws_proxy_rs::config::Config::try_parse_from(args)
             .map_err(|e| TgProxyError::Bridge(format!("invalid bridge config: {e}")))
