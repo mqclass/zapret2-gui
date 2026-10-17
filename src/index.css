@@ -477,8 +477,16 @@
     color: rgb(var(--c-ink));
     font-weight: 600;
   }
+  /* Sliding active pill (framer-motion layoutId) — carries the themed background. */
+  .nav-active-pill {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--r-control);
+    border: 1px solid transparent;
+    pointer-events: none;
+  }
   /* macOS: frosted pill with top highlight, like iOS sidebar selection */
-  [data-theme="macos"] .t-navitem-active {
+  [data-theme="macos"] .nav-active-pill {
     background: rgba(255, 255, 255, 0.1);
     border-color: rgba(255, 255, 255, 0.12);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12),
@@ -490,13 +498,13 @@
     color: rgb(var(--c-accent-soft));
   }
   /* Hyprland: neon wash + glowing left bar */
-  [data-theme="hyprland"] .t-navitem-active {
+  [data-theme="hyprland"] .nav-active-pill {
     background: var(--c-accent-wash);
     border-color: var(--c-accent-line);
     box-shadow: 0 0 18px rgba(34, 211, 238, 0.14),
       inset 0 0 18px rgba(34, 211, 238, 0.05);
   }
-  [data-theme="hyprland"] .t-navitem-active::before {
+  [data-theme="hyprland"] .nav-active-pill::before {
     content: "";
     position: absolute;
     left: -1px;
@@ -813,6 +821,233 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+
+  /* ══ Skeleton shimmer (loading placeholders) ═════════ */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgb(var(--c-cardin));
+    border-radius: var(--r-control);
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      transparent 20%,
+      rgb(255 255 255 / 0.07) 50%,
+      transparent 80%
+    );
+    animation: skeleton-shimmer 1.6s ease-in-out infinite;
+  }
+  [data-theme="hyprland"] .skeleton::after {
+    background: linear-gradient(
+      100deg,
+      transparent 20%,
+      rgba(137, 220, 235, 0.08) 50%,
+      transparent 80%
+    );
+  }
+  @keyframes skeleton-shimmer {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+  }
+
+  /* ══ Unified input style ═════════════════════════════ */
+  .t-input {
+    width: 100%;
+    border-radius: var(--r-control);
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
+    background: rgb(var(--c-cardin));
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    color: rgb(var(--c-ink));
+    outline: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  }
+  .t-input::placeholder {
+    color: rgb(var(--c-ink5));
+  }
+  .t-input:hover {
+    border-color: rgb(var(--c-linestrong));
+  }
+  .t-input:focus {
+    border-color: rgb(var(--c-accent) / 0.6);
+    box-shadow: 0 0 0 3px rgb(var(--c-accent) / 0.15);
+    background: rgb(var(--c-card));
+  }
+  [data-theme="hyprland"] .t-input:focus {
+    box-shadow: 0 0 0 3px rgba(137, 220, 235, 0.12),
+      0 0 16px rgba(137, 220, 235, 0.08);
+  }
+  .t-input:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .t-input-mono {
+    font-family: var(--font-mono);
+    letter-spacing: 0.02em;
+  }
+
+  /* ══ Unified badge ═══════════════════════════════════ */
+  .t-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border-radius: var(--r-chip);
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
+    background: rgb(var(--c-cardin));
+    padding: 0.15rem 0.5rem;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: rgb(var(--c-ink3));
+    white-space: nowrap;
+  }
+  .t-badge-ok {
+    border-color: rgba(52, 211, 153, 0.3);
+    background: rgba(52, 211, 153, 0.1);
+    color: rgb(110, 231, 183);
+  }
+  .t-badge-warn {
+    border-color: rgba(251, 191, 36, 0.3);
+    background: rgba(251, 191, 36, 0.1);
+    color: rgb(252, 211, 77);
+  }
+  .t-badge-err {
+    border-color: rgba(251, 113, 133, 0.3);
+    background: rgba(251, 113, 133, 0.1);
+    color: rgb(253, 164, 175);
+  }
+  .t-badge-accent {
+    border-color: var(--c-accent-line);
+    background: var(--c-accent-wash);
+    color: rgb(var(--c-accent-soft));
+  }
+  [data-theme="hyprland"] .t-badge {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    font-size: 0.6rem;
+  }
+
+  /* ══ Empty state ═════════════════════════════════════ */
+  .t-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+    border-radius: var(--r-panel);
+    border: 1px dashed rgb(var(--c-line) / var(--line-alpha));
+    background: rgb(var(--c-cardin) / 0.5);
+  }
+  .t-empty-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 2.75rem;
+    width: 2.75rem;
+    border-radius: var(--r-panel);
+    background: var(--c-accent-wash);
+    border: 1px solid var(--c-accent-line);
+    color: rgb(var(--c-accent-soft));
+  }
+  .t-empty-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: rgb(var(--c-ink2));
+  }
+  .t-empty-desc {
+    font-size: 0.7rem;
+    color: rgb(var(--c-ink4));
+    max-width: 22rem;
+    line-height: 1.5;
+  }
+
+  /* ══ Primary / ghost buttons ═════════════════════════ */
+  .t-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    border-radius: var(--r-control);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.55rem 1rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease,
+      border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+    user-select: none;
+  }
+  .t-btn:active {
+    transform: scale(0.97);
+  }
+  .t-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .t-btn-primary {
+    background: linear-gradient(135deg, rgb(var(--c-accent)), rgb(var(--c-accent-soft)));
+    color: #0b0e14;
+    box-shadow: 0 4px 18px rgb(var(--c-accent) / 0.28);
+  }
+  .t-btn-primary:hover:not(:disabled) {
+    box-shadow: 0 6px 24px rgb(var(--c-accent) / 0.4);
+    filter: brightness(1.08);
+  }
+  [data-theme="macos"] .t-btn-primary {
+    background: linear-gradient(180deg, rgb(var(--c-accent-soft)), rgb(var(--c-accent)));
+    box-shadow: 0 4px 16px rgb(var(--c-accent) / 0.35),
+      inset 0 1px 0 rgb(255 255 255 / 0.35);
+  }
+  [data-theme="hyprland"] .t-btn-primary {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    box-shadow: 0 0 20px rgb(var(--c-accent) / 0.3);
+  }
+  .t-btn-ghost {
+    background: rgb(255 255 255 / 0.04);
+    border-color: rgb(var(--c-line) / var(--line-alpha));
+    color: rgb(var(--c-ink2));
+  }
+  .t-btn-ghost:hover:not(:disabled) {
+    background: rgb(255 255 255 / 0.08);
+    border-color: rgb(var(--c-linestrong));
+    color: rgb(var(--c-ink));
+  }
+  .t-btn-danger {
+    background: rgba(251, 113, 133, 0.12);
+    border-color: rgba(251, 113, 133, 0.3);
+    color: rgb(253, 164, 175);
+  }
+  .t-btn-danger:hover:not(:disabled) {
+    background: rgba(251, 113, 133, 0.2);
+    border-color: rgba(251, 113, 133, 0.45);
+  }
+
+
+  /* ══ Modal entrance ══════════════════════════════════ */
+  .modal-backdrop-enter {
+    animation: modal-fade-in 0.22s ease-out both;
+  }
+  .modal-panel-enter {
+    animation: modal-pop-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes modal-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes modal-pop-in {
+    from { opacity: 0; transform: scale(0.94) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
 @media (prefers-reduced-motion: reduce) {
   .orb-idle .orb-core,
   .orb-connecting .orb-ring,
@@ -826,6 +1061,9 @@
 
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
+  .modal-backdrop-enter,
+  .modal-panel-enter,
+  .skeleton::after,
   .view-enter,
   [data-theme="macos"] .app-bg::before {
     animation: none;

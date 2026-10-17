@@ -151,7 +151,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     return (
       <div className="space-y-4 pb-4 max-w-4xl">
         {/* System & Engine Section */}
-        <div className="rounded-card border border-line bg-card p-5 space-y-4">
+        <div className="rounded-card border border-line bg-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
           <div className="border-b border-line pb-3">
             <h3 className="t-section-title">
               <Shield className="h-4 w-4 text-accent" />
@@ -444,7 +444,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Theme Selection Card */}
-        <div className="rounded-card border border-line bg-card p-5 space-y-3 shadow-card">
+        <div className="rounded-card border border-line bg-card p-5 space-y-3 shadow-card stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
           <div className="border-b border-line pb-3">
             <h3 className="t-section-title">
               <Palette className="h-4 w-4 text-accent" />
@@ -490,7 +490,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Language Selection Card */}
-        <div className="rounded-card border border-line bg-card p-5 space-y-3">
+        <div className="rounded-card border border-line bg-card p-5 space-y-3 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
           <div className="border-b border-line pb-3">
             <h3 className="t-section-title">
               <Globe className="h-4 w-4 text-accent" />
@@ -524,7 +524,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         <TransportsSection />
 
         {/* Security & Warning Against Fakes */}
-        <div className="rounded-card border border-warnline bg-warnwash p-4 space-y-2">
+        <div className="rounded-card border border-warnline bg-warnwash p-4 space-y-2 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>
           <div className="flex items-center gap-2 text-amber-400">
             <AlertTriangle className="h-4 w-4" />
             <h4 className="text-xs font-semibold text-ink">{t.settingsTab.warningFakesTitle}</h4>
@@ -548,7 +548,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Application Architecture & Versions */}
-        <div className="rounded-card border border-line bg-card p-4">
+        <div className="rounded-card border border-line bg-card p-4 stagger-item" style={{ "--stagger-i": 4 } as React.CSSProperties}>
           <div className="flex items-center justify-between text-xs text-ink4">
             <div className="flex items-center gap-2">
               <ZapretLogo className="h-4 w-4" />

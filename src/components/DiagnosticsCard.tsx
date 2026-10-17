@@ -135,7 +135,7 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
       };
 
       return (
-        <div className="flex flex-col justify-between rounded-panel border border-raise bg-card/40 p-3.5 transition-all hover:border-linestrong/80">
+        <div className="flex flex-col justify-between rounded-panel border border-line bg-card p-3.5 transition-all hover:border-linestrong/80">
           <div>
             <div className="flex items-start justify-between gap-2 mb-2.5">
               <div className="flex items-center gap-2 min-w-0">
@@ -285,7 +285,7 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
         </div>
 
         {/* Custom Target Latency & DPI Probe */}
-        <div className="rounded-panel border border-raise bg-card/30 p-3.5">
+        <div className="rounded-panel border border-line bg-cardin p-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <div>
               <div className="text-xs font-semibold text-ink2">{t.diagnostics.customPingTitle}</div>
@@ -301,7 +301,7 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
                 value={customTarget}
                 onChange={(e) => setCustomTarget(e.target.value)}
                 placeholder={t.diagnostics.customPingPlaceholder}
-                className="h-8 w-full rounded-control border border-raise bg-cardin pl-8 pr-3 text-xs text-ink2 placeholder-ink5 focus:border-cyan-500 focus:outline-none"
+                className="h-8 w-full rounded-control border border-line bg-cardin pl-8 pr-3 text-xs text-ink2 placeholder-ink5 focus:border-cyan-500 focus:outline-none"
               />
             </div>
             <button
@@ -320,7 +320,7 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
 
           {/* Custom Ping Result Box */}
           {customMetric && (
-            <div className="mt-2.5 rounded-control border border-raise bg-cardin/70 p-3 text-xs">
+            <div className="mt-2.5 rounded-control border border-line bg-cardin/70 p-3 text-xs">
               <div className="flex items-center justify-between mb-2">
                 <span className="font-semibold text-ink">{customMetric.target}</span>
                 {getStatusBadge(customMetric.status)}
@@ -360,8 +360,8 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
 
         {/* Auto-Tune Results Modal */}
         {isAutoTuneModalOpen && benchmarkResults && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4">
-            <div className="w-full max-w-lg rounded-card border border-raise bg-card p-5 shadow-2xl">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 modal-backdrop-enter">
+            <div className="w-full max-w-lg rounded-card border border-line bg-card p-5 shadow-2xl modal-panel-enter">
               <div className="flex items-center justify-between pb-3 border-b border-raise">
                 <div className="flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-cyan-400" />

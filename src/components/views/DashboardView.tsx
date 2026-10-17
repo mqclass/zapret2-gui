@@ -300,7 +300,8 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           {/* Card 1: Strategies */}
           <div
             onClick={() => onNavigateTab("strategies")}
-            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all"
+            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
+            style={{ "--stagger-i": 2 } as React.CSSProperties}
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-accent">
@@ -317,7 +318,8 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           {/* Card 2: DNS & Speedtest */}
           <div
             onClick={() => onNavigateTab("dns")}
-            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all"
+            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
+            style={{ "--stagger-i": 3 } as React.CSSProperties}
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-cyan-400">
@@ -334,7 +336,8 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           {/* Card 3: Auto-Doctor & Diagnostics */}
           <div
             onClick={() => onNavigateTab("diagnostics")}
-            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all"
+            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
+            style={{ "--stagger-i": 4 } as React.CSSProperties}
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-amber-400">

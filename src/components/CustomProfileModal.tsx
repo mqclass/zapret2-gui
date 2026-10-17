@@ -143,8 +143,8 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 overflow-y-auto">
-      <div className="relative w-full max-w-2xl rounded-card border border-raise bg-card p-6 shadow-2xl my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 overflow-y-auto modal-backdrop-enter">
+      <div className="relative w-full max-w-2xl rounded-card border border-raise bg-card p-6 shadow-2xl my-8 modal-panel-enter">
         <div className="flex items-center justify-between pb-4 border-b border-raise">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-control bg-accent-wash text-accent border border-accent-line">

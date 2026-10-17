@@ -266,6 +266,9 @@ export const ru: Translations = {
     introItem5: "Активирует TCP Timestamps",
     introItem6: "Проверяет сквозную доступность интернета и шлюза",
     closeBtn: "Закрыть",
+    bannerDesc: "Автоматическое исправление сбоев сети: сброс кэша DNS, службы WinDivert и зависших сокетов",
+    bannerBtn: "Запустить Авто-Доктор",
+
   },
   dns: {
     title: "Менеджер DNS & Защита от подмены",
@@ -446,6 +449,13 @@ export const ru: Translations = {
     inactive: "Отключена",
     starting: "Старт...",
     stopping: "Стоп...",
+    modeLabel: "Режим:",
+    serviceLabel: "Служба:",
+    tagline: "DPI Bypass Utility",
+    modeFull: "Полный",
+    modeStrict: "Строгий",
+    modeGame: "Игровой",
+
   },
   dashboard: {
     active: "Обход Активен",

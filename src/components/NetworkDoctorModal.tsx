@@ -53,8 +53,8 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4">
-      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col rounded-card border border-raise bg-card shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 modal-backdrop-enter">
+      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col rounded-card border border-raise bg-card shadow-2xl modal-panel-enter">
         {/* Header */}
         <div className="flex items-start justify-between border-b border-raise p-5">
           <div className="flex items-center gap-3">

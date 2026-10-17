@@ -159,17 +159,17 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
         ))}
       </div>
     ) : (
-      <div className="flex items-center ml-2 border-l border-white/[0.08] pl-2">
+      <div className="flex items-center ml-2 border-l border-line pl-2">
         <button
           onClick={handleMinimize}
-          className="h-8 w-8 flex items-center justify-center rounded-control text-ink4 hover:text-ink hover:bg-white/[0.08] transition-colors cursor-pointer"
+          className="h-8 w-8 flex items-center justify-center rounded-control text-ink4 hover:text-ink hover:bg-hovert transition-colors cursor-pointer"
           title={t.header.minimizeTitle}
         >
           <Minus className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={handleToggleMaximize}
-          className="h-8 w-8 flex items-center justify-center rounded-control text-ink4 hover:text-ink hover:bg-white/[0.08] transition-colors cursor-pointer"
+          className="h-8 w-8 flex items-center justify-center rounded-control text-ink4 hover:text-ink hover:bg-hovert transition-colors cursor-pointer"
           title={t.header.maximizeTitle}
         >
           <Square className="h-3 w-3" />
@@ -226,7 +226,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-control text-xs font-medium transition-colors cursor-pointer ${
                       isSelected
                         ? "bg-accent-wash text-accent-soft font-semibold"
-                        : "text-ink3 hover:text-ink hover:bg-white/[0.06]"
+                        : "text-ink3 hover:text-ink hover:bg-raise"
                     }`}
                   >
                     <div className="flex items-center gap-2">
@@ -282,7 +282,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
               : `flex items-center gap-1.5 rounded-control border px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer disabled:opacity-60 ${
                   isAutostart
                     ? "bg-accent-wash border-accent-line text-accent-soft"
-                    : "bg-white/[0.03] border-white/[0.08] text-ink4 hover:text-ink2 hover:bg-white/[0.06]"
+                    : "bg-raise border-line text-ink4 hover:text-ink2 hover:bg-raise"
                 }`
           }
           title={isAutostart ? t.header.autostartOnTitle : t.header.autostartOffTitle}
@@ -301,7 +301,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           className={
             isHyprland
               ? "waybar-pill hover:!border-rose-500/40 hover:!text-rose-300 cursor-pointer transition-colors disabled:opacity-60"
-              : "flex items-center gap-1.5 rounded-control border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-ink4 hover:text-rose-300 hover:border-rose-500/30 hover:bg-rose-500/10 transition-all cursor-pointer disabled:opacity-60"
+              : "flex items-center gap-1.5 rounded-control border border-line bg-raise px-2.5 py-1 text-[11px] font-medium text-ink4 hover:text-rose-300 hover:border-rose-500/30 hover:bg-rose-500/10 transition-all cursor-pointer disabled:opacity-60"
           }
           title={t.header.cleanProcessesTooltip}
         >

@@ -266,6 +266,9 @@ export const en: Translations = {
     introItem5: "Enables TCP Timestamps",
     introItem6: "Verifies end-to-end internet and gateway reachability",
     closeBtn: "Close",
+    bannerDesc: "Automatic network failure repair: DNS cache flush, WinDivert service and stuck sockets",
+    bannerBtn: "Run Auto-Doctor",
+
   },
   dns: {
     title: "DNS Manager & Anti-Spoofing",
@@ -446,6 +449,13 @@ export const en: Translations = {
     inactive: "Disabled",
     starting: "Starting...",
     stopping: "Stopping...",
+    modeLabel: "Mode:",
+    serviceLabel: "Service:",
+    tagline: "DPI Bypass Utility",
+    modeFull: "Full",
+    modeStrict: "Strict",
+    modeGame: "Gaming",
+
   },
   dashboard: {
     active: "Bypass Active",

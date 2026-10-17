@@ -263,6 +263,9 @@ export interface Translations {
     introItem4: string;
     introItem5: string;
     introItem6: string;
+    bannerDesc: string;
+    bannerBtn: string;
+
   };
   dns: {
     title: string;
@@ -436,6 +439,13 @@ export interface Translations {
     inactive: string;
     starting: string;
     stopping: string;
+    modeLabel: string;
+    serviceLabel: string;
+    tagline: string;
+    modeFull: string;
+    modeStrict: string;
+    modeGame: string;
+
   };
   dashboard: {
     active: string;

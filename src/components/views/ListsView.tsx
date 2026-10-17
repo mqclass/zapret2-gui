@@ -181,7 +181,7 @@ export const ListsView: React.FC = React.memo(() => {
   return (
     <div className="space-y-6 pb-6">
       {/* Header and Sync Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-card border border-white/[0.08] bg-card/60 p-5 backdrop-blur-xl">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-card border border-line bg-card p-5 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
         <div>
           <h3 className="text-sm font-bold text-ink flex items-center gap-2">
             <span>{t.domainManager.title}</span>
@@ -214,7 +214,7 @@ export const ListsView: React.FC = React.memo(() => {
           <button
             onClick={handleFlushDns}
             disabled={isFlushingDns}
-            className="flex items-center gap-1.5 rounded-panel border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] px-3.5 py-2 text-xs font-semibold text-ink3 transition-all cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-panel border border-line bg-raise hover:bg-hovert px-3.5 py-2 text-xs font-semibold text-ink3 transition-all cursor-pointer disabled:opacity-50"
             title={t.syncLists.flushDnsTitle}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFlushingDns ? "animate-spin" : ""}`} />
@@ -224,7 +224,7 @@ export const ListsView: React.FC = React.memo(() => {
           {/* Open Folder in Explorer */}
           <button
             onClick={handleOpenFolder}
-            className="p-2 rounded-panel border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] text-ink4 hover:text-ink transition-all cursor-pointer"
+            className="p-2 rounded-panel border border-line bg-raise hover:bg-hovert text-ink4 hover:text-ink transition-all cursor-pointer"
             title={t.domainManager.openFolderBtn}
           >
             <FolderOpen className="h-4 w-4" />
@@ -250,9 +250,9 @@ export const ListsView: React.FC = React.memo(() => {
       )}
 
       {/* Main Container with File Tabs + Domain List */}
-      <div className="rounded-card border border-white/[0.08] bg-card/60 overflow-hidden backdrop-blur-xl">
+      <div className="rounded-card border border-line bg-card overflow-hidden stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
         {/* File Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto border-b border-white/[0.06] bg-cardin/40 p-3">
+        <div className="flex items-center gap-2 overflow-x-auto border-b t-divider bg-cardin/40 p-3">
           {files.map((file) => {
             const isSelected = selectedFile === file;
             return (
@@ -262,7 +262,7 @@ export const ListsView: React.FC = React.memo(() => {
                 className={`flex items-center gap-2 rounded-control px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer shrink-0 ${
                   isSelected
                     ? "bg-accent-fill text-ink shadow-md shadow-accent/20"
-                    : "text-ink4 hover:bg-white/[0.04] hover:text-ink2"
+                    : "text-ink4 hover:bg-raise hover:text-ink2"
                 }`}
               >
                 <FileText className="h-3.5 w-3.5" />
@@ -273,7 +273,7 @@ export const ListsView: React.FC = React.memo(() => {
         </div>
 
         {/* Search & Add Domain Bar */}
-        <div className="p-4 border-b border-white/[0.06] grid grid-cols-1 md:grid-cols-2 gap-3 bg-cardin/20">
+        <div className="p-4 border-b t-divider grid grid-cols-1 md:grid-cols-2 gap-3 bg-cardin/20">
           {/* Search Box */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink5" />
@@ -282,7 +282,7 @@ export const ListsView: React.FC = React.memo(() => {
               placeholder={t.domainManager.searchPlaceholder}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-panel border border-white/[0.08] bg-cardin/60 pl-9 pr-3 py-2 text-xs text-ink placeholder-ink5 focus:border-accent-line focus:outline-none"
+              className="w-full rounded-panel border border-line bg-cardin pl-9 pr-3 py-2 text-xs text-ink placeholder-ink5 focus:border-accent-line focus:outline-none"
             />
           </div>
 
@@ -293,7 +293,7 @@ export const ListsView: React.FC = React.memo(() => {
               placeholder={t.domainManager.addDomainPlaceholder}
               value={newDomain}
               onChange={(e) => setNewDomain(e.target.value)}
-              className="flex-1 rounded-panel border border-white/[0.08] bg-cardin/60 px-3 py-2 text-xs text-ink placeholder-ink5 focus:border-accent-line focus:outline-none"
+              className="flex-1 rounded-panel border border-line bg-cardin px-3 py-2 text-xs text-ink placeholder-ink5 focus:border-accent-line focus:outline-none"
             />
             <button
               type="submit"
@@ -323,7 +323,7 @@ export const ListsView: React.FC = React.memo(() => {
               {filteredDomains.map((domain) => (
                 <div
                   key={domain}
-                  className="flex items-center justify-between rounded-control border border-white/[0.04] bg-cardin/40 px-3 py-2 hover:border-white/[0.1] hover:bg-cardin/70 transition-all group"
+                  className="flex items-center justify-between rounded-control border border-line bg-cardin px-3 py-2 hover:border-linestrong hover:bg-raise transition-all group"
                 >
                   <span className="truncate text-xs text-ink3 font-mono" title={domain}>
                     {domain}

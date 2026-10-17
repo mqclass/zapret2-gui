@@ -1,4 +1,5 @@
 import React, { useCallback } from "react";
+import { motion } from "framer-motion";
 import {
   Shield,
   Zap,
@@ -129,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                   {t.header.version}
                 </span>
               </div>
-              <p data-tauri-drag-region className="text-[10px] font-medium text-ink4">DPI Bypass Utility</p>
+              <p data-tauri-drag-region className="text-[10px] font-medium text-ink4">{t.sidebar.tagline}</p>
             </div>
           </div>
         </div>
@@ -144,15 +145,22 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                 onClick={() => onTabChange(item.id)}
                 className={`t-navitem ${isActive ? "t-navitem-active" : ""}`}
               >
-                <div className="flex items-center gap-2.5">
+                {isActive && (
+                  <motion.span
+                    layoutId="sidebar-active-pill"
+                    className="nav-active-pill"
+                    transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.9 }}
+                  />
+                )}
+                <span className="relative flex items-center gap-2.5">
                   <span className="t-navitem-icon">
                     {item.icon}
                   </span>
                   <span>{item.label}</span>
-                </div>
+                </span>
                 {item.id === "dashboard" && (
                   <span
-                    className={`h-1.5 w-1.5 rounded-full ${
+                    className={`relative h-1.5 w-1.5 rounded-full ${
                       isRunning
                         ? "bg-emerald-400"
                         : isStarting || isStopping
@@ -170,22 +178,22 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
         <div className="p-3 border-t t-divider space-y-1.5">
           {/* Active Mode Pill */}
           <div className="t-card-in flex items-center justify-between px-2.5 py-1.5 text-[11px]">
-            <span className="text-ink4 font-medium">Режим:</span>
+            <span className="text-ink4 font-medium">{t.sidebar.modeLabel}</span>
             <div className="flex items-center gap-1 font-semibold text-ink2">
               {splitTunnelMode === "game_mode" ? (
                 <>
                   <Gamepad2 className="h-3 w-3 text-purple-400" />
-                  <span>Игровой</span>
+                  <span>{t.sidebar.modeGame}</span>
                 </>
               ) : splitTunnelMode === "strict" ? (
                 <>
                   <Compass className="h-3 w-3 text-emerald-400" />
-                  <span>Строгий</span>
+                  <span>{t.sidebar.modeStrict}</span>
                 </>
               ) : (
                 <>
                   <Layers className="h-3 w-3 text-accent" />
-                  <span>Полный</span>
+                  <span>{t.sidebar.modeFull}</span>
                 </>
               )}
             </div>
@@ -193,7 +201,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
 
           {/* Engine Status Pill */}
           <div className="t-card-in flex items-center justify-between px-2.5 py-1.5 text-[11px]">
-            <span className="text-ink4 font-medium">Служба:</span>
+            <span className="text-ink4 font-medium">{t.sidebar.serviceLabel}</span>
             <div className="flex items-center gap-1.5">
               <span
                 className={`h-1.5 w-1.5 rounded-full ${

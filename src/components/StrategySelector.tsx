@@ -134,7 +134,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
             className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 font-medium transition-all cursor-pointer shrink-0 ${
               activeTab === "flowseal"
                 ? "bg-hovert text-ink border border-linestrong shadow-sm"
-                : "text-ink4 hover:text-ink2 hover:bg-white/[0.04]"
+                : "text-ink4 hover:text-ink2 hover:bg-raise"
             }`}
           >
             <Sparkles className="h-3.5 w-3.5 text-accent" />
@@ -146,7 +146,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
             className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 font-medium transition-all cursor-pointer shrink-0 ${
               activeTab === "zapret2"
                 ? "bg-hovert text-ink border border-linestrong shadow-sm"
-                : "text-ink4 hover:text-ink2 hover:bg-white/[0.04]"
+                : "text-ink4 hover:text-ink2 hover:bg-raise"
             }`}
           >
             <Cpu className="h-3.5 w-3.5 text-accent" />
@@ -158,7 +158,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
             className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 font-medium transition-all cursor-pointer shrink-0 ${
               activeTab === "custom"
                 ? "bg-hovert text-ink border border-linestrong shadow-sm"
-                : "text-ink4 hover:text-ink2 hover:bg-white/[0.04]"
+                : "text-ink4 hover:text-ink2 hover:bg-raise"
             }`}
           >
             <Wrench className="h-3.5 w-3.5 text-accent" />
@@ -170,7 +170,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
             className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 font-medium transition-all cursor-pointer shrink-0 ${
               activeTab === "all"
                 ? "bg-hovert text-ink border border-linestrong shadow-sm"
-                : "text-ink4 hover:text-ink2 hover:bg-white/[0.04]"
+                : "text-ink4 hover:text-ink2 hover:bg-raise"
             }`}
           >
             <Layers className="h-3.5 w-3.5 text-ink4" />
@@ -185,7 +185,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-            {filteredStrategies.map((strat) => {
+            {filteredStrategies.map((strat, idx) => {
               const isSelected = selectedStrategyId === strat.id;
               const isActive = supervisorState === "running" && activeStrategyId === strat.id;
               const isTransitioning = supervisorState === "starting" || supervisorState === "stopping";
@@ -218,9 +218,10 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                       onStartStrategy(strat.id);
                     }
                   }}
-                  className={`relative flex flex-col justify-between rounded-card border p-4 text-left transition-all duration-200 cursor-pointer min-h-[175px] ${cardStyle} ${
+                  className={`relative flex flex-col justify-between rounded-card border p-4 text-left transition-all duration-200 cursor-pointer min-h-[175px] stagger-item hover-lift ${cardStyle} ${
                     isTransitioning ? "opacity-75" : ""
                   }`}
+                  style={{ "--stagger-i": Math.min(idx, 11) } as React.CSSProperties}
                 >
                   {/* Top Content: Title, Badges, Description, Filename */}
                   <div>
@@ -234,7 +235,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                               ? "bg-cyan-500/15 border-cyan-500/30 text-cyan-400"
                               : isCustom
                               ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
-                              : "bg-white/[0.04] border-white/[0.08] text-ink4"
+                              : "bg-raise border-line text-ink4"
                           }`}
                         >
                           <FileCode className="h-4 w-4" />
@@ -298,7 +299,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                   </div>
 
                   {/* Bottom Action Footer */}
-                  <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
+                  <div className="mt-3 pt-3 border-t t-divider flex items-center justify-between gap-2">
                     {/* Left: Custom Actions or Strategy ID Badge */}
                     <div className="flex items-center gap-1 min-w-0">
                       {isCustom ? (
@@ -307,7 +308,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                             type="button"
                             onClick={(e) => handleEditCustom(strat, e)}
                             disabled={isTransitioning}
-                            className="p-1.5 rounded-control text-ink4 hover:text-cyan-300 hover:bg-white/[0.06] transition-colors cursor-pointer"
+                            className="p-1.5 rounded-control text-ink4 hover:text-cyan-300 hover:bg-raise transition-colors cursor-pointer"
                             title={t.strategies.editCustom}
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -323,7 +324,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                           </button>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-ink4 font-mono truncate max-w-[105px] bg-white/[0.03] border border-white/[0.06] px-1.5 py-0.5 rounded-chip">
+                        <span className="text-[10px] text-ink4 font-mono truncate max-w-[105px] bg-raise border t-divider px-1.5 py-0.5 rounded-chip">
                           {strat.id}
                         </span>
                       )}
@@ -388,7 +389,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                           className={`flex items-center gap-1.5 rounded-panel px-3 py-1.5 text-xs font-bold transition-all active:scale-95 cursor-pointer disabled:opacity-50 ${
                             isSelected
                               ? "bg-accent-fill hover:bg-accent text-ink shadow-md shadow-blue-600/25"
-                              : "bg-white/[0.06] hover:bg-white/[0.1] text-ink2 border border-white/[0.1]"
+                              : "bg-raise hover:bg-hovert text-ink2 border border-line"
                           }`}
                           title={t.strategies.cardStart}
                         >
