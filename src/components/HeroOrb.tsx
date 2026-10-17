@@ -34,6 +34,13 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
       prevState.current = state;
     }, [state]);
 
+    const orbClass =
+      state === "connected"
+        ? "orb-connected"
+        : state === "connecting"
+        ? "orb-connecting"
+        : "orb-idle";
+
     const halo =
       state === "connected"
         ? "bg-emerald-500/25"
@@ -59,7 +66,7 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
           whileTap={{ scale: 0.92 }}
           whileHover={{ scale: 1.03 }}
           transition={{ type: "spring", stiffness: 380, damping: 28, mass: 0.8 }}
-          className="group relative h-40 w-40 md:h-44 md:w-44 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
+          className={`orb ${orbClass} group relative h-40 w-40 md:h-44 md:w-44 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer`}
           aria-label={label}
           title={label}
         >

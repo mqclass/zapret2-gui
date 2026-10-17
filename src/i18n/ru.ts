@@ -103,7 +103,7 @@ export const ru: Translations = {
     goalDiscord: "Discord и игры",
     goalDiscordDesc: "Голосовой чат и низкий пинг",
     goalAll: "Всё сразу",
-    goalAllDesc: "Максимальный обход для всех сайтов",
+    goalAllDesc: "Усиленный режим для всего",
     goalCustom: "Своя настройка",
     goalCustomDesc: "Настроить вручную",
 
@@ -375,11 +375,6 @@ export const ru: Translations = {
     conflictsDesc: "Проверка наличия запущенных служб GoodbyeDPI, Flowseal zapret или других прокси",
     conflictsBtn: "Сканировать и устранить конфликты",
     languageSection: "Язык интерфейса",
-    themeSection: "Оформление интерфейса",
-    themeMacosName: "macOS",
-    themeMacosDesc: "Матовое стекло, мягкие скругления, спокойная палитра",
-    themeHyprlandName: "Hyprland",
-    themeHyprlandDesc: "Тёмная плоская тема, плотная компоновка, неоновый акцент",
     creditsSection: "О программе и Авторские права",
     warningFakesTitle: "ОСТОРОЖНО: ОФИЦИАЛЬНЫЙ РЕПОЗИТОРИЙ И ФЕЙКИ",
     warningFakesBody:

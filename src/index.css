@@ -477,6 +477,10 @@
   .orb-idle .orb-core {
     animation: orb-breathe 3s ease-in-out infinite;
   }
+  /* standalone breathe utility (glass orb halo) */
+  .orb-breathe {
+    animation: orb-breathe 3s ease-in-out infinite;
+  }
   /* connecting: rotating conic neon ring + pulse ripples */
   .orb-connecting .orb-ring {
     position: absolute;
@@ -531,7 +535,6 @@
     pointer-events: none;
   }
 
-  /* ══ Hyprland animated conic border ══════════════════ */
 
   /* ══ Staggered list entry ════════════════════════════ */
   .stagger-item {

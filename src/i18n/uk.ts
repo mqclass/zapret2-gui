@@ -103,7 +103,7 @@ export const uk: Translations = {
     goalDiscord: "Discord та ігри",
     goalDiscordDesc: "Голосовий чат і низький пінг",
     goalAll: "Все одразу",
-    goalAllDesc: "Максимальний обхід для всіх сайтів",
+    goalAllDesc: "Посилений режим для всього",
     goalCustom: "Своє налаштування",
     goalCustomDesc: "Налаштувати вручну",
 
@@ -375,11 +375,6 @@ export const uk: Translations = {
     conflictsDesc: "Перевірка наявності запущених служб GoodbyeDPI, Flowseal zapret або інших проксі",
     conflictsBtn: "Сканувати та усунути конфлікти",
     languageSection: "Мова інтерфейсу",
-    themeSection: "Оформлення інтерфейсу",
-    themeMacosName: "macOS",
-    themeMacosDesc: "Матове скло, м'які заокруглення, спокійна палітра",
-    themeHyprlandName: "Hyprland",
-    themeHyprlandDesc: "Темна пласка тема, щільна компоновка, неоновий акцент",
     creditsSection: "Про програму та Авторські права",
     warningFakesTitle: "ОБЕРЕЖНО: ОФІЦІЙНИЙ РЕПОЗИТОРІЙ ТА ФЕЙКИ",
     warningFakesBody:
