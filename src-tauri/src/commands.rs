@@ -14,7 +14,7 @@ use tauri::State;
 
 use crate::engine::probes::{DiagnosticsReport, DiagnosticsService};
 use crate::engine::supervisor::{LogEntry, SupervisorState, SupervisorStatus};
-use crate::engine::tgproxy::{TgProxyManager, TgProxyStatus};
+use crate::engine::tgproxy::TgProxyStatus;
 use crate::win32::conflicts::{
     resolve_all_conflicts_excluding as win32_resolve_all_conflicts,
     scan_conflicts_excluding as win32_scan_conflicts, ConflictItem,
@@ -46,7 +46,9 @@ pub struct AppState {
     /// `install_update` fails closed while any of them is active, so the
     /// installation directory is never renamed out from under a running child.
     pub sidecars: Vec<Arc<dyn crate::engine::managed::ManagedSidecar>>,
-    pub tgproxy: Arc<TgProxyManager>,}
+    /// Where the Telegram bridge runs: in-process or inside zapret2-svc.exe.
+    /// Swapped to Remote when the GUI attaches to a running service.
+    pub tgproxy: Arc<parking_lot::RwLock<crate::svc_client::TgproxyBackend>>,}
 
 /// TTL for the resolved-binaries cache: binaries are re-discovered at most this often,
 /// so a newly installed/updated winws2.exe is picked up without an app restart.
@@ -159,7 +161,10 @@ pub async fn start_supervisor(
         {
             Ok(client) => {
                 *state.backend.write() =
-                    crate::svc_client::SupervisorBackend::Remote(client);
+                    crate::svc_client::SupervisorBackend::Remote(client.clone());
+                // The Telegram bridge follows the engine into the svc.
+                *state.tgproxy.write() =
+                    crate::svc_client::TgproxyBackend::Remote(client);
                 let app_clone = app.clone();
                 tokio::spawn(async move {
                     crate::svc_client::SvcClient::forward_events(app_clone).await;
@@ -269,7 +274,7 @@ pub async fn parse_args_string(raw: String) -> Result<Vec<String>, String> {
 /// supervisor and WinDivert first.
 #[tauri::command]
 pub async fn exit_app(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    let _ = state.tgproxy.stop().await;
+    let _ = state.tgproxy.read().clone().stop().await;
     // A remote svc outlives the GUI by design (the bypass stays up); only
     // stop the engine when it runs in this process.
     if !state.backend.read().clone().is_remote() {
@@ -469,40 +474,96 @@ pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
     Ok(enable)
 }
 
-/// Returns the embedded Telegram bridge status snapshot.
+/// Returns the Telegram bridge status snapshot (local or via svc pipe).
 #[tauri::command]
 pub async fn get_tgproxy_status(state: State<'_, AppState>) -> Result<TgProxyStatus, String> {
-    Ok(state.tgproxy.get_status())
+    Ok(state.tgproxy.read().clone().get_status().await)
 }
 
-/// Starts the embedded Telegram MTProto→WebSocket bridge.
+/// Starts the Telegram MTProto→WebSocket bridge (local or via svc pipe).
 #[tauri::command]
 pub async fn start_tgproxy(state: State<'_, AppState>) -> Result<(), String> {
-    state.tgproxy.clone().start().await.map_err(|e| e.to_string())
+    // Same svc-migration policy as the Start button: prefer the svc when
+    // its binary is available so the bridge outlives the GUI.
+    ensure_tgproxy_backend(&state).await;
+    state.tgproxy.read().clone().start().await
 }
 
-/// Stops the embedded Telegram bridge.
+/// Stops the Telegram bridge.
 #[tauri::command]
 pub async fn stop_tgproxy(state: State<'_, AppState>) -> Result<(), String> {
-    state.tgproxy.stop().await.map_err(|e| e.to_string())
+    state.tgproxy.read().clone().stop().await
 }
 
 /// Updates the Telegram proxy listen port and MTProto secret.
-/// Refused while the sidecar is running (the exe reads config only at startup).
+/// Refused while the bridge is running (it reads config only at startup).
 #[tauri::command]
 pub async fn set_tgproxy_config(
     state: State<'_, AppState>,
     port: u16,
     secret: String,
 ) -> Result<(), String> {
-    state.tgproxy.set_config(port, secret).map_err(|e| e.to_string())
+    state.tgproxy.read().clone().set_config(port, secret).await
 }
 
 /// Generates a fresh CSPRNG secret for the Telegram proxy.
-/// Refused while the sidecar is running.
+/// Refused while the bridge is running.
 #[tauri::command]
 pub async fn regenerate_tgproxy_secret(state: State<'_, AppState>) -> Result<String, String> {
-    state.tgproxy.regenerate_secret().map_err(|e| e.to_string())
+    state.tgproxy.read().clone().regenerate_secret().await
+}
+
+/// Sets the Telegram bridge connection mode: "auto", "cfproxy" or "direct".
+/// Refused while the bridge is running (it reads the mode only at startup).
+#[tauri::command]
+pub async fn set_tgproxy_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
+    state.tgproxy.read().clone().set_mode(mode).await
+}
+
+/// Honest end-to-end test of the Telegram bridge: handshake through the
+/// listener to the Telegram DC. Returns the DC round-trip time in
+/// milliseconds. Fails with the broken step named when the chain is down.
+#[tauri::command]
+pub async fn test_tgproxy_connection(state: State<'_, AppState>) -> Result<u64, String> {
+    Ok(state
+        .tgproxy
+        .read()
+        .clone()
+        .test_connection()
+        .await
+        .map(|d| d.as_millis() as u64)?)
+}
+
+/// Toggles LAN access for the Telegram bridge (bind 0.0.0.0 so phones on
+/// the local network can use it). Refused while the bridge is running.
+#[tauri::command]
+pub async fn set_tgproxy_lan(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    state.tgproxy.read().clone().set_lan(enabled).await
+}
+
+/// Migrates the Telegram-bridge backend to follow the supervisor backend:
+/// when the engine runs inside the svc, the bridge must run there too
+/// (a GUI crash must not kill either). Idempotent.
+pub async fn ensure_tgproxy_backend(state: &State<'_, AppState>) {
+    use crate::svc_client::{backend_needs_attach, ensure_svc_attached, TgproxyBackend};
+    // First, apply the standard svc-migration policy to the engine itself:
+    // a local backend with a svc binary on disk moves into the svc.
+    {
+        let backend = state.backend.read().clone();
+        if backend_needs_attach(&backend).await {
+            if let Ok(client) = ensure_svc_attached(std::time::Duration::from_secs(10)).await {
+                *state.backend.write() = crate::svc_client::SupervisorBackend::Remote(client);
+            }
+        }
+    }
+    // Then the bridge follows the engine.
+    let client = match &*state.backend.read() {
+        crate::svc_client::SupervisorBackend::Remote(c) => c.clone(),
+        crate::svc_client::SupervisorBackend::Local(_) => return,
+    };
+    if !state.tgproxy.read().is_remote() {
+        *state.tgproxy.write() = TgproxyBackend::Remote(client);
+    }
 }
 
 /// Lists all registered camouflage transports with live availability for the UI.

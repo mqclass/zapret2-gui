@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::engine::{DiagnosticsReport, LogEntry, SupervisorState, SupervisorStatus};
+use crate::engine::{DiagnosticsReport, LogEntry, SupervisorState, SupervisorStatus, TgProxyStatus};
 
 /// Well-known pipe name for the supervisor service.
 pub const SVC_PIPE_NAME: &str = r"\\.\pipe\zapret2-svc";
@@ -20,7 +20,11 @@ pub const SVC_PIPE_NAME: &str = r"\\.\pipe\zapret2-svc";
 pub const SVC_SINGLE_INSTANCE_MUTEX: &str = "Global\\zapret2-svc-single-instance";
 /// IPC protocol version. Bumped on any breaking change; the Hello handshake
 /// rejects mismatched peers instead of miscommunicating silently.
-pub const PROTOCOL_VERSION: u32 = 1;
+///
+/// v2: Telegram-bridge commands (`tgproxy-*`) — the bridge moved from the
+/// GUI process into the svc, so it survives GUI crashes like the bypass
+/// engine does.
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// A command sent by a GUI client to the service.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +51,25 @@ pub enum ClientMessage {
     /// Graceful shutdown: stop the engine and terminate the svc process.
     /// Used by the updater/installer so the exe can be replaced.
     Shutdown,
+    /// Start the embedded Telegram MTProto→WebSocket bridge.
+    TgproxyStart,
+    /// Stop the Telegram bridge.
+    TgproxyStop,
+    /// Full Telegram-bridge snapshot (state, port, secret, tg:// link).
+    TgproxyGetStatus,
+    /// Update bridge port/secret. Refused while the bridge is running.
+    TgproxySetConfig { port: u16, secret: String },
+    /// Generate a fresh MTProto secret, persist it, return it.
+    /// Refused while the bridge is running.
+    TgproxyRegenerateSecret,
+    /// Set the bridge connection mode ("auto", "cfproxy", "direct").
+    /// Refused while the bridge is running.
+    TgproxySetMode { mode: String },
+    /// End-to-end test: handshake through the listener to the DC.
+    /// Returns the DC round-trip time in `rtt_ms`.
+    TgproxyTestConnection,
+    /// Toggle LAN access (bind 0.0.0.0 for phones). Refused while running.
+    TgproxySetLan { enabled: bool },
 }
 
 /// A reply or pushed event from the service.
@@ -67,6 +90,12 @@ pub enum ServerMessage {
         status: Option<SupervisorStatus>,
         #[serde(skip_serializing_if = "Option::is_none")]
         logs: Option<Vec<LogEntry>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tgproxy_status: Option<TgProxyStatus>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        secret: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        rtt_ms: Option<u64>,
     },
     /// Pushed to subscribed connections; mirrors `EventSink`.
     Event(SvcEvent),
@@ -90,6 +119,9 @@ impl ServerMessage {
             error: None,
             status: None,
             logs: None,
+            tgproxy_status: None,
+            secret: None,
+            rtt_ms: None,
         }
     }
 
@@ -99,6 +131,9 @@ impl ServerMessage {
             error: Some(msg.into()),
             status: None,
             logs: None,
+            tgproxy_status: None,
+            secret: None,
+            rtt_ms: None,
         }
     }
 }

@@ -24,7 +24,7 @@ use windows::core::w;
 use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
 use windows::Win32::System::Threading::CreateMutexW;
 
-use crate::engine::{EventSink, Supervisor};
+use crate::engine::{EventSink, Supervisor, TgProxyManager};
 use crate::svc_server::{run_pipe_server, PipeSink};
 
 #[derive(Parser, Debug)]
@@ -77,15 +77,37 @@ async fn main() {
     // Broadcast engine events to pipe clients.
     let (event_tx, _rx) = broadcast::channel(256);
     let sink: Arc<dyn EventSink> = Arc::new(PipeSink::new(event_tx.clone()));
-    supervisor.set_event_sink(sink);
+    supervisor.set_event_sink(sink.clone());
+
+    // The Telegram MTProto→WebSocket bridge lives here, not in the GUI
+    // process: a GUI crash must not take the bridge down, just like it
+    // must not take the bypass engine down.
+    let tgproxy = Arc::new(TgProxyManager::new(supervisor.clone()));
+    tgproxy.set_event_sink(sink);
+
+    // Restore the bridge when it was left enabled (best-effort).
+    let tgproxy_auto = tgproxy.clone();
+    tokio::spawn(async move {
+        let enabled = win32::settings::load_settings().tgproxy_enabled;
+        if enabled {
+            if let Err(e) = tgproxy_auto.start().await {
+                eprintln!("svc: failed to auto-start Telegram bridge: {e}");
+            }
+        }
+    });
 
     println!("zapret2-svc started, listening on the named pipe.");
 
     // Serve GUI clients until Ctrl+C.
-    let server_task = tokio::spawn(run_pipe_server(supervisor.clone(), event_tx));
+    let server_task = tokio::spawn(run_pipe_server(
+        supervisor.clone(),
+        tgproxy.clone(),
+        event_tx,
+    ));
 
     tokio::signal::ctrl_c().await.ok();
     println!("zapret2-svc shutting down...");
     server_task.abort();
+    let _ = tgproxy.stop().await;
     let _ = supervisor.stop().await;
 }

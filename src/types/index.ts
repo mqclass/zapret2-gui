@@ -61,6 +61,12 @@ export interface TgProxyStatus {
   tg_link: string;
   uptime_secs: number;
   last_error: string | null;
+  /** Connection mode: "auto" | "cfproxy" | "direct". */
+  mode: string;
+  /** Whether LAN access is enabled (bridge bound to 0.0.0.0). */
+  lan_enabled: boolean;
+  /** This machine's LAN IPv4 for the phone QR; null when LAN is off. */
+  lan_ip: string | null;
 }
 
 export interface ZapretBinaries {

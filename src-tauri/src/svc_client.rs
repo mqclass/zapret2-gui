@@ -16,7 +16,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::Mutex;
 
-use crate::engine::{LogEntry, Supervisor, SupervisorStatus};
+use crate::engine::{LogEntry, Supervisor, SupervisorStatus, TgProxyManager, TgProxyStatus};
 use crate::svc_ipc::{ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION, SVC_PIPE_NAME};
 
 /// Connected client to a running svc instance. Commands are serialized
@@ -133,6 +133,87 @@ impl SvcClient {
     pub async fn clear_logs(&self) -> Result<(), String> {
         let msg = self
             .roundtrip(&ClientMessage::ClearLogs)
+            .await
+            .map_err(|e| e.to_string())?;
+        Self::into_response(msg).map(|_| ())
+    }
+
+    pub async fn tgproxy_start(&self) -> Result<(), String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TgproxyStart)
+            .await
+            .map_err(|e| e.to_string())?;
+        Self::into_response(msg).map(|_| ())
+    }
+
+    pub async fn tgproxy_stop(&self) -> Result<(), String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TgproxyStop)
+            .await
+            .map_err(|e| e.to_string())?;
+        Self::into_response(msg).map(|_| ())
+    }
+
+    pub async fn tgproxy_get_status(&self) -> Result<TgProxyStatus, String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TgproxyGetStatus)
+            .await
+            .map_err(|e| e.to_string())?;
+        match Self::into_response(msg)? {
+            ServerMessage::Response {
+                tgproxy_status: Some(s),
+                ..
+            } => Ok(s),
+            _ => Err("svc returned no tgproxy status".to_string()),
+        }
+    }
+
+    pub async fn tgproxy_set_config(&self, port: u16, secret: String) -> Result<(), String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TgproxySetConfig { port, secret })
+            .await
+            .map_err(|e| e.to_string())?;
+        Self::into_response(msg).map(|_| ())
+    }
+
+    pub async fn tgproxy_regenerate_secret(&self) -> Result<String, String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TgproxyRegenerateSecret)
+            .await
+            .map_err(|e| e.to_string())?;
+        match Self::into_response(msg)? {
+            ServerMessage::Response {
+                secret: Some(s), ..
+            } => Ok(s),
+            _ => Err("svc returned no secret".to_string()),
+        }
+    }
+
+    pub async fn tgproxy_set_mode(&self, mode: String) -> Result<(), String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TgproxySetMode { mode })
+            .await
+            .map_err(|e| e.to_string())?;
+        Self::into_response(msg).map(|_| ())
+    }
+
+    /// End-to-end test through the bridge. Returns the DC round-trip time.
+    pub async fn tgproxy_test_connection(&self) -> Result<std::time::Duration, String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TgproxyTestConnection)
+            .await
+            .map_err(|e| e.to_string())?;
+        match Self::into_response(msg)? {
+            ServerMessage::Response {
+                rtt_ms: Some(ms), ..
+            } => Ok(std::time::Duration::from_millis(ms)),
+            _ => Err("svc returned no rtt".to_string()),
+        }
+    }
+
+    pub async fn tgproxy_set_lan(&self, enabled: bool) -> Result<(), String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TgproxySetLan { enabled })
             .await
             .map_err(|e| e.to_string())?;
         Self::into_response(msg).map(|_| ())
@@ -298,6 +379,95 @@ impl SupervisorBackend {
                 .to_string_lossy()
                 .to_string(),
         }
+    }
+}
+
+/// Where the Telegram MTProto→WebSocket bridge actually runs.
+///
+/// Mirrors [`SupervisorBackend`]: the bridge moved into `zapret2-svc.exe`,
+/// so a GUI crash no longer kills it. When no svc binary is available
+/// (dev builds), the bridge falls back to running in-process.
+#[derive(Clone)]
+pub enum TgproxyBackend {
+    /// In-process: the Tauri process owns the bridge task.
+    Local(Arc<TgProxyManager>),
+    /// The bridge runs inside `zapret2-svc.exe`; commands go over the pipe.
+    Remote(Arc<SvcClient>),
+}
+
+impl TgproxyBackend {
+    pub async fn get_status(&self) -> TgProxyStatus {
+        match self {
+            Self::Local(m) => m.get_status(),
+            // Status is polled from the UI on a timer; never fail the poll
+            // on a dead pipe — report Error and let the re-attach path heal.
+            Self::Remote(c) => c.tgproxy_get_status().await.unwrap_or(TgProxyStatus {
+                state: crate::engine::SupervisorState::Error,
+                host: String::new(),
+                port: 0,
+                secret: String::new(),
+                tg_link: String::new(),
+                uptime_secs: 0,
+                last_error: Some("svc unreachable".to_string()),
+                mode: "auto".to_string(),
+                lan_enabled: false,
+                lan_ip: None,
+            }),
+        }
+    }
+
+    pub async fn start(&self) -> Result<(), String> {
+        match self {
+            Self::Local(m) => m.clone().start().await.map_err(|e| e.to_string()),
+            Self::Remote(c) => c.tgproxy_start().await,
+        }
+    }
+
+    pub async fn stop(&self) -> Result<(), String> {
+        match self {
+            Self::Local(m) => m.stop().await.map_err(|e| e.to_string()),
+            Self::Remote(c) => c.tgproxy_stop().await,
+        }
+    }
+
+    pub async fn set_config(&self, port: u16, secret: String) -> Result<(), String> {
+        match self {
+            Self::Local(m) => m.set_config(port, secret).map_err(|e| e.to_string()),
+            Self::Remote(c) => c.tgproxy_set_config(port, secret).await,
+        }
+    }
+
+    pub async fn regenerate_secret(&self) -> Result<String, String> {
+        match self {
+            Self::Local(m) => m.regenerate_secret().map_err(|e| e.to_string()),
+            Self::Remote(c) => c.tgproxy_regenerate_secret().await,
+        }
+    }
+
+    pub async fn set_mode(&self, mode: String) -> Result<(), String> {
+        match self {
+            Self::Local(m) => m.set_mode(mode).map_err(|e| e.to_string()),
+            Self::Remote(c) => c.tgproxy_set_mode(mode).await,
+        }
+    }
+
+    pub async fn test_connection(&self) -> Result<std::time::Duration, String> {
+        match self {
+            Self::Local(m) => m.test_connection().await.map_err(|e| e.to_string()),
+            Self::Remote(c) => c.tgproxy_test_connection().await,
+        }
+    }
+
+    pub async fn set_lan(&self, enabled: bool) -> Result<(), String> {
+        match self {
+            Self::Local(m) => m.set_lan(enabled).map_err(|e| e.to_string()),
+            Self::Remote(c) => c.tgproxy_set_lan(enabled).await,
+        }
+    }
+
+    /// True when bridge commands go over the pipe.
+    pub fn is_remote(&self) -> bool {
+        matches!(self, Self::Remote(_))
     }
 }
 

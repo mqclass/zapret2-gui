@@ -14,10 +14,12 @@ import {
   Info,
   ExternalLink,
   KeyRound,
+  Activity,
 } from "lucide-react";
 import { TgProxyStatus, LogEntry, SupervisorState } from "../../types";
 import { useI18n } from "../../i18n";
 import { notifyUser } from "../../utils/notify";
+import { QRCodeSVG } from "qrcode.react";
 
 interface TelegramViewProps {
   logs: LogEntry[];
@@ -115,6 +117,61 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
       setBusy("idle");
     }
   }, [busy, fail]);
+
+  const handleModeChange = useCallback(
+    async (mode: string) => {
+      if (busy !== "idle" || status?.mode === mode) return;
+      setBusy("save");
+      setError(null);
+      try {
+        await invoke("set_tgproxy_mode", { mode });
+        await refresh();
+      } catch (e) {
+        fail(e);
+      } finally {
+        setBusy("idle");
+      }
+    },
+    [busy, status, refresh, fail]
+  );
+
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const handleTestConnection = useCallback(async () => {
+    if (busy !== "idle") return;
+    setBusy("save");
+    setError(null);
+    setTestResult(null);
+    try {
+      const ms = await invoke<number>("test_tgproxy_connection");
+      setTestResult(t.telegram.testOk.replace("{ms}", String(ms)));
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy("idle");
+    }
+  }, [busy, fail, t]);
+
+  const handleLanToggle = useCallback(
+    async (enabled: boolean) => {
+      if (busy !== "idle") return;
+      setBusy("save");
+      setError(null);
+      try {
+        await invoke("set_tgproxy_lan", { enabled });
+        await refresh();
+      } catch (e) {
+        fail(e);
+      } finally {
+        setBusy("idle");
+      }
+    },
+    [busy, refresh, fail]
+  );
+
+  const qrLink =
+    status?.lan_enabled && status?.lan_ip && status?.secret
+      ? `https://t.me/proxy?server=${status.lan_ip}&port=${status.port}&secret=${status.secret}`
+      : null;
 
   const handleSave = useCallback(async () => {
     const port = Number(portInput);
@@ -332,6 +389,24 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
                 {t.telegram.tgLinkLabel}
               </button>
             )}
+            {isRunning && (
+              <button
+                onClick={handleTestConnection}
+                disabled={busy !== "idle"}
+                className="t-btn t-btn-ghost"
+                title={t.telegram.testHint}
+              >
+                {busy === "save" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Activity className="h-4 w-4" />
+                )}
+                {t.telegram.testButton}
+              </button>
+            )}
+            {testResult && (
+              <span className="text-xs text-accent">{testResult}</span>
+            )}
           </div>
         </div>
 
@@ -339,6 +414,65 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
           <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-4 hover-lift stagger-item"
             style={{ "--stagger-i": 1 } as React.CSSProperties}>
             <h3 className="text-sm font-semibold text-ink">{t.telegram.settingsTitle}</h3>
+            <div className="space-y-1.5">
+              <span className="text-xs text-ink4">{t.telegram.modeLabel}</span>
+              <div className="flex gap-2">
+                {(
+                  [
+                    ["auto", t.telegram.modeAuto, t.telegram.modeAutoDesc],
+                    ["cfproxy", t.telegram.modeCfproxy, t.telegram.modeCfproxyDesc],
+                    ["direct", t.telegram.modeDirect, t.telegram.modeDirectDesc],
+                  ] as const
+                ).map(([value, label, desc]) => (
+                  <button
+                    key={value}
+                    onClick={() => handleModeChange(value)}
+                    disabled={isRunning || busy !== "idle"}
+                    title={desc}
+                    className={
+                      status?.mode === value
+                        ? "t-btn t-btn-primary flex-1"
+                        : "t-btn t-btn-ghost flex-1"
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-ink4">
+                {
+                  {
+                    cfproxy: t.telegram.modeCfproxyDesc,
+                    direct: t.telegram.modeDirectDesc,
+                  }[status?.mode ?? ""] ?? t.telegram.modeAutoDesc
+                }
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={status?.lan_enabled ?? false}
+                  onChange={(e) => handleLanToggle(e.target.checked)}
+                  disabled={isRunning || busy !== "idle"}
+                  className="h-4 w-4 rounded accent-[#6ea8fe] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <span className="text-xs text-ink4">{t.telegram.lanLabel}</span>
+              </label>
+              <p className="text-xs text-ink4">{t.telegram.lanDesc}</p>
+              {qrLink && (
+                <div className="flex items-start gap-4 pt-2">
+                  <div className="bg-white p-2 rounded-lg shrink-0">
+                    <QRCodeSVG value={qrLink} size={140} level="M" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-ink">{t.telegram.qrTitle}</p>
+                    <p className="text-xs text-ink4">{t.telegram.qrHint}</p>
+                    <p className="text-xs font-mono text-ink4 break-all">{qrLink}</p>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="space-y-1.5 block">
                 <span className="text-xs text-ink4">{t.telegram.portLabel}</span>

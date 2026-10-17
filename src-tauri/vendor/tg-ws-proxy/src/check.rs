@@ -693,3 +693,37 @@ pub async fn run_check_with_outbound(
 
 #[cfg(test)]
 mod tests;
+
+// ─── Public embedding API ───────────────────────────────────────────────────
+// Added for zapret2-gui (not upstream): a programmatic end-to-end probe of a
+// running bridge listener. It performs the same chain as `--check-listener`:
+// TCP connect → 64-byte obfuscated MTProto handshake → real `req_pq_multi` →
+// the reply must decrypt to Telegram's `resPQ`. Only the DC's answer proves
+// the full path (inbound handshake, chosen tier, DC) works.
+
+/// Result of [`probe_bridge_listener`].
+#[derive(Debug, Clone)]
+pub enum BridgeProbeResult {
+    /// The DC answered with `resPQ`; the value is the round-trip time.
+    Ok(Duration),
+    /// The chain is broken; the string names the failing step.
+    Fail(String),
+}
+
+/// Probe a running bridge listener end-to-end.
+///
+/// `addr` is the listener's socket address (e.g. `127.0.0.1:1443`),
+/// `secret` the 16-byte MTProto secret, `dc_idx` the DC index the client
+/// would use (0 = let the bridge pick). Returns how long the DC took to
+/// answer, or which step failed.
+pub async fn probe_bridge_listener(
+    addr: SocketAddr,
+    secret: &[u8],
+    dc_idx: i16,
+    timeout: Duration,
+) -> BridgeProbeResult {
+    match probe_listener(addr, secret, dc_idx, timeout).await {
+        ProbeStatus::Ok(d) => BridgeProbeResult::Ok(d),
+        ProbeStatus::Fail(e) => BridgeProbeResult::Fail(e),
+    }
+}

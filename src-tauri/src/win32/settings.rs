@@ -75,6 +75,14 @@ pub struct AppSettings {
     /// Whether the Telegram proxy was left enabled (auto-start on app launch).
     #[serde(default)]
     pub tgproxy_enabled: bool,
+    /// Telegram bridge connection mode: "auto" (default ladder), "cfproxy"
+    /// (Cloudflare first), or "direct" (direct WebSocket/TCP only).
+    #[serde(default = "default_tgproxy_mode")]
+    pub tgproxy_mode: String,
+    /// When true, the bridge binds to 0.0.0.0 so phones on the LAN can use
+    /// it (QR code). Off by default: loopback-only is the safe default.
+    #[serde(default)]
+    pub tgproxy_lan: bool,
     /// Active camouflage transport id (see engine::transport). `None` means
     /// the legacy direct launch — the only fully working mode today.
     pub active_transport_id: Option<String>,
@@ -93,6 +101,10 @@ fn default_tgproxy_port() -> u16 {
     1443
 }
 
+fn default_tgproxy_mode() -> String {
+    "auto".to_string()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -109,6 +121,8 @@ impl Default for AppSettings {
             tgproxy_port: 1443,
             tgproxy_secret: String::new(),
             tgproxy_enabled: false,
+            tgproxy_mode: default_tgproxy_mode(),
+            tgproxy_lan: false,
             active_transport_id: None,
             transport_configs: HashMap::new(),
         }

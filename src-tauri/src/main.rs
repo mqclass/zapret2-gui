@@ -44,10 +44,15 @@ async fn main() {
     let diagnostics_clone = diagnostics.clone();
 
     // 2b. Initialize the native Telegram bridge manager. The MTProto→WebSocket
-    // bridge runs in-process as a Tokio task (no external executable), sharing
-    // the supervisor only as a funnel into the common log buffer.
+    // bridge runs as a Tokio task (no external executable), sharing the
+    // supervisor only as a funnel into the common log buffer. It starts
+    // in-process, but migrates into zapret2-svc.exe as soon as we attach
+    // to the svc — so a GUI crash never kills the bridge either.
     let tgproxy = Arc::new(engine::tgproxy::TgProxyManager::new(supervisor.clone()));
-    let tgproxy_clone = tgproxy.clone();
+    let tgproxy_backend =
+        Arc::new(parking_lot::RwLock::new(crate::svc_client::TgproxyBackend::Local(
+            tgproxy.clone(),
+        )));
 
     // 3. Build Tauri v2 application
     tauri::Builder::default()
@@ -74,20 +79,25 @@ async fn main() {
             // No external sidecars: the Telegram bridge runs in-process,
             // so there is nothing holding files for install_update to gate on.
             sidecars: Vec::new(),
-            tgproxy: tgproxy_clone,        })
+            tgproxy: tgproxy_backend,        })
         .setup(move |app| {
             let handle = app.handle().clone();
             // If a svc instance is already running (e.g. the GUI was restarted
-            // while the bypass stayed up), attach to it instead of the local engine.
+            // while the bypass stayed up), attach to it instead of the local
+            // engine. The Telegram bridge follows: it runs inside the svc.
             {
                 let app_state = handle.state::<crate::commands::AppState>();
                 let backend = app_state.backend.clone();
+                let tgproxy_backend = app_state.tgproxy.clone();
                 let handle_clone = handle.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Ok(client) = crate::svc_client::SvcClient::connect().await {
                         if client.hello().await.is_ok() {
+                            let client = std::sync::Arc::new(client);
                             *backend.write() =
-                                crate::svc_client::SupervisorBackend::Remote(std::sync::Arc::new(client));
+                                crate::svc_client::SupervisorBackend::Remote(client.clone());
+                            *tgproxy_backend.write() =
+                                crate::svc_client::TgproxyBackend::Remote(client);
                             tauri::async_runtime::spawn(
                                 crate::svc_client::SvcClient::forward_events(handle_clone),
                             );
@@ -101,12 +111,17 @@ async fn main() {
             tgproxy.set_event_sink(sink);
 
             // If the Telegram proxy was left enabled, restore it (best-effort).
-            let tgproxy_auto = tgproxy.clone();
+            // Runs after the attach probe above, so it lands in the svc when
+            // one is running.
+            let tgproxy_auto = handle
+                .state::<crate::commands::AppState>()
+                .tgproxy
+                .clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                 let enabled = crate::win32::settings::load_settings().tgproxy_enabled;
                 if enabled {
-                    if let Err(e) = tgproxy_auto.start().await {
+                    if let Err(e) = tgproxy_auto.read().clone().start().await {
                         eprintln!("Warning: Failed to auto-start Telegram proxy: {}", e);
                     }
                 }
@@ -121,6 +136,8 @@ async fn main() {
 
                 // Automatically start bypass engine on Windows logon
                 let backend_auto = app.state::<crate::commands::AppState>().backend.clone();
+                let tgproxy_auto =
+                    app.state::<crate::commands::AppState>().tgproxy.clone();
                 let app_auto = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     // Small delay to allow Windows network adapters to finish DHCP/gateway connection
@@ -138,7 +155,10 @@ async fn main() {
                         .await
                         {
                             *backend_auto.write() =
-                                crate::svc_client::SupervisorBackend::Remote(client);
+                                crate::svc_client::SupervisorBackend::Remote(client.clone());
+                            // The bridge follows the engine into the svc.
+                            *tgproxy_auto.write() =
+                                crate::svc_client::TgproxyBackend::Remote(client);
                             let h = app_auto.clone();
                             tokio::spawn(async move {
                                 crate::svc_client::SvcClient::forward_events(h).await;
@@ -167,7 +187,10 @@ async fn main() {
                 ],
             )?;
 
-            let tgproxy_tray = tgproxy.clone();
+            let tgproxy_tray = app
+                .state::<crate::commands::AppState>()
+                .tgproxy
+                .clone();
 
             let icon = match app.default_window_icon().cloned() {
                 Some(i) => i,
@@ -194,6 +217,8 @@ async fn main() {
                         }
                         "start" => {
                             let backend = app_h.state::<crate::commands::AppState>().backend.clone();
+                            let tgproxy_backend =
+                                app_h.state::<crate::commands::AppState>().tgproxy.clone();
                             let h = app_h.clone();
                             tokio::spawn(async move {
                                 // Same svc-migration policy as the Start button.
@@ -209,7 +234,10 @@ async fn main() {
                                         .await
                                     {
                                         *backend.write() =
-                                            crate::svc_client::SupervisorBackend::Remote(client);
+                                            crate::svc_client::SupervisorBackend::Remote(client.clone());
+                                        // The bridge follows the engine into the svc.
+                                        *tgproxy_backend.write() =
+                                            crate::svc_client::TgproxyBackend::Remote(client);
                                         tokio::spawn(
                                             crate::svc_client::SvcClient::forward_events(h),
                                         );
@@ -229,9 +257,12 @@ async fn main() {
                             let tgp = tgproxy_tray.clone();
                             let h = app_h.clone();
                             tokio::spawn(async move {
-                                let _ = tgp.stop().await;
-                                // Only stop the engine when it runs in-process: a remote
-                                // svc outlives the GUI by design (the bypass stays up).
+                                // A remote svc outlives the GUI by design (the bypass
+                                // and the bridge stay up); only stop what runs
+                                // in this process.
+                                if !tgp.read().clone().is_remote() {
+                                    let _ = tgp.read().clone().stop().await;
+                                }
                                 if !backend.read().clone().is_remote() {
                                     let _ = backend.read().clone().stop().await;
                                 }
@@ -319,6 +350,9 @@ async fn main() {
             commands::stop_tgproxy,
             commands::set_tgproxy_config,
             commands::regenerate_tgproxy_secret,
+            commands::set_tgproxy_mode,
+            commands::test_tgproxy_connection,
+            commands::set_tgproxy_lan,
             commands::benchmark_youtube_speed,
             commands::sync_remote_lists,
             commands::check_for_updates,
