@@ -67,6 +67,8 @@ export const en: Translations = {
       "e.g.: --wf-tcp=80,443 --wf-udp=443 --lua-init=@zapret-lib.lua --payload=tls_client_hello --lua-desync=fake",
     customArgsHint:
       "Leave blank to apply the optimal automated desync profile.",
+    switchTitle: "Switch bypass to",
+
   },
   strategies: {
     title: "Bypass Mode Profile",
@@ -233,6 +235,9 @@ export const en: Translations = {
     openInBrowser: "Open in browser",
     deleteDomain: "Remove from list",
     tip: "Tip: after adding a new domain, flushing DNS or restarting your browser is recommended.",
+    loadError: "Failed to load file list: ",
+    loadingDomains: "Loading domains...",
+
   },
   splitTunnel: {
     title: "Tunneling Mode & Game Filter",
@@ -245,6 +250,8 @@ export const en: Translations = {
     badgeGame: "GAME MODE",
     badgeStrict: "STRICT SPLIT",
     badgeFull: "FULL BYPASS",
+    restartHint: "Restart bypass to apply",
+
   },
   doctor: {
     title: "Auto-Doctor / Network Self-Healing",
@@ -311,6 +318,18 @@ export const en: Translations = {
     tierFhdDesc: "Good: stable 1080p playback",
     tierHdDesc: "Slow: possible 1080p buffering delays",
     closeBtn: "Close",
+    targetNode: "Target node: YouTube Video Edge Cache (googlevideo.com)",
+    measuringNote: "Measuring real stream throughput...",
+    mbps: "Mbps",
+    pressToStart: "Press the button below for a real YouTube speed measurement",
+    secShort: "s",
+    mbShort: "MB",
+    bitrateTitle: "YouTube bitrate requirements:",
+    bitrate4k: "4K (2160p60): >= 25 Mbps",
+    bitrate2k: "1440p: >= 15 Mbps",
+    bitrateFhd: "1080p: >= 6 Mbps",
+    bitrateHd: "720p: >= 2 Mbps",
+
   },
   syncLists: {
     syncBtnTitle: "Download the latest blocked-resource lists from Flowseal GitHub",
@@ -368,6 +387,15 @@ export const en: Translations = {
     exportDiagBtn: "Export diagnostics",
     exportDiagSuccess: "Diagnostic bundle saved",
     exportDiagError: "Failed to save diagnostic bundle",
+    autostartTitle: "Autostart on Windows login",
+    autostartOn: "Enabled",
+    autostartOff: "Disabled",
+    autostartDisable: "Disable autostart",
+    autostartEnable: "Enable autostart",
+    elevatedYes: "Administrator",
+    elevatedNo: "Limited",
+    flowsealLink: "GitHub Flowseal (Presets)",
+
   },
   update: {
     sectionTitle: "Application updates",

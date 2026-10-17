@@ -343,7 +343,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                   <span>{t.modal.cheatsheetTitle}</span>
                 </div>
                 <span className="text-[11px] text-ink5">
-                  {showCheatsheet ? t.modal.cheatsheetShow : t.modal.cheatsheetHide}
+                  {showCheatsheet ? t.modal.cheatsheetHide : t.modal.cheatsheetShow}
                 </span>
               </button>
 

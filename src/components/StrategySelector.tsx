@@ -246,24 +246,24 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                               {strat.name}
                             </span>
                             {isUltimate && (
-                              <span className="flex items-center gap-0.5 rounded-chip bg-cyan-500/20 border border-cyan-500/40 px-1.5 py-0.2 text-[9px] font-bold text-cyan-300 shrink-0">
+                              <span className="flex items-center gap-0.5 rounded-chip bg-cyan-500/20 border border-cyan-500/40 px-1.5 py-0.5 text-[9px] font-bold text-cyan-300 shrink-0">
                                 <Sparkles className="h-2.5 w-2.5" />
                                 <span>{t.strategies.flagshipBadge}</span>
                               </span>
                             )}
                             {isRecommended && (
-                              <span className="flex items-center gap-0.5 rounded-chip bg-emerald-500/20 border border-emerald-500/40 px-1.5 py-0.2 text-[9px] font-bold text-emerald-300 shrink-0">
+                              <span className="flex items-center gap-0.5 rounded-chip bg-emerald-500/20 border border-emerald-500/40 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300 shrink-0">
                                 <Sparkles className="h-2.5 w-2.5" />
                                 <span>{t.strategies.badgeRecommended}</span>
                               </span>
                             )}
                             {is4k && (
-                              <span className="flex items-center gap-0.5 rounded-chip bg-purple-500/20 border border-purple-500/40 px-1.5 py-0.2 text-[9px] font-bold text-purple-300 shrink-0">
+                              <span className="flex items-center gap-0.5 rounded-chip bg-purple-500/20 border border-purple-500/40 px-1.5 py-0.5 text-[9px] font-bold text-purple-300 shrink-0">
                                 <span>{t.strategies.badge4k}</span>
                               </span>
                             )}
                             <span
-                              className={`rounded-chip px-1.5 py-0.2 text-[9px] font-mono font-medium shrink-0 ${
+                              className={`rounded-chip px-1.5 py-0.5 text-[9px] font-mono font-medium shrink-0 ${
                                 isFlowseal
                                   ? "bg-indigo-500/15 border border-indigo-500/30 text-indigo-300"
                                   : "bg-sky-500/15 border border-sky-500/30 text-sky-300"

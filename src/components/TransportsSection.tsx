@@ -117,18 +117,19 @@ export const TransportsSection: React.FC = React.memo(() => {
 
       {!loading && transports && (
         <div className="space-y-2.5">
-          {transports.map((v) => {
+          {transports.map((v, idx) => {
             const isActive = (activeId ?? "direct") === v.id;
             const isSelecting = selectingId === v.id;
             const name = transportName(t, v);
             return (
               <div
                 key={v.id}
-                className={`rounded-panel border p-3.5 space-y-2 transition-all ${
+                className={`rounded-panel border p-3.5 space-y-2 transition-all stagger-item hover-lift ${
                   isActive
                     ? "border-accent-line bg-accent-wash"
                     : "border-line bg-cardin"
                 }`}
+                style={{ "--stagger-i": idx } as React.CSSProperties}
               >
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2 min-w-0">

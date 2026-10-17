@@ -72,7 +72,7 @@ export const ListsView: React.FC = React.memo(() => {
         setSelectedFile(preferred);
       }
     } catch (e) {
-      setFeedback({ type: "error", text: `Не удалось загрузить список файлов: ${String(e)}` });
+      setFeedback({ type: "error", text: `${t.domainManager.loadError}${String(e)}` });
     }
   }, []);
 
@@ -311,7 +311,7 @@ export const ListsView: React.FC = React.memo(() => {
           {isLoading ? (
             <div className="flex h-48 flex-col items-center justify-center gap-2 text-ink4">
               <RefreshCw className="h-6 w-6 animate-spin text-accent" />
-              <span className="text-xs">Загрузка доменов...</span>
+              <span className="text-xs">{t.domainManager.loadingDomains}</span>
             </div>
           ) : filteredDomains.length === 0 ? (
             <div className="flex h-48 flex-col items-center justify-center gap-2 text-ink5">

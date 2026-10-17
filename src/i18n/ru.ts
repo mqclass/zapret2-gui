@@ -67,6 +67,8 @@ export const ru: Translations = {
       "например: --wf-tcp=80,443 --wf-udp=443 --lua-init=@zapret-lib.lua --payload=tls_client_hello --lua-desync=fake",
     customArgsHint:
       "Оставьте поле пустым для автоматического применения оптимального профиля обхода.",
+    switchTitle: "Переключить обход на",
+
   },
   strategies: {
     title: "Режим обхода блокировок",
@@ -233,6 +235,9 @@ export const ru: Translations = {
     openInBrowser: "Открыть в браузере",
     deleteDomain: "Удалить из списка",
     tip: "Подсказка: после добавления нового сайта рекомендуется очистить кэш DNS или перезапустить браузер.",
+    loadError: "Не удалось загрузить список файлов: ",
+    loadingDomains: "Загрузка доменов...",
+
   },
   splitTunnel: {
     title: "Режим туннелирования & Игровой фильтр",
@@ -245,6 +250,8 @@ export const ru: Translations = {
     badgeGame: "GAME MODE",
     badgeStrict: "STRICT SPLIT",
     badgeFull: "FULL BYPASS",
+    restartHint: "Перезапустите обход для применения",
+
   },
   doctor: {
     title: "Авто-Доктор / Восстановление сети",
@@ -311,6 +318,18 @@ export const ru: Translations = {
     tierFhdDesc: "Хорошо: стабильное воспроизведение 1080p",
     tierHdDesc: "Низкая скорость: возможны задержки в 1080p",
     closeBtn: "Закрыть",
+    targetNode: "Целевой узел: YouTube Video Edge Cache (googlevideo.com)",
+    measuringNote: "Замер пропускной способности потока...",
+    mbps: "Мбит/с",
+    pressToStart: "Нажмите кнопку ниже для реального замера скорости YouTube",
+    secShort: "с",
+    mbShort: "МБ",
+    bitrateTitle: "Требования к битрейту YouTube:",
+    bitrate4k: "4K (2160p60): >= 25 Мбит/с",
+    bitrate2k: "1440p: >= 15 Мбит/с",
+    bitrateFhd: "1080p: >= 6 Мбит/с",
+    bitrateHd: "720p: >= 2 Мбит/с",
+
   },
   syncLists: {
     syncBtnTitle: "Загрузить актуальные списки заблокированных ресурсов с Flowseal GitHub",
@@ -368,6 +387,15 @@ export const ru: Translations = {
     exportDiagBtn: "Экспорт диагностики",
     exportDiagSuccess: "Диагностический пакет сохранён",
     exportDiagError: "Не удалось сохранить диагностический пакет",
+    autostartTitle: "Автозапуск при входе в Windows",
+    autostartOn: "Включен",
+    autostartOff: "Отключен",
+    autostartDisable: "Отключить автозапуск",
+    autostartEnable: "Включить автозапуск",
+    elevatedYes: "Администратор",
+    elevatedNo: "Ограниченный",
+    flowsealLink: "GitHub Flowseal (Пресеты)",
+
   },
   update: {
     sectionTitle: "Обновления приложения",

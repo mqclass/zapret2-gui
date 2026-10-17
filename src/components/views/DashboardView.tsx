@@ -299,7 +299,10 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {/* Card 1: Strategies */}
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => onNavigateTab("strategies")}
+            onKeyDown={(e) => e.key === "Enter" && onNavigateTab("strategies")}
             className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
             style={{ "--stagger-i": 2 } as React.CSSProperties}
           >
@@ -317,7 +320,10 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
 
           {/* Card 2: DNS & Speedtest */}
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => onNavigateTab("dns")}
+            onKeyDown={(e) => e.key === "Enter" && onNavigateTab("dns")}
             className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
             style={{ "--stagger-i": 3 } as React.CSSProperties}
           >
@@ -335,7 +341,10 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
 
           {/* Card 3: Auto-Doctor & Diagnostics */}
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => onNavigateTab("diagnostics")}
+            onKeyDown={(e) => e.key === "Enter" && onNavigateTab("diagnostics")}
             className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
             style={{ "--stagger-i": 4 } as React.CSSProperties}
           >

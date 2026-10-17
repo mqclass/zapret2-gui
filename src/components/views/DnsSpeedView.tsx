@@ -379,7 +379,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
         <div className="rounded-panel border border-line bg-cardin p-5 flex flex-col items-center justify-center space-y-4">
           <div className="flex items-center gap-2 text-xs text-ink4">
             <Activity className="h-3.5 w-3.5 text-red-400" />
-            <span>Целевой узел: YouTube Video Edge Cache (googlevideo.com)</span>
+            <span>{t.speedtest.targetNode}</span>
           </div>
 
           {/* Speed Value & Live Pulse */}
@@ -388,7 +388,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
               <div className="flex flex-col items-center space-y-2">
                 <Loader2 className="h-8 w-8 animate-spin text-red-400" />
                 <span className="text-xs font-medium text-ink3">
-                  Замер пропускной способности потока...
+                  {t.speedtest.measuringNote}
                 </span>
                 {/* Progress bar */}
                 <div className="w-56 h-1.5 bg-hovert rounded-full overflow-hidden">
@@ -405,7 +405,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                     {speedValue.toFixed(1)}
                   </span>
                   <span className="text-xs font-bold uppercase text-red-400 font-mono">
-                    Мбит/с
+                    {t.speedtest.mbps}
                   </span>
                 </div>
                 {currentTier && (
@@ -420,7 +420,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
               <div className="flex flex-col items-center text-center py-2 space-y-1">
                 <span className="text-2xl font-bold font-mono text-ink5">—</span>
                 <span className="text-xs text-ink4">
-                  Нажмите кнопку ниже для реального замера скорости YouTube
+                  {t.speedtest.pressToStart}
                 </span>
               </div>
             )}
@@ -455,14 +455,14 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                 <Timer className="h-4 w-4 text-ink5" />
                 <span className="text-ink4">{t.speedtest.resultDuration}</span>
                 <span className="font-mono font-semibold text-ink2">
-                  {((speedResult.duration_ms ?? speedResult.download_time_ms ?? 0) / 1000).toFixed(2)} с
+                  {((speedResult.duration_ms ?? speedResult.download_time_ms ?? 0) / 1000).toFixed(2)} {t.speedtest.secShort}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <DownloadCloud className="h-4 w-4 text-ink5" />
                 <span className="text-ink4">{t.speedtest.resultPayload}</span>
                 <span className="font-mono font-semibold text-ink2">
-                  {(speedResult.bytes_downloaded / (1024 * 1024)).toFixed(1)} МБ
+                  {(speedResult.bytes_downloaded / (1024 * 1024)).toFixed(1)} {t.speedtest.mbShort}
                 </span>
               </div>
             </div>
@@ -477,12 +477,12 @@ export const DnsSpeedView: React.FC = React.memo(() => {
 
         {/* Speed Requirements Helper Card */}
         <div className="rounded-panel border border-line bg-cardin p-3 space-y-1.5 text-[11px]">
-          <span className="font-semibold text-ink3">Требования к битрейту YouTube:</span>
+          <span className="font-semibold text-ink3">{t.speedtest.bitrateTitle}</span>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-ink4">
-            <div>• 4K 2160p60: <span className="font-mono text-emerald-400 font-semibold">≥ 25 Мбит/с</span></div>
-            <div>• 2K 1440p60: <span className="font-mono text-accent font-semibold">≥ 15 Мбит/с</span></div>
-            <div>• Full HD 1080p: <span className="font-mono text-amber-400 font-semibold">≥ 6 Мбит/с</span></div>
-            <div>• HD 720p: <span className="font-mono text-ink4 font-semibold">≥ 3 Мбит/с</span></div>
+            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrate4k}</span></div>
+            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrate2k}</span></div>
+            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrateFhd}</span></div>
+            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrateHd}</span></div>
           </div>
         </div>
       </div>

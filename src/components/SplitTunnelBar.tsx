@@ -55,7 +55,7 @@ export const SplitTunnelBar: React.FC<SplitTunnelBarProps> = ({
         </div>
         {isRunning && (
           <span className="text-[10px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-chip font-medium">
-            Перезапустите обход для применения
+            {t.splitTunnel.restartHint}
           </span>
         )}
       </div>
@@ -72,7 +72,7 @@ export const SplitTunnelBar: React.FC<SplitTunnelBarProps> = ({
               className={`flex flex-col text-left p-2.5 rounded-control border transition-all cursor-pointer ${
                 isSelected
                   ? "bg-hovert border-linestrong text-ink shadow-sm"
-                  : "bg-cardin border-line hover:bg-hovert hover:border-line text-ink4"
+                  : "bg-cardin border-line hover:bg-hovert hover:border-linestrong text-ink4"
               } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               <div className="flex items-center justify-between gap-1.5">

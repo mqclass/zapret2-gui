@@ -77,7 +77,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
         case "warn":
           return "text-amber-400 bg-amber-500/10 border border-amber-500/20";
         case "info":
-          return "text-cyan-400 bg-cyan-500/10 border border-cyan-500/20";
+          return "text-accent bg-accent-wash border border-accent-line";
         case "tgproxy":
           return "border border-accent-line bg-accent-wash text-accent";
         case "stdout":
@@ -138,7 +138,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder={t.logs.searchPlaceholder}
-                className="h-8 w-36 rounded-panel border border-line bg-cardin pl-8 pr-2.5 text-xs text-ink2 placeholder-ink5 focus:border-cyan-500 focus:outline-none transition-all"
+                className="h-8 w-36 rounded-panel border border-line bg-cardin pl-8 pr-2.5 text-xs text-ink2 placeholder-ink5 focus:border-accent-line focus:outline-none transition-all"
               />
             </div>
 
@@ -146,7 +146,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
             <select
               value={filterLevel}
               onChange={(e) => setFilterLevel(e.target.value)}
-              className="h-8 rounded-panel border border-line bg-cardin px-2.5 text-xs text-ink3 focus:border-cyan-500 focus:outline-none cursor-pointer"
+              className="h-8 rounded-panel border border-line bg-cardin px-2.5 text-xs text-ink3 focus:border-accent-line focus:outline-none cursor-pointer"
             >
               <option value="all">{t.logs.allLevels}</option>
               <option value="stdout">stdout</option>
@@ -166,7 +166,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
                 title={t.logs.refreshTitle}
               >
                 <RefreshCw
-                  className={`h-3.5 w-3.5 text-cyan-400 ${isRefreshing ? "animate-spin" : ""}`}
+                  className={`h-3.5 w-3.5 text-accent ${isRefreshing ? "animate-spin" : ""}`}
                 />
                 <span>{t.logs.refreshShort}</span>
               </button>
@@ -179,7 +179,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
               className="flex h-8 items-center gap-1.5 rounded-panel border border-line bg-cardin px-2.5 text-xs text-ink3 hover:bg-hovert hover:text-ink transition-all cursor-pointer"
               title={t.logs.openFolder}
             >
-              <FolderOpen className="h-3.5 w-3.5 text-cyan-400" />
+              <FolderOpen className="h-3.5 w-3.5 text-accent" />
               <span>{t.logs.openFolder}</span>
             </button>
 
@@ -204,12 +204,12 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
               onClick={() => setAutoScroll(!autoScroll)}
               className={`flex h-8 items-center gap-1.5 rounded-panel border px-2.5 text-xs transition-all cursor-pointer ${
                 autoScroll
-                  ? "border-cyan-500/30 bg-cyan-500/15 text-cyan-300"
+                  ? "border-accent-line bg-accent-wash text-accent-soft"
                   : "border-line bg-cardin text-ink4 hover:text-ink2 hover:bg-raise"
               }`}
               title={t.logs.autoScroll}
             >
-              <ArrowDown className={`h-3 w-3 ${autoScroll ? "text-cyan-400" : ""}`} />
+              <ArrowDown className={`h-3 w-3 ${autoScroll ? "text-accent" : ""}`} />
               <span>{t.logs.autoScroll}</span>
             </button>
 
@@ -246,7 +246,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
                 <button
                   type="button"
                   onClick={onRefreshLogs}
-                  className="mt-2 flex items-center gap-1.5 rounded-control border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 transition-all cursor-pointer"
+                  className="mt-2 flex items-center gap-1.5 rounded-control border border-accent-line bg-accent-wash px-3 py-1 text-xs font-semibold text-accent-soft hover:bg-accent-fill/20 transition-all cursor-pointer"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   <span>{t.logs.refreshNow}</span>
@@ -263,7 +263,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
                   {formatTimestamp(log.timestamp)}
                 </span>
                 <span
-                  className={`rounded-chip px-1.5 py-0.2 text-[9px] uppercase font-bold shrink-0 ${getLevelStyle(
+                  className={`rounded-chip px-1.5 py-0.5 text-[9px] uppercase font-bold shrink-0 ${getLevelStyle(
                     log.level
                   )}`}
                 >

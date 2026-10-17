@@ -126,7 +126,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
             <div data-tauri-drag-region>
               <div data-tauri-drag-region className="flex items-center gap-1.5">
                 <span data-tauri-drag-region className="text-sm font-bold tracking-tight text-ink">zapret2</span>
-                <span className="rounded-chip bg-accent-wash border border-accent-line px-1 py-0.2 text-[9px] font-mono font-semibold text-accent">
+                <span className="rounded-chip bg-accent-wash border border-accent-line px-1 py-0.5 text-[9px] font-mono font-semibold text-accent">
                   {t.header.version}
                 </span>
               </div>
