@@ -132,8 +132,8 @@ export const Controls: React.FC<ControlsProps> = React.memo(
               <button
                 onClick={onSwitchToSelected}
                 disabled={disabled || isTransitioning}
-                className="flex items-center gap-2 rounded-panel bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 font-semibold text-xs text-ink shadow-md shadow-accent-fill/20 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-                title={`Переключить обход на "${selectedStrategyName}"`}
+                className="flex items-center gap-2 rounded-panel bg-accent-fill hover:bg-accent px-4 py-2.5 font-semibold text-xs text-ink shadow-md shadow-accent-fill/20 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                title={`${t.controls.switchTitle} "${selectedStrategyName}"`}
               >
                 <Zap className="h-3.5 w-3.5 text-amber-300 fill-amber-300" />
                 <span>

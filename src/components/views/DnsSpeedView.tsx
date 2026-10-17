@@ -157,7 +157,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4">
       {/* DNS Manager Section */}
-      <div className="rounded-card border border-line bg-card p-5 space-y-4">
+      <div className="rounded-card border border-line bg-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
         <div className="flex items-center justify-between border-b border-line pb-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-blue-500/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-blue-500/5">
@@ -243,11 +243,11 @@ export const DnsSpeedView: React.FC = React.memo(() => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-ink3">
-            <div className="rounded-control bg-overlay border border-white/[0.04] p-2 space-y-1">
+            <div className="rounded-control bg-cardin border border-line p-2 space-y-1">
               <span className="font-semibold text-ink2 block">{t.dns.scopeBannerScope}</span>
               <p className="text-ink4 leading-relaxed">{t.dns.scopeBannerScopeDesc}</p>
             </div>
-            <div className="rounded-control bg-overlay border border-white/[0.04] p-2 space-y-1">
+            <div className="rounded-control bg-cardin border border-line p-2 space-y-1">
               <span className="font-semibold text-ink2 block">{t.dns.scopeBannerSynergy}</span>
               <p className="text-ink4 leading-relaxed">{t.dns.scopeBannerSynergyDesc}</p>
             </div>
@@ -293,7 +293,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
             return (
               <div
                 key={p.id}
-                className={`flex items-center justify-between rounded-panel border p-3 transition-colors ${
+                className={`flex items-center justify-between rounded-panel border p-3 transition-colors hover-lift ${
                   isCurrent
                     ? "border-linestrong bg-hovert"
                     : "border-line bg-cardin hover:border-line hover:bg-raise"
@@ -355,7 +355,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
       </div>
 
       {/* YouTube 4K Stream Speedtest Section */}
-      <div className="rounded-card border border-line bg-card p-5 space-y-4">
+      <div className="rounded-card border border-line bg-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
         <div className="flex items-center justify-between border-b border-line pb-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-red-500/20 to-red-600/5 border border-red-500/25 text-red-400 shadow-sm shadow-red-500/5">
@@ -379,7 +379,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
         <div className="rounded-panel border border-line bg-cardin p-5 flex flex-col items-center justify-center space-y-4">
           <div className="flex items-center gap-2 text-xs text-ink4">
             <Activity className="h-3.5 w-3.5 text-red-400" />
-            <span>Целевой узел: YouTube Video Edge Cache (googlevideo.com)</span>
+            <span>{t.speedtest.targetNode}</span>
           </div>
 
           {/* Speed Value & Live Pulse */}
@@ -388,7 +388,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
               <div className="flex flex-col items-center space-y-2">
                 <Loader2 className="h-8 w-8 animate-spin text-red-400" />
                 <span className="text-xs font-medium text-ink3">
-                  Замер пропускной способности потока...
+                  {t.speedtest.measuringNote}
                 </span>
                 {/* Progress bar */}
                 <div className="w-56 h-1.5 bg-hovert rounded-full overflow-hidden">
@@ -405,7 +405,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                     {speedValue.toFixed(1)}
                   </span>
                   <span className="text-xs font-bold uppercase text-red-400 font-mono">
-                    Мбит/с
+                    {t.speedtest.mbps}
                   </span>
                 </div>
                 {currentTier && (
@@ -420,7 +420,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
               <div className="flex flex-col items-center text-center py-2 space-y-1">
                 <span className="text-2xl font-bold font-mono text-ink5">—</span>
                 <span className="text-xs text-ink4">
-                  Нажмите кнопку ниже для реального замера скорости YouTube
+                  {t.speedtest.pressToStart}
                 </span>
               </div>
             )}
@@ -455,14 +455,14 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                 <Timer className="h-4 w-4 text-ink5" />
                 <span className="text-ink4">{t.speedtest.resultDuration}</span>
                 <span className="font-mono font-semibold text-ink2">
-                  {((speedResult.duration_ms ?? speedResult.download_time_ms ?? 0) / 1000).toFixed(2)} с
+                  {((speedResult.duration_ms ?? speedResult.download_time_ms ?? 0) / 1000).toFixed(2)} {t.speedtest.secShort}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <DownloadCloud className="h-4 w-4 text-ink5" />
                 <span className="text-ink4">{t.speedtest.resultPayload}</span>
                 <span className="font-mono font-semibold text-ink2">
-                  {(speedResult.bytes_downloaded / (1024 * 1024)).toFixed(1)} МБ
+                  {(speedResult.bytes_downloaded / (1024 * 1024)).toFixed(1)} {t.speedtest.mbShort}
                 </span>
               </div>
             </div>
@@ -477,12 +477,12 @@ export const DnsSpeedView: React.FC = React.memo(() => {
 
         {/* Speed Requirements Helper Card */}
         <div className="rounded-panel border border-line bg-cardin p-3 space-y-1.5 text-[11px]">
-          <span className="font-semibold text-ink3">Требования к битрейту YouTube:</span>
+          <span className="font-semibold text-ink3">{t.speedtest.bitrateTitle}</span>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-ink4">
-            <div>• 4K 2160p60: <span className="font-mono text-emerald-400 font-semibold">≥ 25 Мбит/с</span></div>
-            <div>• 2K 1440p60: <span className="font-mono text-accent font-semibold">≥ 15 Мбит/с</span></div>
-            <div>• Full HD 1080p: <span className="font-mono text-amber-400 font-semibold">≥ 6 Мбит/с</span></div>
-            <div>• HD 720p: <span className="font-mono text-ink4 font-semibold">≥ 3 Мбит/с</span></div>
+            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrate4k}</span></div>
+            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrate2k}</span></div>
+            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrateFhd}</span></div>
+            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrateHd}</span></div>
           </div>
         </div>
       </div>

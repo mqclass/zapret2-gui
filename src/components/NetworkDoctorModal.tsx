@@ -53,13 +53,13 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4">
-      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col rounded-card border border-raise bg-card shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 modal-backdrop-enter">
+      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col rounded-card border border-raise bg-card shadow-2xl modal-panel-enter">
         {/* Header */}
         <div className="flex items-start justify-between border-b border-raise p-5">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-panel bg-gradient-to-tr from-amber-500 to-rose-500 shadow-md shadow-amber-500/20">
-              <Wrench className="h-5 w-5 text-ink" />
+              <Wrench className="h-5 w-5 text-white" />
             </div>
             <div>
               <h2 className="text-base font-bold text-ink">{t.doctor.title}</h2>
@@ -107,7 +107,7 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
             <button
               onClick={handleRunDoctor}
               disabled={isRunning}
-              className="flex items-center gap-2.5 rounded-panel bg-gradient-to-r from-amber-500 to-rose-600 px-6 py-3 font-semibold text-sm text-ink shadow-lg shadow-amber-500/20 hover:from-amber-400 hover:to-rose-500 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-2.5 rounded-panel bg-gradient-to-r from-amber-500 to-rose-600 px-6 py-3 font-semibold text-sm text-white shadow-lg shadow-amber-500/20 hover:from-amber-400 hover:to-rose-500 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
             >
               {isRunning ? (
                 <>

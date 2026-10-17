@@ -20,7 +20,7 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = React.memo(
     return (
       <div className="space-y-6 pb-6">
         {/* Banner with Doctor Quick Action */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-panel border border-warnline bg-warnwash p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-panel border border-warnline bg-warnwash p-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-panel bg-amber-500/10 border border-amber-500/25 text-amber-400">
               <Wrench className="h-4 w-4" />
@@ -33,7 +33,7 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = React.memo(
                 </span>
               </h3>
               <p className="text-[11px] text-ink4 mt-0.5">
-                Автоматическое исправление сбоев сети: сброс кэша DNS, службы WinDivert и зависших сокетов
+                {t.doctor.bannerDesc}
               </p>
             </div>
           </div>
@@ -44,7 +44,7 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = React.memo(
             className="flex items-center justify-center gap-2 rounded-control bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-4 py-2 text-xs transition-all active:scale-[0.98] cursor-pointer shrink-0"
           >
             <Wrench className="h-3.5 w-3.5" />
-            <span>Запустить Авто-Доктор</span>
+            <span>{t.doctor.bannerBtn}</span>
           </button>
         </div>
 

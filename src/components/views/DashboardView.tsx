@@ -299,8 +299,12 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {/* Card 1: Strategies */}
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => onNavigateTab("strategies")}
-            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all"
+            onKeyDown={(e) => e.key === "Enter" && onNavigateTab("strategies")}
+            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
+            style={{ "--stagger-i": 2 } as React.CSSProperties}
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-accent">
@@ -316,8 +320,12 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
 
           {/* Card 2: DNS & Speedtest */}
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => onNavigateTab("dns")}
-            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all"
+            onKeyDown={(e) => e.key === "Enter" && onNavigateTab("dns")}
+            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
+            style={{ "--stagger-i": 3 } as React.CSSProperties}
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-cyan-400">
@@ -333,8 +341,12 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
 
           {/* Card 3: Auto-Doctor & Diagnostics */}
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => onNavigateTab("diagnostics")}
-            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all"
+            onKeyDown={(e) => e.key === "Enter" && onNavigateTab("diagnostics")}
+            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
+            style={{ "--stagger-i": 4 } as React.CSSProperties}
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-amber-400">

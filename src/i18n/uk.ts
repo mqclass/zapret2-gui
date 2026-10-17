@@ -67,6 +67,8 @@ export const uk: Translations = {
       "наприклад: --wf-tcp=80,443 --wf-udp=443 --lua-init=@zapret-lib.lua --payload=tls_client_hello --lua-desync=fake",
     customArgsHint:
       "Залиште поле порожнім для автоматичного застосування оптимального профілю обходу.",
+    switchTitle: "Перемкнути обхід на",
+
   },
   strategies: {
     title: "Режим обходу блокувань",
@@ -233,6 +235,9 @@ export const uk: Translations = {
     openInBrowser: "Відкрити у браузері",
     deleteDomain: "Видалити зі списку",
     tip: "Підказка: після додавання нового сайту рекомендується очистити кеш DNS або перезапустити браузер.",
+    loadError: "Не вдалося завантажити список файлів: ",
+    loadingDomains: "Завантаження доменів...",
+
   },
   splitTunnel: {
     title: "Режим тунелювання & Ігровий фільтр",
@@ -245,6 +250,8 @@ export const uk: Translations = {
     badgeGame: "GAME MODE",
     badgeStrict: "STRICT SPLIT",
     badgeFull: "FULL BYPASS",
+    restartHint: "Перезапустіть обхід для застосування",
+
   },
   doctor: {
     title: "Авто-Доктор / Відновлення мережі",
@@ -266,6 +273,9 @@ export const uk: Translations = {
     introItem5: "Вмикає TCP Timestamps",
     introItem6: "Перевіряє наскрізну доступність інтернету та шлюзу",
     closeBtn: "Закрити",
+    bannerDesc: "Автоматичне виправлення збоїв мережі: скидання кешу DNS, служби WinDivert і завислих сокетів",
+    bannerBtn: "Запустити Авто-Доктор",
+
   },
   dns: {
     title: "Менеджер DNS & Захист від підміни",
@@ -308,6 +318,18 @@ export const uk: Translations = {
     tierFhdDesc: "Добре: стабільне відтворення 1080p",
     tierHdDesc: "Низька швидкість: можливі затримки в 1080p",
     closeBtn: "Закрити",
+    targetNode: "Цільовий вузол: YouTube Video Edge Cache (googlevideo.com)",
+    measuringNote: "Вимірювання пропускної здатності потоку...",
+    mbps: "Мбіт/с",
+    pressToStart: "Натисніть кнопку нижче для реального виміру швидкості YouTube",
+    secShort: "с",
+    mbShort: "МБ",
+    bitrateTitle: "Вимоги до бітрейту YouTube:",
+    bitrate4k: "4K (2160p60): >= 25 Мбіт/с",
+    bitrate2k: "1440p: >= 15 Мбіт/с",
+    bitrateFhd: "1080p: >= 6 Мбіт/с",
+    bitrateHd: "720p: >= 2 Мбіт/с",
+
   },
   syncLists: {
     syncBtnTitle: "Завантажити актуальні списки заблокованих ресурсів з Flowseal GitHub",
@@ -365,6 +387,15 @@ export const uk: Translations = {
     exportDiagBtn: "Експорт діагностики",
     exportDiagSuccess: "Діагностичний пакет збережено",
     exportDiagError: "Не вдалося зберегти діагностичний пакет",
+    autostartTitle: "Автозапуск при вході в Windows",
+    autostartOn: "Увімкнено",
+    autostartOff: "Вимкнено",
+    autostartDisable: "Вимкнути автозапуск",
+    autostartEnable: "Увімкнути автозапуск",
+    elevatedYes: "Адміністратор",
+    elevatedNo: "Обмежений",
+    flowsealLink: "GitHub Flowseal (Пресети)",
+
   },
   update: {
     sectionTitle: "Оновлення застосунку",
@@ -446,6 +477,13 @@ export const uk: Translations = {
     inactive: "Вимкнено",
     starting: "Старт...",
     stopping: "Стоп...",
+    modeLabel: "Режим:",
+    serviceLabel: "Служба:",
+    tagline: "DPI Bypass Utility",
+    modeFull: "Повний",
+    modeStrict: "Строгий",
+    modeGame: "Ігровий",
+
   },
   dashboard: {
     active: "Обхід активний",

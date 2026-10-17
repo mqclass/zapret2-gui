@@ -27,9 +27,9 @@ import { TransportsSection } from "../TransportsSection";
 
 /** External links opened via the opener plugin (L-2). The capability allowlist
  *  restricts this to https://github.com/* — no webview navigation is enabled. */
-const EXTERNAL_LINKS = [
+const EXTERNAL_LINKS: { url: string; label: string; labelKey?: "flowsealLink" }[] = [
   { url: "https://github.com/bol-van/zapret", label: "GitHub bol-van/zapret" },
-  { url: "https://github.com/Flowseal/zapret-discord-youtube", label: "GitHub Flowseal (Пресеты)" },
+  { url: "https://github.com/Flowseal/zapret-discord-youtube", label: "GitHub Flowseal", labelKey: "flowsealLink" },
   { url: "https://github.com/mqclass/zapret2-gui", label: "GitHub mqclass/zapret2-gui" },
 ];
 
@@ -151,7 +151,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     return (
       <div className="space-y-4 pb-4 max-w-4xl">
         {/* System & Engine Section */}
-        <div className="rounded-card border border-line bg-card p-5 space-y-4">
+        <div className="rounded-card border border-line bg-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
           <div className="border-b border-line pb-3">
             <h3 className="t-section-title">
               <Shield className="h-4 w-4 text-accent" />
@@ -165,7 +165,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Rocket className="h-4 w-4 text-accent" />
-                  <span className="text-xs font-semibold text-ink">Автозапуск при входе в Windows</span>
+                  <span className="text-xs font-semibold text-ink">{t.settingsTab.autostartTitle}</span>
                   <span
                     className={`rounded-chip px-1.5 py-0.5 text-[10px] font-medium ${
                       isAutostart
@@ -173,7 +173,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         : "bg-hovert text-ink4"
                     }`}
                   >
-                    {isAutostart ? "Включен" : "Отключен"}
+                    {isAutostart ? t.settingsTab.autostartOn : t.settingsTab.autostartOff}
                   </span>
                 </div>
                 <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
@@ -196,7 +196,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 ) : (
                   <Rocket className="h-3.5 w-3.5 text-accent" />
                 )}
-                <span>{isAutostart ? "Отключить автозапуск" : "Включить автозапуск"}</span>
+                <span>{isAutostart ? t.settingsTab.autostartDisable : t.settingsTab.autostartEnable}</span>
               </button>
             </div>
 
@@ -217,7 +217,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         : "bg-amber-500/15 text-amber-400 border border-amber-500/30"
                     }`}
                   >
-                    {isElevated ? "Администратор" : "Ограниченный"}
+                    {isElevated ? t.settingsTab.elevatedYes : t.settingsTab.elevatedNo}
                   </span>
                 </div>
                 <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
@@ -444,7 +444,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Theme Selection Card */}
-        <div className="rounded-card border border-line bg-card p-5 space-y-3 shadow-card">
+        <div className="rounded-card border border-line bg-card p-5 space-y-3 shadow-card stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
           <div className="border-b border-line pb-3">
             <h3 className="t-section-title">
               <Palette className="h-4 w-4 text-accent" />
@@ -490,7 +490,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Language Selection Card */}
-        <div className="rounded-card border border-line bg-card p-5 space-y-3">
+        <div className="rounded-card border border-line bg-card p-5 space-y-3 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
           <div className="border-b border-line pb-3">
             <h3 className="t-section-title">
               <Globe className="h-4 w-4 text-accent" />
@@ -524,7 +524,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         <TransportsSection />
 
         {/* Security & Warning Against Fakes */}
-        <div className="rounded-card border border-warnline bg-warnwash p-4 space-y-2">
+        <div className="rounded-card border border-warnline bg-warnwash p-4 space-y-2 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>
           <div className="flex items-center gap-2 text-amber-400">
             <AlertTriangle className="h-4 w-4" />
             <h4 className="text-xs font-semibold text-ink">{t.settingsTab.warningFakesTitle}</h4>
@@ -540,7 +540,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 onClick={() => openUrl(l.url)}
                 className="flex items-center gap-1.5 text-accent hover:text-accent-soft hover:underline cursor-pointer bg-transparent border-0 p-0"
               >
-                <span>{l.label}</span>
+                <span>{l.labelKey ? t.settingsTab[l.labelKey] : l.label}</span>
                 <ExternalLink className="h-3 w-3" />
               </button>
             ))}
@@ -548,7 +548,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Application Architecture & Versions */}
-        <div className="rounded-card border border-line bg-card p-4">
+        <div className="rounded-card border border-line bg-card p-4 stagger-item" style={{ "--stagger-i": 4 } as React.CSSProperties}>
           <div className="flex items-center justify-between text-xs text-ink4">
             <div className="flex items-center gap-2">
               <ZapretLogo className="h-4 w-4" />

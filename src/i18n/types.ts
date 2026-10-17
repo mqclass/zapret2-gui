@@ -64,6 +64,8 @@ export interface Translations {
     customArgsLabel: string;
     customArgsPlaceholder: string;
     customArgsHint: string;
+    switchTitle: string;
+
   };
   strategies: {
     title: string;
@@ -230,6 +232,9 @@ export interface Translations {
     openInBrowser: string;
     deleteDomain: string;
     tip: string;
+    loadError: string;
+    loadingDomains: string;
+
   };
   splitTunnel: {
     title: string;
@@ -242,6 +247,8 @@ export interface Translations {
     badgeGame: string;
     badgeStrict: string;
     badgeFull: string;
+    restartHint: string;
+
   };
   doctor: {
     title: string;
@@ -263,6 +270,9 @@ export interface Translations {
     introItem4: string;
     introItem5: string;
     introItem6: string;
+    bannerDesc: string;
+    bannerBtn: string;
+
   };
   dns: {
     title: string;
@@ -305,6 +315,18 @@ export interface Translations {
     tier2kDesc: string;
     tierFhdDesc: string;
     tierHdDesc: string;
+    targetNode: string;
+    measuringNote: string;
+    mbps: string;
+    pressToStart: string;
+    secShort: string;
+    mbShort: string;
+    bitrateTitle: string;
+    bitrate4k: string;
+    bitrate2k: string;
+    bitrateFhd: string;
+    bitrateHd: string;
+
   };
   syncLists: {
     syncBtn: string;
@@ -359,6 +381,15 @@ export interface Translations {
     exportDiagBtn: string;
     exportDiagSuccess: string;
     exportDiagError: string;
+    autostartTitle: string;
+    autostartOn: string;
+    autostartOff: string;
+    autostartDisable: string;
+    autostartEnable: string;
+    elevatedYes: string;
+    elevatedNo: string;
+    flowsealLink: string;
+
   };
   update: {
     sectionTitle: string;
@@ -436,6 +467,13 @@ export interface Translations {
     inactive: string;
     starting: string;
     stopping: string;
+    modeLabel: string;
+    serviceLabel: string;
+    tagline: string;
+    modeFull: string;
+    modeStrict: string;
+    modeGame: string;
+
   };
   dashboard: {
     active: string;
