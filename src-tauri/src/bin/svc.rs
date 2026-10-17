@@ -11,6 +11,8 @@
 mod engine;
 #[path = "../win32/mod.rs"]
 mod win32;
+#[path = "../svc_client.rs"]
+mod svc_client;
 #[path = "../svc_ipc.rs"]
 mod svc_ipc;
 #[path = "../svc_server.rs"]
