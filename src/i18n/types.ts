@@ -311,6 +311,16 @@ export interface Translations {
     refreshCurrentTitle: string;
     dhcpAuto: string;
     dhcpProvider: string;
+    customTitle: string;
+    customSubtitle: string;
+    customNameLabel: string;
+    customNamePlaceholder: string;
+    customPrimaryLabel: string;
+    customPrimaryPlaceholder: string;
+    customSecondaryLabel: string;
+    customSecondaryPlaceholder: string;
+    customAddBtn: string;
+    customDeleteTitle: string;
   };
   speedtest: {
     title: string;

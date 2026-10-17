@@ -13,6 +13,8 @@ import {
   RefreshCw,
   Activity,
   ShieldCheck,
+  Trash2,
+  Plus,
 } from "lucide-react";
 import { DnsStatus, SpeedtestResult } from "../../types";
 import { useI18n } from "../../i18n";
@@ -27,6 +29,12 @@ export const DnsSpeedView: React.FC = React.memo(() => {
   const [dnsMessage, setDnsMessage] = useState<string | null>(null);
   const [dnsError, setDnsError] = useState<string | null>(null);
   const [dnsScope, setDnsScope] = useState<"full" | "split">("full");
+
+  // Custom DNS form state
+  const [customName, setCustomName] = useState("");
+  const [customPrimary, setCustomPrimary] = useState("");
+  const [customSecondary, setCustomSecondary] = useState("");
+  const [isAddingCustom, setIsAddingCustom] = useState(false);
 
   // Speedtest State
   const [isSpeedRunning, setIsSpeedRunning] = useState<boolean>(false);
@@ -91,6 +99,44 @@ export const DnsSpeedView: React.FC = React.memo(() => {
       if (!ok) {
         setDnsScope(prevScope);
       }
+    }
+  };
+
+  const handleAddCustomDns = async () => {
+    setIsAddingCustom(true);
+    setDnsError(null);
+    setDnsMessage(null);
+    try {
+      const updated = await invoke<DnsStatus>("add_custom_dns", {
+        name: customName,
+        primary: customPrimary,
+        secondary: customSecondary,
+      });
+      setDnsStatus(updated);
+      setCustomName("");
+      setCustomPrimary("");
+      setCustomSecondary("");
+      setDnsMessage(t.dns.successApplied);
+      setTimeout(() => setDnsMessage(null), 4000);
+    } catch (err: any) {
+      console.error("Failed to add custom DNS:", err);
+      setDnsError(typeof err === "string" ? err : JSON.stringify(err));
+    } finally {
+      setIsAddingCustom(false);
+    }
+  };
+
+  const handleRemoveCustomDns = async (providerId: string) => {
+    // providerId is "custom:<id>"; strip the prefix for the backend.
+    const id = providerId.startsWith("custom:") ? providerId.slice(7) : providerId;
+    setDnsError(null);
+    setDnsMessage(null);
+    try {
+      const updated = await invoke<DnsStatus>("remove_custom_dns", { id });
+      setDnsStatus(updated);
+    } catch (err: any) {
+      console.error("Failed to remove custom DNS:", err);
+      setDnsError(typeof err === "string" ? err : JSON.stringify(err));
     }
   };
 
@@ -325,32 +371,100 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleApplyDns(p.id)}
-                  disabled={isCurrent || isApplying}
-                  className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:cursor-not-allowed shrink-0 ${
-                    isCurrent
-                      ? dnsStatus.split_dns_active
-                        ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                        : "bg-accent-wash text-accent-soft border border-accent-line"
-                      : "bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line"
-                  }`}
-                >
-                  {isApplying ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
-                  ) : isCurrent ? (
-                    <>
-                      <Check className="h-3.5 w-3.5" />
-                      <span>{dnsStatus.split_dns_active ? t.dns.splitActiveBadge : t.dns.activeBadge}</span>
-                    </>
-                  ) : (
-                    <span>{t.dns.applyBtn}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {p.id.startsWith("custom:") && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCustomDns(p.id)}
+                      title={t.dns.customDeleteTitle}
+                      className="flex items-center justify-center rounded-control p-1.5 text-ink5 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition-all cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyDns(p.id)}
+                    disabled={isCurrent || isApplying}
+                    className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:cursor-not-allowed shrink-0 ${
+                      isCurrent
+                        ? dnsStatus.split_dns_active
+                          ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                          : "bg-accent-wash text-accent-soft border border-accent-line"
+                        : "bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line"
+                    }`}
+                  >
+                    {isApplying ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                    ) : isCurrent ? (
+                      <>
+                        <Check className="h-3.5 w-3.5" />
+                        <span>{dnsStatus.split_dns_active ? t.dns.splitActiveBadge : t.dns.activeBadge}</span>
+                      </>
+                    ) : (
+                      <span>{t.dns.applyBtn}</span>
+                    )}
+                  </button>
+                </div>
               </div>
             );
           })}
+        </div>
+
+        {/* Custom DNS form */}
+        <div className="rounded-panel border border-line bg-cardin p-4 space-y-3">
+          <div>
+            <h4 className="text-xs font-semibold text-ink">{t.dns.customTitle}</h4>
+            <p className="text-[11px] text-ink4">{t.dns.customSubtitle}</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-ink4">{t.dns.customNameLabel}</label>
+              <input
+                type="text"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder={t.dns.customNamePlaceholder}
+                maxLength={60}
+                className="w-full rounded-control border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 focus:border-accent-line focus:outline-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-ink4">{t.dns.customPrimaryLabel}</label>
+              <input
+                type="text"
+                value={customPrimary}
+                onChange={(e) => setCustomPrimary(e.target.value)}
+                placeholder={t.dns.customPrimaryPlaceholder}
+                inputMode="decimal"
+                className="w-full rounded-control border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 font-mono focus:border-accent-line focus:outline-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-ink4">{t.dns.customSecondaryLabel}</label>
+              <input
+                type="text"
+                value={customSecondary}
+                onChange={(e) => setCustomSecondary(e.target.value)}
+                placeholder={t.dns.customSecondaryPlaceholder}
+                inputMode="decimal"
+                className="w-full rounded-control border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 font-mono focus:border-accent-line focus:outline-none"
+              />
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleAddCustomDns}
+            disabled={isAddingCustom || !customName.trim() || !customPrimary.trim()}
+            className="flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isAddingCustom ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Plus className="h-3.5 w-3.5" />
+            )}
+            <span>{t.dns.customAddBtn}</span>
+          </button>
         </div>
       </div>
 

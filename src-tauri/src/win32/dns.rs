@@ -38,7 +38,7 @@ pub struct DnsStatus {
 }
 
 pub fn get_available_providers() -> Vec<DnsProviderInfo> {
-    vec![
+    let mut providers = vec![
         DnsProviderInfo {
             id: "system".into(),
             name: "По умолчанию (DHCP / Провайдер)".into(),
@@ -74,7 +74,22 @@ pub fn get_available_providers() -> Vec<DnsProviderInfo> {
             primary: "9.9.9.9".into(),
             secondary: "149.112.112.112".into(),
         },
-    ]
+    ];
+    // Append user-defined DNS servers after the built-ins.
+    for custom in load_settings().custom_dns {
+        providers.push(DnsProviderInfo {
+            id: format!("custom:{}", custom.id),
+            name: format!("{} (свой)", custom.name),
+            description: "Пользовательский DNS-сервер".into(),
+            primary: custom.primary,
+            secondary: if custom.secondary.is_empty() {
+                "-".into()
+            } else {
+                custom.secondary
+            },
+        });
+    }
+    providers
 }
 
 /// Queries the primary active network adapter and its active DNS servers in a single silent PowerShell execution.
@@ -189,9 +204,14 @@ fn reset_adapter_dns(adapter_esc: &str) -> Result<(), String> {
 
 /// Assigns static DNS servers to the adapter.
 fn set_adapter_dns(adapter_esc: &str, primary: &str, secondary: &str) -> Result<(), String> {
+    let servers = if secondary.is_empty() {
+        format!("'{}'", primary)
+    } else {
+        format!("'{}', '{}'", primary, secondary)
+    };
     let script = format!(
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}', '{}') -ErrorAction Stop",
-        adapter_esc, primary, secondary
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses @({}) -ErrorAction Stop",
+        adapter_esc, servers
     );
     run_powershell(&script).map_err(|e| format!("Failed to apply DNS settings: {}", e))
 }
@@ -298,6 +318,11 @@ pub fn apply_split_dns_nrpt(primary: &str, secondary: &str) -> Result<(), String
         .collect::<Vec<_>>()
         .join(",");
 
+    let ns_servers = if secondary.is_empty() {
+        format!("'{}'", primary)
+    } else {
+        format!("'{}', '{}'", primary, secondary)
+    };
     let script = format!(
         r#"
         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
@@ -306,9 +331,9 @@ pub fn apply_split_dns_nrpt(primary: &str, secondary: &str) -> Result<(), String
             $existing | Remove-DnsClientNrptRule -Force -ErrorAction SilentlyContinue;
         }}
         $ns = @({});
-        Add-DnsClientNrptRule -Namespace $ns -NameServers @('{}', '{}') -Comment 'Zapret2_SplitDNS' -ErrorAction Stop;
+        Add-DnsClientNrptRule -Namespace $ns -NameServers @({}) -Comment 'Zapret2_SplitDNS' -ErrorAction Stop;
         "#,
-        ns_list, primary, secondary
+        ns_list, ns_servers
     );
 
     let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
@@ -371,7 +396,83 @@ pub fn get_dns_status() -> Result<DnsStatus, String> {
     })
 }
 
-/// Sets the DNS resolver on the primary adapter or selective Split-DNS via NRPT and flushes DNS cache silently.
+/// Custom DNS management: add / remove user-defined resolvers.
+/// These are stored in settings and appear in get_available_providers()
+/// with id "custom:<id>". Validation rejects anything that is not a
+/// valid IPv4 address.
+fn is_valid_ipv4(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+    parts.iter().all(|p| {
+        !p.is_empty() && p.len() <= 3 && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u8>().is_ok()
+    })
+}
+
+pub fn add_custom_dns(name: &str, primary: &str, secondary: &str) -> Result<DnsStatus, String> {
+    let name = name.trim();
+    let primary = primary.trim();
+    let secondary = secondary.trim();
+    if name.is_empty() {
+        return Err("Укажите название DNS-сервера".into());
+    }
+    if name.chars().count() > 60 {
+        return Err("Название слишком длинное (максимум 60 символов)".into());
+    }
+    if !is_valid_ipv4(primary) {
+        return Err(format!("Некорректный IP-адрес: {}", primary));
+    }
+    if !secondary.is_empty() && !is_valid_ipv4(secondary) {
+        return Err(format!("Некорректный IP-адрес: {}", secondary));
+    }
+    if primary == secondary && !secondary.is_empty() {
+        return Err("Основной и дополнительный адреса совпадают".into());
+    }
+
+    let id = format!(
+        "custom-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let entry = crate::win32::settings::CustomDnsEntry {
+        id: id.clone(),
+        name: name.to_string(),
+        primary: primary.to_string(),
+        secondary: secondary.to_string(),
+    };
+    update_settings(|s| {
+        // Cap at 10 custom entries to keep the list manageable.
+        if s.custom_dns.len() >= 10 {
+            s.custom_dns.remove(0);
+        }
+        s.custom_dns.push(entry.clone());
+    })
+    .map_err(|e| e.to_string())?;
+    get_dns_status()
+}
+
+pub fn remove_custom_dns(id: &str) -> Result<DnsStatus, String> {
+    let removed_active = update_settings(|s| {
+        let was_active = s.dns_provider == format!("custom:{}", id);
+        s.custom_dns.retain(|e| e.id != id);
+        // If the removed entry was active, fall back to system DNS.
+        if was_active {
+            s.dns_provider = "system".into();
+        }
+        was_active
+    })
+    .map_err(|e| e.to_string())?;
+    if removed_active {
+        // Actually reset the adapter to DHCP, not just the setting —
+        // otherwise stale custom servers stay on the interface.
+        return set_system_dns("system", None);
+    }
+    get_dns_status()
+}
+
 ///
 /// The previously configured DNS servers are snapshotted before any change; if any step
 /// fails, the adapter is rolled back to them and the failure is reported. Settings are
@@ -399,15 +500,18 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
             }
             Ok(())
         } else if let Some(target) = providers.iter().find(|p| p.id == provider_id) {
+            // Custom entries store "-" as a display placeholder for an empty
+            // secondary; never pass it to PowerShell as an address.
+            let secondary = if target.secondary == "-" { "" } else { target.secondary.as_str() };
             match effective_scope {
                 crate::win32::settings::DnsScope::Split => {
                     // In Split mode: NRPT cleanly overlays on top of the adapter without destroying user's static/custom DNS
-                    apply_split_dns_nrpt(&target.primary, &target.secondary)
+                    apply_split_dns_nrpt(&target.primary, secondary)
                 }
                 crate::win32::settings::DnsScope::Full => {
                     // In Full mode: clear any Split NRPT rules and set adapter DNS
                     clear_split_dns_nrpt()?;
-                    set_adapter_dns(&adapter_esc, &target.primary, &target.secondary)
+                    set_adapter_dns(&adapter_esc, &target.primary, secondary)
                 }
             }
         } else {

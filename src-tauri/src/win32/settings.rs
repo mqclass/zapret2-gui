@@ -47,14 +47,31 @@ impl Default for DnsScope {
     }
 }
 
+/// A user-defined DNS resolver entry (custom DNS servers).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomDnsEntry {
+    /// Stable id, e.g. "custom-1700000000". Provider id becomes "custom:<id>".
+    pub id: String,
+    /// Display name chosen by the user.
+    pub name: String,
+    /// Primary IPv4 address.
+    pub primary: String,
+    /// Secondary IPv4 address (may be empty).
+    #[serde(default)]
+    pub secondary: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub split_tunnel_mode: SplitTunnelMode,
     pub game_filter_tcp: String,
     pub game_filter_udp: String,
-    pub dns_provider: String, // "system", "cloudflare", "google", "quad9", "comss"
+    pub dns_provider: String, // "system", "cloudflare", "google", "quad9", "comss" or "custom:<id>"
     #[serde(default)]
     pub dns_scope: DnsScope,
+    /// User-defined DNS servers (shown alongside built-in presets).
+    #[serde(default)]
+    pub custom_dns: Vec<CustomDnsEntry>,
     pub last_strategy_id: Option<String>,
     pub auto_start_bypass: bool,
     /// Whether Windows toast notifications are shown for engine events.

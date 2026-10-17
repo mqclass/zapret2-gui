@@ -848,6 +848,22 @@ pub async fn set_system_dns(
     crate::win32::dns::set_system_dns(&provider_id, scope.as_deref())
 }
 
+/// Adds a user-defined DNS resolver (name + IPv4 addresses).
+#[tauri::command]
+pub async fn add_custom_dns(
+    name: String,
+    primary: String,
+    secondary: String,
+) -> Result<crate::win32::dns::DnsStatus, String> {
+    crate::win32::dns::add_custom_dns(&name, &primary, &secondary)
+}
+
+/// Removes a user-defined DNS resolver by its id.
+#[tauri::command]
+pub async fn remove_custom_dns(id: String) -> Result<crate::win32::dns::DnsStatus, String> {
+    crate::win32::dns::remove_custom_dns(&id)
+}
+
 /// Runs a real YouTube 4K stream download speedtest.
 #[tauri::command]
 pub async fn benchmark_youtube_speed() -> Result<crate::engine::speedtest::SpeedtestResult, String> {

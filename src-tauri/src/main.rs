@@ -350,6 +350,8 @@ async fn main() {
             commands::run_auto_doctor,
             commands::get_dns_status,
             commands::set_system_dns,
+            commands::add_custom_dns,
+            commands::remove_custom_dns,
             commands::get_tgproxy_status,
             commands::start_tgproxy,
             commands::stop_tgproxy,
