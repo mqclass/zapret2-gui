@@ -21,6 +21,7 @@ import { Sidebar, NavTab } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { ConflictBanner } from "./components/ConflictBanner";
 import { UpdateDialog, UpdatePhase } from "./components/UpdateDialog";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DashboardView } from "./components/views/DashboardView";
 import { StrategiesView } from "./components/views/StrategiesView";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
@@ -773,6 +774,7 @@ const AppContent: React.FC = () => {
 
         {/* Scrollable View Area */}
         <main key={activeTab} className="view-enter relative z-10 flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          <ErrorBoundary key={activeTab} label={activeTab}>
           {/* Conflicting Software Warning Banner */}
           <ConflictBanner
             conflicts={conflicts}
@@ -905,6 +907,7 @@ const AppContent: React.FC = () => {
               updateInfo={updateInfo}
             />
           )}
+          </ErrorBoundary>
         </main>
       </div>
 

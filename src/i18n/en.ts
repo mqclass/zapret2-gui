@@ -96,6 +96,17 @@ export const en: Translations = {
     editCustom: "Edit",
     deleteCustom: "Delete",
     noStrategiesInTab: "No available profiles found in this category",
+    goalTitle: "What do you want to unblock?",
+    goalSubtitle: "Pick a goal — we will select a proven preset for you",
+    goalYoutube: "YouTube",
+    goalYoutubeDesc: "Videos without buffering, 4K",
+    goalDiscord: "Discord & games",
+    goalDiscordDesc: "Voice chat and low ping",
+    goalAll: "Everything at once",
+    goalAllDesc: "Boosted mode for everything",
+    goalCustom: "My own setup",
+    goalCustomDesc: "Fine-tune manually",
+
   },
   modal: {
     createTitle: "Create Custom Bypass Profile",
@@ -364,11 +375,6 @@ export const en: Translations = {
     conflictsDesc: "Scan for background GoodbyeDPI or legacy Flowseal zapret services",
     conflictsBtn: "Scan & Resolve Conflicts",
     languageSection: "User Interface Language",
-    themeSection: "Interface Appearance",
-    themeMacosName: "macOS",
-    themeMacosDesc: "Frosted glass, soft corners, calm palette",
-    themeHyprlandName: "Hyprland",
-    themeHyprlandDesc: "Dark flat theme, dense layout, neon accent",
     creditsSection: "About & Credits",
     warningFakesTitle: "WARNING: OFFICIAL REPOSITORY & FAKE BUILDS",
     warningFakesBody:
@@ -405,6 +411,8 @@ export const en: Translations = {
       "Check for new releases on GitHub at startup and every 6 hours. Checks are quiet: if GitHub is unreachable the app simply retries later.",
     autoCheckOn: "Enabled",
     autoCheckOff: "Disabled",
+    autoCheckDisable: "Disable",
+    autoCheckEnable: "Enable",
     versionTitle: "Version & manual check",
     versionDesc: "Current version and manual release check",
     currentVersionLabel: "Current version",
@@ -508,6 +516,8 @@ export const en: Translations = {
     uptimeH: "h",
     uptimeM: "m",
     uptimeS: "s",
+    bypassOnHeadline: "Bypass is on",
+    bypassOffHeadline: "Bypass is off",
 
   },
   telegram: {

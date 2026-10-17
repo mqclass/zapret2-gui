@@ -20,7 +20,6 @@ import {
 import { ZapretLogo } from "../ZapretLogo";
 import { useI18n } from "../../i18n";
 import { Language } from "../../i18n/types";
-import { useTheme, ThemeId } from "../../theme/ThemeContext";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { UpdateInfo } from "../../types";
 import { TransportsSection } from "../TransportsSection";
@@ -33,52 +32,6 @@ const EXTERNAL_LINKS: { url: string; label: string; labelKey?: "flowsealLink" }[
   { url: "https://github.com/mqclass/zapret2-gui", label: "GitHub mqclass/zapret2-gui" },
 ];
 
-/** Static miniature mock of each theme — pure CSS, no app state involved. */
-const ThemePreview: React.FC<{ id: ThemeId }> = ({ id }) => {
-  const isMacos = id === "macos";
-  const bar = isMacos ? "#0f141d" : "#090c10";
-  const line = isMacos ? "#232c40" : "#1a222b";
-  const cardBg = isMacos ? "rgba(19,25,36,.92)" : "#0b0f14";
-  const accent = isMacos ? "#0a84ff" : "#a3e635";
-  const fill = isMacos ? "#0a84ff" : "#4d7c0f";
-  const r = isMacos ? 8 : 3;
-  return (
-    <div
-      className="theme-preview h-[76px] w-full"
-      style={{ background: isMacos ? "#0a0d13" : "#05070a", borderRadius: r }}
-      aria-hidden
-    >
-      <div className="flex h-full">
-        <div
-          className="flex flex-col gap-1 p-1.5"
-          style={{ width: 30, background: bar, borderRight: `1px solid ${line}` }}
-        >
-          <div style={{ height: 6, borderRadius: 3, background: accent, opacity: 0.95 }} />
-          <div style={{ height: 4, borderRadius: 2, background: line }} />
-          <div style={{ height: 4, borderRadius: 2, background: line }} />
-          <div style={{ height: 4, borderRadius: 2, background: line, opacity: 0.55 }} />
-        </div>
-        <div className="flex-1 space-y-1.5 p-1.5">
-          <div
-            style={{ height: 16, borderRadius: r - 2, background: cardBg, border: `1px solid ${line}` }}
-          />
-          <div className="flex gap-1.5">
-            <div style={{ flex: 1, height: 11, borderRadius: r - 2, background: fill }} />
-            <div
-              style={{
-                flex: 1,
-                height: 11,
-                borderRadius: r - 2,
-                background: "transparent",
-                border: `1px solid ${isMacos ? "#35415e" : "#2c3947"}`,
-              }}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 interface SettingsViewProps {
   isElevated: boolean;
@@ -127,25 +80,10 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     updateInfo,
   }) => {
     const { language, setLanguage, t } = useI18n();
-    const { theme, setTheme } = useTheme();
-
     const languages: { code: Language; label: string; full: string }[] = [
       { code: "ru", label: "RU", full: "Русский" },
       { code: "en", label: "EN", full: "English" },
       { code: "uk", label: "UK", full: "Українська" },
-    ];
-
-    const themes: { id: ThemeId; name: string; desc: string }[] = [
-      {
-        id: "macos",
-        name: t.settingsTab.themeMacosName,
-        desc: t.settingsTab.themeMacosDesc,
-      },
-      {
-        id: "hyprland",
-        name: t.settingsTab.themeHyprlandName,
-        desc: t.settingsTab.themeHyprlandDesc,
-      },
     ];
 
     return (
@@ -375,7 +313,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                   <Bell className="h-3.5 w-3.5 text-accent" />
                 )}
                 <span>
-                  {autoUpdateOn ? t.update.autoCheckOff : t.update.autoCheckOn}
+                  {autoUpdateOn ? t.update.autoCheckDisable : t.update.autoCheckEnable}
                 </span>
               </button>
             </div>
@@ -440,52 +378,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 <span>{t.settingsTab.exportDiagBtn}</span>
               </button>
             </div>
-          </div>
-        </div>
-
-        {/* Theme Selection Card */}
-        <div className="rounded-card border border-line bg-card p-5 space-y-3 shadow-card stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
-          <div className="border-b border-line pb-3">
-            <h3 className="t-section-title">
-              <Palette className="h-4 w-4 text-accent" />
-              <span>{t.settingsTab.themeSection}</span>
-            </h3>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            {themes.map((item) => {
-              const isSelected = theme === item.id;
-              return (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => setTheme(item.id)}
-                  aria-pressed={isSelected}
-                  className={`group space-y-2.5 rounded-panel border p-3 text-left transition-all cursor-pointer ${
-                    isSelected
-                      ? "border-accent-line bg-accent-wash shadow-glow"
-                      : "border-line bg-cardin hover:border-linestrong hover:bg-raise"
-                  }`}
-                >
-                  <ThemePreview id={item.id} />
-                  <div className="space-y-0.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-ink">
-                        {item.name}
-                      </span>
-                      {isSelected && (
-                        <span className="t-badge t-badge-accent">
-                          <Check className="h-3 w-3" />
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-ink4">
-                      {item.desc}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
           </div>
         </div>
 

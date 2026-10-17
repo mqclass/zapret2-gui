@@ -127,73 +127,65 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           />
         )}
         {/* Hero Control Card */}
-        <div className="rounded-card border border-line bg-card p-6 shadow-sm neon-frame">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="rounded-card border border-line bg-card p-6 md:p-8 shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
             {/* Status and Active Info */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
+            <div className="space-y-4 max-w-xl">
+              <span
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase ${
+                  isRunning
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                    : isTransitioning
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                    : "border-linestrong bg-raise/60 text-ink4"
+                }`}
+              >
                 <span
-                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase ${
+                  className={`h-2 w-2 rounded-full ${
                     isRunning
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                      ? "bg-emerald-400"
                       : isTransitioning
-                      ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
-                      : "border-linestrong bg-raise/60 text-ink4"
+                      ? "bg-amber-400 animate-pulse"
+                      : "bg-ink5"
                   }`}
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      isRunning
-                        ? "bg-emerald-400"
-                        : isTransitioning
-                        ? "bg-amber-400 animate-pulse"
-                        : "bg-ink5"
-                    }`}
-                  />
-                  {isRunning
-                    ? t.dashboard.active
-                    : isStarting
-                    ? t.dashboard.connecting
-                    : isStopping
-                    ? t.dashboard.stopping
-                    : t.dashboard.stopped}
-                </span>
+                />
+                {isRunning
+                  ? t.dashboard.active
+                  : isStarting
+                  ? t.dashboard.connecting
+                  : isStopping
+                  ? t.dashboard.stopping
+                  : t.dashboard.stopped}
+              </span>
 
-                {isRunning && status.uptime_secs > 0 && (
-                  <span className="text-xs font-mono text-ink4">
-                    {t.dashboard.uptime} {formatUptime(status.uptime_secs)}
-                  </span>
+              <h1 className="text-3xl md:text-[2.6rem] font-extrabold tracking-tight text-ink leading-none">
+                {isRunning ? t.dashboard.bypassOnHeadline : t.dashboard.bypassOffHeadline}
+              </h1>
+              <p className="text-sm text-ink3 leading-relaxed">
+                {isRunning ? (
+                  <>
+                    {t.dashboard.activePreset}{" "}
+                    <span className="font-semibold text-ink">
+                      {activeStrat ? activeStrat.name : status.active_strategy || t.dashboard.defaultStrategy}
+                    </span>
+                    .{" "}{t.dashboard.filteringNote}
+                  </>
+                ) : (
+                  t.dashboard.hint
                 )}
-                {isRunning && status.pid && (
-                  <span className="text-xs font-mono text-ink5">{t.status.pid}: {status.pid}</span>
-                )}
-              </div>
-
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-ink flex items-center gap-2.5">
-                  <span>zapret2</span>
-                  <span className="rounded-chip bg-accent-wash border border-accent-line px-2 py-0.5 text-xs font-mono font-semibold text-accent">
-                    {t.header.version}
-                  </span>
-                </h1>
-                <p className="text-xs text-ink4 mt-1 max-w-xl leading-relaxed">
-                  {isRunning ? (
-                    <>
-                      {t.dashboard.activePreset}{" "}
-                      <span className="font-semibold text-ink">
-                        {activeStrat ? activeStrat.name : status.active_strategy || t.dashboard.defaultStrategy}
-                      </span>
-                      .{" "}{t.dashboard.filteringNote}
-                    </>
-                  ) : (
-                    t.dashboard.hint
+              </p>
+              {isRunning && (status.uptime_secs > 0 || status.pid) && (
+                <div className="flex items-center gap-3 text-xs font-mono text-ink4">
+                  {status.uptime_secs > 0 && (
+                    <span>{t.dashboard.uptime} {formatUptime(status.uptime_secs)}</span>
                   )}
-                </p>
-              </div>
+                  {status.pid && <span className="text-ink5">{t.status.pid}: {status.pid}</span>}
+                </div>
+              )}
             </div>
 
             {/* Hero Power Orb */}
-            <div className="flex items-center justify-center md:justify-end md:pr-4">
+            <div className="flex items-center justify-center md:pr-8 shrink-0">
               <HeroOrb
                 state={orbState}
                 onToggle={isRunning ? onStop : onStart}

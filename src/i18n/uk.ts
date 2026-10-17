@@ -96,6 +96,17 @@ export const uk: Translations = {
     editCustom: "Редагувати",
     deleteCustom: "Видалити",
     noStrategiesInTab: "У цій категорії немає доступних профілів",
+    goalTitle: "Що хочете розблокувати?",
+    goalSubtitle: "Оберіть ціль — підберемо перевірений пресет",
+    goalYoutube: "YouTube",
+    goalYoutubeDesc: "Відео без гальм, 4K",
+    goalDiscord: "Discord та ігри",
+    goalDiscordDesc: "Голосовий чат і низький пінг",
+    goalAll: "Все одразу",
+    goalAllDesc: "Посилений режим для всього",
+    goalCustom: "Своє налаштування",
+    goalCustomDesc: "Налаштувати вручну",
+
   },
   modal: {
     createTitle: "Створити свій конфіг обходу",
@@ -364,11 +375,6 @@ export const uk: Translations = {
     conflictsDesc: "Перевірка наявності запущених служб GoodbyeDPI, Flowseal zapret або інших проксі",
     conflictsBtn: "Сканувати та усунути конфлікти",
     languageSection: "Мова інтерфейсу",
-    themeSection: "Оформлення інтерфейсу",
-    themeMacosName: "macOS",
-    themeMacosDesc: "Матове скло, м'які заокруглення, спокійна палітра",
-    themeHyprlandName: "Hyprland",
-    themeHyprlandDesc: "Темна пласка тема, щільна компоновка, неоновий акцент",
     creditsSection: "Про програму та Авторські права",
     warningFakesTitle: "ОБЕРЕЖНО: ОФІЦІЙНИЙ РЕПОЗИТОРІЙ ТА ФЕЙКИ",
     warningFakesBody:
@@ -405,6 +411,8 @@ export const uk: Translations = {
       "Перевіряти нові релізи на GitHub під час запуску та кожні 6 годин. Перевірка тиха: якщо GitHub недоступний, застосунок просто спробує пізніше.",
     autoCheckOn: "Увімкнено",
     autoCheckOff: "Вимкнено",
+    autoCheckDisable: "Вимкнути",
+    autoCheckEnable: "Увімкнути",
     versionTitle: "Версія та перевірка",
     versionDesc: "Поточна версія та ручна перевірка нових релізів",
     currentVersionLabel: "Поточна версія",
@@ -508,6 +516,8 @@ export const uk: Translations = {
     uptimeH: "г",
     uptimeM: "хв",
     uptimeS: "с",
+    bypassOnHeadline: "Обхід працює",
+    bypassOffHeadline: "Обхід вимкнено",
 
   },
   telegram: {

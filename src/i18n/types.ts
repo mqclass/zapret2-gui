@@ -93,6 +93,17 @@ export interface Translations {
     editCustom: string;
     deleteCustom: string;
     noStrategiesInTab: string;
+    goalTitle: string;
+    goalSubtitle: string;
+    goalYoutube: string;
+    goalYoutubeDesc: string;
+    goalDiscord: string;
+    goalDiscordDesc: string;
+    goalAll: string;
+    goalAllDesc: string;
+    goalCustom: string;
+    goalCustomDesc: string;
+
   };
   modal: {
     createTitle: string;
@@ -361,11 +372,6 @@ export interface Translations {
     conflictsDesc: string;
     conflictsBtn: string;
     languageSection: string;
-    themeSection: string;
-    themeMacosName: string;
-    themeMacosDesc: string;
-    themeHyprlandName: string;
-    themeHyprlandDesc: string;
     creditsSection: string;
     warningFakesTitle: string;
     warningFakesBody: string;
@@ -398,6 +404,8 @@ export interface Translations {
     autoCheckDesc: string;
     autoCheckOn: string;
     autoCheckOff: string;
+    autoCheckDisable: string;
+    autoCheckEnable: string;
     versionTitle: string;
     versionDesc: string;
     currentVersionLabel: string;
@@ -498,6 +506,8 @@ export interface Translations {
     uptimeH: string;
     uptimeM: string;
     uptimeS: string;
+    bypassOnHeadline: string;
+    bypassOffHeadline: string;
 
   };
   telegram: {

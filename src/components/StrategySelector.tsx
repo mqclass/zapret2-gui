@@ -16,6 +16,10 @@ import {
   Layers,
   Cpu,
   Wrench,
+  Youtube,
+  MessageCircle,
+  Globe2,
+  Settings2,
 } from "lucide-react";
 import { useI18n } from "../i18n";
 import { CustomProfileModal } from "./CustomProfileModal";
@@ -93,6 +97,91 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
     };
 
     return (
+      <div className="space-y-4">
+        {/* Goal picker: plain-language entry point for ordinary users */}
+        <div className="rounded-card border border-line bg-card p-5">
+          <div className="mb-3">
+            <h2 className="text-sm font-semibold text-ink">{t.strategies.goalTitle}</h2>
+            <p className="text-xs text-ink4 mt-0.5">{t.strategies.goalSubtitle}</p>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {(
+              [
+                {
+                  key: "youtube",
+                  icon: Youtube,
+                  title: t.strategies.goalYoutube,
+                  desc: t.strategies.goalYoutubeDesc,
+                  presetId: "flowseal-alt",
+                  tint: "text-red-400",
+                },
+                {
+                  key: "discord",
+                  icon: MessageCircle,
+                  title: t.strategies.goalDiscord,
+                  desc: t.strategies.goalDiscordDesc,
+                  presetId: "flowseal-fake-tls-auto",
+                  tint: "text-indigo-400",
+                },
+                {
+                  key: "all",
+                  icon: Globe2,
+                  title: t.strategies.goalAll,
+                  desc: t.strategies.goalAllDesc,
+                  presetId: "flowseal-alt11",
+                  tint: "text-emerald-400",
+                },
+                {
+                  key: "custom",
+                  icon: Settings2,
+                  title: t.strategies.goalCustom,
+                  desc: t.strategies.goalCustomDesc,
+                  presetId: null as string | null,
+                  tint: "text-amber-400",
+                },
+              ] as const
+            ).map((g) => {
+              const isCurrent =
+                g.presetId !== null && selectedStrategyId === g.presetId;
+              const presetMissing =
+                g.presetId !== null &&
+                !strategies.some((s) => s.id === g.presetId);
+              return (
+                <button
+                  key={g.key}
+                  type="button"
+                  disabled={disabled || presetMissing}
+                  onClick={() => {
+                    if (g.presetId) {
+                      onSelectStrategy(g.presetId);
+                      onStartStrategy(g.presetId);
+                    } else {
+                      setIsCustomModalOpen(true);
+                    }
+                  }}
+                  className={`group flex flex-col gap-2 rounded-panel border p-3.5 text-left transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
+                    isCurrent
+                      ? "border-accent-line bg-accent-wash shadow-glow"
+                      : "border-line bg-cardin hover:border-linestrong hover:bg-raise"
+                  }`}
+                >
+                  <g.icon className={`h-5 w-5 ${g.tint}`} />
+                  <div>
+                    <div className="text-xs font-semibold text-ink flex items-center gap-1.5">
+                      {g.title}
+                      {isCurrent && (
+                        <span className="t-badge t-badge-accent">
+                          <Check className="h-3 w-3" />
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-ink4 mt-0.5 leading-snug">{g.desc}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       <div className="rounded-panel border border-raise bg-card/40 p-4">
         {/* Header with Title and Modals Triggers */}
         <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3">
@@ -426,6 +515,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
           isOpen={isGuideOpen}
           onClose={() => setIsGuideOpen(false)}
         />
+      </div>
       </div>
     );
   }
