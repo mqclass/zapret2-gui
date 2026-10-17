@@ -197,6 +197,7 @@ impl TransportRegistry {
         // Built-in transports. Third-party/research transports register here.
         registry.register(Box::new(DirectTransport));
         registry.register(Box::new(DomainFrontingTransport));
+        registry.register(Box::new(WarpTransport));
         registry
     }
 
@@ -500,6 +501,131 @@ impl Transport for DomainFrontingTransport {
             id: self.id().to_string(),
             message: "Каркас транспорта: путь данных не реализован, серверная часть отсутствует. \
                 См. docs/TRANSPORTS.md."
+                .to_string(),
+        })
+    }
+}
+
+/// WARP transport via Cloudflare (WireGuard-based).
+///
+/// # Architecture (not yet implemented)
+///
+/// Full WARP requires:
+/// 1. `boringtun` — Cloudflare's userspace WireGuard implementation (Rust crate)
+/// 2. `wintun` — Windows TUN driver for the virtual interface
+/// 3. Cloudflare WARP API registration (device key → WireGuard config)
+/// 4. Packet routing between the TUN interface and the WireGuard tunnel
+/// 5. Integration with the engine: traffic goes through WARP instead of/in addition to winws2
+///
+/// This is a 2-3 week high-risk implementation. The transport is registered
+/// following the framework's fail-closed contract: it explicitly reports
+/// itself as unavailable until the data path exists.
+pub struct WarpTransport;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WarpOptions {
+    /// WARP endpoint, e.g. "162.159.192.1:2408" or "engage.cloudflareclient.com:2408".
+    #[serde(default = "default_warp_endpoint")]
+    pub endpoint: String,
+    /// MTU for the WireGuard tunnel.
+    #[serde(default = "default_warp_mtu")]
+    pub mtu: u16,
+    /// Whether to route all traffic through WARP or only blocked domains.
+    #[serde(default)]
+    pub full_tunnel: bool,
+}
+
+fn default_warp_endpoint() -> String {
+    "162.159.192.1:2408".to_string()
+}
+
+fn default_warp_mtu() -> u16 {
+    1280
+}
+
+impl Transport for WarpTransport {
+    fn id(&self) -> &'static str {
+        "warp"
+    }
+
+    fn name(&self) -> &'static str {
+        "Cloudflare WARP (skeleton)"
+    }
+
+    fn describe(&self) -> TransportDescriptor {
+        TransportDescriptor {
+            id: self.id().to_string(),
+            name: self.name().to_string(),
+            description: "WARP через WireGuard (boringtun): весь трафик идёт через \
+                сеть Cloudflare, DPI видит только зашифрованный WireGuard. \
+                ТРЕБУЕТ реализации TUN-интерфейса и регистрации в WARP API — \
+                сейчас недоступен по дизайну."
+                .to_string(),
+            experimental: true,
+            requires_exit_infra: true,
+            config_example: serde_json::json!({
+                "endpoint": "162.159.192.1:2408",
+                "mtu": 1280,
+                "full_tunnel": false
+            }),
+        }
+    }
+
+    fn is_available(&self) -> TransportAvailability {
+        TransportAvailability::Unavailable {
+            reason: "WARP-транспорт не реализован: нужны boringtun (WireGuard), \
+                wintun-драйвер для TUN-интерфейса, регистрация в Cloudflare WARP API \
+                и маршрутизация пакетов. Транспорт зарегистрирован как каркас. \
+                Оценка: 2-3 недели, высокий риск."
+                .to_string(),
+        }
+    }
+
+    fn validate_config(&self, config: &TransportConfig) -> Result<(), TransportError> {
+        let opts: WarpOptions = serde_json::from_value(config.options.clone()).map_err(|e| {
+            TransportError::InvalidConfig {
+                id: self.id().to_string(),
+                message: format!(
+                    "Конфиг должен быть JSON-объектом с полями endpoint (строка), \
+                     mtu (число 576-9000), full_tunnel (bool). Ошибка разбора: {}",
+                    e
+                ),
+            }
+        })?;
+        // Basic endpoint sanity: host:port
+        // rsplitn returns parts in reverse: parts[0] is port, parts[1] is host.
+        let parts: Vec<&str> = opts.endpoint.rsplitn(2, ':').collect();
+        let port_ok = parts
+            .first()
+            .and_then(|p| p.parse::<u16>().ok())
+            .map(|p| p != 0)
+            .unwrap_or(false);
+        if parts.len() != 2 || parts[1].is_empty() || !port_ok {
+            return Err(TransportError::InvalidConfig {
+                id: self.id().to_string(),
+                message: format!(
+                    "«endpoint» = «{}» должен быть в формате host:port, например 162.159.192.1:2408.",
+                    opts.endpoint
+                ),
+            });
+        }
+        if !(576..=9000).contains(&opts.mtu) {
+            return Err(TransportError::InvalidConfig {
+                id: self.id().to_string(),
+                message: format!("«mtu» = {} вне диапазона 576-9000.", opts.mtu),
+            });
+        }
+        Ok(())
+    }
+
+    fn apply_args(
+        &self,
+        _config: &TransportConfig,
+        _args: Vec<String>,
+    ) -> Result<Vec<String>, TransportError> {
+        Err(TransportError::ApplyFailed {
+            id: self.id().to_string(),
+            message: "Каркас транспорта: путь данных не реализован. См. docs/TRANSPORTS.md."
                 .to_string(),
         })
     }

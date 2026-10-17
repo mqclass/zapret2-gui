@@ -593,6 +593,8 @@ export interface Translations {
     desc_direct: string;
     name_domain_fronting: string;
     desc_domain_fronting: string;
+    name_warp: string;
+    desc_warp: string;
     setSuccess: string;
     setError: string;
     loadError: string;

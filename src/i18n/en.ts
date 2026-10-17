@@ -606,6 +606,9 @@ export const en: Translations = {
     name_domain_fronting: "Domain Fronting (skeleton)",
     desc_domain_fronting:
       "Research skeleton: SNI fronting to an allowed front domain. No server side — unavailable by design.",
+    name_warp: "Cloudflare WARP (skeleton)",
+    desc_warp:
+      "Skeleton: WireGuard tunnel via Cloudflare. Requires boringtun, wintun driver and WARP API registration — unavailable by design.",
     setSuccess: "Transport “{name}” selected. It will be applied on the next engine start.",
     setError: "Failed to select transport: ",
     loadError: "Failed to load transport list",

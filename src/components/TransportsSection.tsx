@@ -17,12 +17,14 @@ import { notifyUser } from "../utils/notify";
 function transportName(t: ReturnType<typeof useI18n>["t"], v: TransportView): string {
   if (v.id === "direct") return t.transports.name_direct;
   if (v.id === "domain-fronting") return t.transports.name_domain_fronting;
+  if (v.id === "warp") return t.transports.name_warp;
   return v.name;
 }
 
 function transportDesc(t: ReturnType<typeof useI18n>["t"], v: TransportView): string {
   if (v.id === "direct") return t.transports.desc_direct;
   if (v.id === "domain-fronting") return t.transports.desc_domain_fronting;
+  if (v.id === "warp") return t.transports.desc_warp;
   return v.description;
 }
 

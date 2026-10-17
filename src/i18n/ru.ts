@@ -606,6 +606,9 @@ export const ru: Translations = {
     name_domain_fronting: "Domain Fronting (каркас)",
     desc_domain_fronting:
       "Каркас для исследований: подмена SNI на разрешённый front-домен. Серверная часть отсутствует — недоступен by design.",
+    name_warp: "Cloudflare WARP (каркас)",
+    desc_warp:
+      "Каркас: WireGuard-туннель через Cloudflare. Требует boringtun, wintun-драйвер и регистрацию в WARP API — недоступен by design.",
     setSuccess: "Транспорт «{name}» выбран. Он будет применён при следующем запуске движка.",
     setError: "Не удалось выбрать транспорт: ",
     loadError: "Не удалось загрузить список транспортов",
