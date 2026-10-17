@@ -451,6 +451,15 @@ export interface Translations {
     startBypass: string;
     stopBypass: string;
     pleaseWait: string;
+    hubPresets: string;
+    hubPresetsDesc: string;
+    hubDns: string;
+    hubDnsDesc: string;
+    hubDoctor: string;
+    hubDoctorDesc: string;
+    uptimeH: string;
+    uptimeM: string;
+    uptimeS: string;
 
   };
   telegram: {

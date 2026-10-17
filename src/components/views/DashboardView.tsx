@@ -110,9 +110,10 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
       const hrs = Math.floor(secs / 3600);
       const mins = Math.floor((secs % 3600) / 60);
       const s = secs % 60;
-      if (hrs > 0) return `${hrs}ч ${mins}м ${s}с`;
-      if (mins > 0) return `${mins}м ${s}с`;
-      return `${s}с`;
+      const { uptimeH: h, uptimeM: m, uptimeS: sec } = t.dashboard;
+      if (hrs > 0) return `${hrs}${h} ${mins}${m} ${s}${sec}`;
+      if (mins > 0) return `${mins}${m} ${s}${sec}`;
+      return `${s}${sec}`;
     };
 
     return (
@@ -126,7 +127,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           />
         )}
         {/* Hero Control Card */}
-        <div className="rounded-card border border-line bg-card p-6 shadow-sm">
+        <div className="rounded-card border border-line bg-card p-6 shadow-sm neon-frame">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             {/* Status and Active Info */}
             <div className="space-y-3">
@@ -304,12 +305,12 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-accent">
                 <Zap className="h-4 w-4" />
-                <span className="text-xs font-semibold">Пресеты обхода</span>
+                <span className="text-xs font-semibold">{t.dashboard.hubPresets}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-ink5 group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
             </div>
             <p className="text-[11px] text-ink4 leading-relaxed">
-              Выбор готовых конфигураций: Flowseal Alt, Fake TLS Auto, или создание своего профиля.
+              {t.dashboard.hubPresetsDesc}
             </p>
           </div>
 
@@ -321,12 +322,12 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-cyan-400">
                 <Globe2 className="h-4 w-4" />
-                <span className="text-xs font-semibold">DNS & Тест скорости</span>
+                <span className="text-xs font-semibold">{t.dashboard.hubDns}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-ink5 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition-all" />
             </div>
             <p className="text-[11px] text-ink4 leading-relaxed">
-              Переключение на Cloudflare 1.1.1.1 / Google DNS и замер реального видеопотока YouTube.
+              {t.dashboard.hubDnsDesc}
             </p>
           </div>
 
@@ -338,12 +339,12 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-amber-400">
                 <Wrench className="h-4 w-4" />
-                <span className="text-xs font-semibold">Авто-Доктор Сети</span>
+                <span className="text-xs font-semibold">{t.dashboard.hubDoctor}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-ink5 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all" />
             </div>
             <p className="text-[11px] text-ink4 leading-relaxed">
-              Сброс Winsock, очистка DNS кэша, восстановление WinDivert и автоподбор пресета.
+              {t.dashboard.hubDoctorDesc}
             </p>
           </div>
         </div>

@@ -330,7 +330,9 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           <>
             <div className="flex items-center gap-1.5" data-tauri-drag-region>
               <span className="waybar-pill waybar-pill-active !px-3">
-                <span className="text-sm leading-none">󰣇</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 2 L22 22 H18.5 L12 8.5 L5.5 22 H2 Z M12 13.5 L15.5 22 H8.5 Z" />
+                </svg>
                 <span>zapret2</span>
               </span>
               {onNavigateTab && (
@@ -363,14 +365,23 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           /* ── macOS layout ──────────────────────────────── */
           <>
             <div className="flex items-center gap-4">
-              <div className="traffic-lights" data-tauri-drag-region={false}>
-                <span className="traffic-light tl-close" onClick={handleClose} title={t.header.closeTitle}>
+              <div className="traffic-lights">
+                <span role="button" tabIndex={0} className="traffic-light tl-close"
+                  onClick={handleClose}
+                  onKeyDown={(e) => e.key === "Enter" && handleClose()}
+                  title={t.header.closeTitle}>
                   <span className="glyph">×</span>
                 </span>
-                <span className="traffic-light tl-min" onClick={handleMinimize} title={t.header.minimizeTitle}>
+                <span role="button" tabIndex={0} className="traffic-light tl-min"
+                  onClick={handleMinimize}
+                  onKeyDown={(e) => e.key === "Enter" && handleMinimize()}
+                  title={t.header.minimizeTitle}>
                   <span className="glyph">−</span>
                 </span>
-                <span className="traffic-light tl-max" onClick={handleToggleMaximize} title={t.header.maximizeTitle}>
+                <span role="button" tabIndex={0} className="traffic-light tl-max"
+                  onClick={handleToggleMaximize}
+                  onKeyDown={(e) => e.key === "Enter" && handleToggleMaximize()}
+                  title={t.header.maximizeTitle}>
                   <span className="glyph">+</span>
                 </span>
               </div>

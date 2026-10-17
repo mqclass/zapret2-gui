@@ -461,6 +461,15 @@ export const uk: Translations = {
     startBypass: "Запустити обхід",
     stopBypass: "Зупинити обхід",
     pleaseWait: "Зачекайте...",
+    hubPresets: "Пресети обходу",
+    hubPresetsDesc: "Готові конфігурації: Flowseal Alt, Fake TLS Auto або власний профіль.",
+    hubDns: "DNS & Тест швидкості",
+    hubDnsDesc: "Перемикання на Cloudflare 1.1.1.1 / Google DNS і замір реального потоку YouTube.",
+    hubDoctor: "Авто-Доктор Мережі",
+    hubDoctorDesc: "Скидання Winsock, очищення кешу DNS, відновлення WinDivert і автопідбір пресету.",
+    uptimeH: "г",
+    uptimeM: "хв",
+    uptimeS: "с",
 
   },
   telegram: {

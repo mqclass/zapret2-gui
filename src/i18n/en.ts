@@ -461,6 +461,15 @@ export const en: Translations = {
     startBypass: "Start bypass",
     stopBypass: "Stop bypass",
     pleaseWait: "Please wait...",
+    hubPresets: "Bypass presets",
+    hubPresetsDesc: "Ready-made configs: Flowseal Alt, Fake TLS Auto, or your own profile.",
+    hubDns: "DNS & Speed test",
+    hubDnsDesc: "Switch to Cloudflare 1.1.1.1 / Google DNS and measure real YouTube throughput.",
+    hubDoctor: "Network Auto-Doctor",
+    hubDoctorDesc: "Winsock reset, DNS cache flush, WinDivert repair and preset auto-pick.",
+    uptimeH: "h",
+    uptimeM: "m",
+    uptimeS: "s",
 
   },
   telegram: {
