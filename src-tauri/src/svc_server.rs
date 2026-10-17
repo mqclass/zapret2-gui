@@ -22,7 +22,7 @@ use windows::Win32::System::Pipes::{
     CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 
-use crate::engine::{EventSink, LogEntry, Supervisor, SupervisorState};
+use crate::engine::{EventSink, LogEntry, Supervisor, SupervisorState, TgProxyManager};
 use crate::svc_ipc::{
     ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION, SVC_PIPE_NAME,
 };
@@ -66,6 +66,7 @@ impl EventSink for PipeSink {
 async fn handle_client(
     server: NamedPipeServer,
     supervisor: Arc<Supervisor>,
+    tgproxy: Arc<TgProxyManager>,
     event_tx: broadcast::Sender<SvcEvent>,
 ) {
     let (reader, writer) = tokio::io::split(server);
@@ -117,6 +118,9 @@ async fn handle_client(
                             error: None,
                             status: Some(supervisor.get_status()),
                             logs: None,
+                            tgproxy_status: None,
+                            secret: None,
+                            rtt_ms: None,
                         }).await;
                     }
                     ClientMessage::Start { strategy_id, custom_args } => {
@@ -145,6 +149,9 @@ async fn handle_client(
                             error: None,
                             status: None,
                             logs: Some(logs),
+                            tgproxy_status: None,
+                            secret: None,
+                            rtt_ms: None,
                         }).await;
                     }
                     ClientMessage::ClearLogs => {
@@ -159,11 +166,90 @@ async fn handle_client(
                     }
                     ClientMessage::Shutdown => {
                         let _ = write_msg(&writer, &ServerMessage::ok()).await;
-                        // Graceful: stop the engine (Job Object kills winws2),
-                        // then terminate. The updater waits for the pipe to
-                        // vanish before replacing files.
+                        // Graceful: stop the bridge and the engine (Job Object
+                        // kills winws2), then terminate. The updater waits for
+                        // the pipe to vanish before replacing files.
+                        let _ = tgproxy.stop().await;
                         let _ = supervisor.stop().await;
                         std::process::exit(0);
+                    }
+                    ClientMessage::TgproxyStart => {
+                        let r = tgproxy.clone().start().await;
+                        let reply = match r {
+                            Ok(()) => ServerMessage::ok(),
+                            Err(e) => ServerMessage::err(e.to_string()),
+                        };
+                        let _ = write_msg(&writer, &reply).await;
+                    }
+                    ClientMessage::TgproxyStop => {
+                        let r = tgproxy.stop().await;
+                        let reply = match r {
+                            Ok(()) => ServerMessage::ok(),
+                            Err(e) => ServerMessage::err(e.to_string()),
+                        };
+                        let _ = write_msg(&writer, &reply).await;
+                    }
+                    ClientMessage::TgproxyGetStatus => {
+                        let _ = write_msg(&writer, &ServerMessage::Response {
+                            ok: true,
+                            error: None,
+                            status: None,
+                            logs: None,
+                            tgproxy_status: Some(tgproxy.get_status()),
+                            secret: None,
+                            rtt_ms: None,
+                        }).await;
+                    }
+                    ClientMessage::TgproxySetConfig { port, secret } => {
+                        let reply = match tgproxy.set_config(port, secret) {
+                            Ok(()) => ServerMessage::ok(),
+                            Err(e) => ServerMessage::err(e.to_string()),
+                        };
+                        let _ = write_msg(&writer, &reply).await;
+                    }
+                    ClientMessage::TgproxyRegenerateSecret => {
+                        let reply = match tgproxy.regenerate_secret() {
+                            Ok(secret) => ServerMessage::Response {
+                                ok: true,
+                                error: None,
+                                status: None,
+                                logs: None,
+                                tgproxy_status: None,
+                                secret: Some(secret),
+                                rtt_ms: None,
+                            },
+                            Err(e) => ServerMessage::err(e.to_string()),
+                        };
+                        let _ = write_msg(&writer, &reply).await;
+                    }
+                    ClientMessage::TgproxySetMode { mode } => {
+                        let reply = match tgproxy.set_mode(mode) {
+                            Ok(()) => ServerMessage::ok(),
+                            Err(e) => ServerMessage::err(e.to_string()),
+                        };
+                        let _ = write_msg(&writer, &reply).await;
+                    }
+                    ClientMessage::TgproxyTestConnection => {
+                        let reply = match tgproxy.test_connection().await {
+                            Ok(rtt) => ServerMessage::Response {
+                                ok: true,
+                                error: None,
+                                status: None,
+                                logs: None,
+                                tgproxy_status: None,
+                                secret: None,
+                                rtt_ms: Some(rtt.as_millis() as u64),
+                            },
+                            Err(e) => ServerMessage::err(e.to_string()),
+                        };
+                        let _ = write_msg(&writer, &reply).await;
+                    }
+                    ClientMessage::TgproxySetLan { enabled } => {
+                        let reply = match tgproxy.set_lan(enabled) {
+                            Ok(()) => ServerMessage::ok(),
+                            Err(e) => ServerMessage::err(e.to_string()),
+                        };
+                        let _ = write_msg(&writer, &reply).await;
                     }
                 }
             }
@@ -260,7 +346,11 @@ fn create_secure_pipe() -> std::io::Result<NamedPipeServer> {
 /// Runs the pipe server until the process exits. Each loop iteration creates a
 /// fresh pipe instance, waits for one client, and hands it to its own task —
 /// the standard multi-client named-pipe pattern.
-pub async fn run_pipe_server(supervisor: Arc<Supervisor>, event_tx: broadcast::Sender<SvcEvent>) {
+pub async fn run_pipe_server(
+    supervisor: Arc<Supervisor>,
+    tgproxy: Arc<TgProxyManager>,
+    event_tx: broadcast::Sender<SvcEvent>,
+) {
     use std::time::Duration;
 
     loop {
@@ -275,9 +365,10 @@ pub async fn run_pipe_server(supervisor: Arc<Supervisor>, event_tx: broadcast::S
         match server.connect().await {
             Ok(()) => {
                 let sup = supervisor.clone();
+                let tgp = tgproxy.clone();
                 let tx = event_tx.clone();
                 tokio::spawn(async move {
-                    handle_client(server, sup, tx).await;
+                    handle_client(server, sup, tgp, tx).await;
                 });
             }
             Err(e) => {

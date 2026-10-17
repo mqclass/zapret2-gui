@@ -27,12 +27,15 @@ use crate::engine::events::{EventSink, SinkSlot};
 
 use crate::engine::supervisor::{Supervisor, SupervisorState};
 
-/// Local bind address — the bridge never listens on anything but loopback.
+/// Loopback bind address — the default. The bridge never listens on more
+/// than the user explicitly allows.
 pub const TGWS_DEFAULT_HOST: &str = "127.0.0.1";
+/// Bind address when LAN access is enabled (phones on the local network).
+pub const TGWS_LAN_HOST: &str = "0.0.0.0";
 /// Default MTProto listen port (Telegram clients default to 1443 for proxies).
 pub const TGWS_DEFAULT_PORT: u16 = 1443;
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct TgProxyStatus {
     pub state: SupervisorState,
@@ -44,6 +47,13 @@ pub struct TgProxyStatus {
     pub tg_link: String,
     pub uptime_secs: u64,
     pub last_error: Option<String>,
+    /// Connection mode: "auto", "cfproxy" or "direct".
+    pub mode: String,
+    /// Whether LAN access is enabled (bridge bound to 0.0.0.0).
+    pub lan_enabled: bool,
+    /// This machine's LAN IPv4 address (for the phone QR code); None when
+    /// LAN mode is off or the address could not be determined.
+    pub lan_ip: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -56,10 +66,32 @@ pub enum TgProxyError {
     BadPort(u16),
     #[error("secret must be exactly 32 hex chars (0-9, a-f)")]
     BadSecret,
+    #[error("unknown connection mode: {0} (expected auto, cfproxy or direct)")]
+    BadMode(String),
     #[error("stop the bridge before changing its config")]
     ConfigLocked,
     #[error("settings: {0}")]
     Settings(String),
+}
+
+/// Valid connection modes for the bridge. Unknown values fall back to
+/// "auto" — a corrupt settings file must never break the bridge.
+pub fn normalize_mode(raw: &str) -> &'static str {
+    match raw.trim().to_lowercase().as_str() {
+        "cfproxy" => "cfproxy",
+        "direct" => "direct",
+        _ => "auto",
+    }
+}
+
+/// Strict validation for user input (the mode picker).
+fn validate_mode(raw: &str) -> Result<&'static str, TgProxyError> {
+    match raw.trim().to_lowercase().as_str() {
+        "auto" => Ok("auto"),
+        "cfproxy" => Ok("cfproxy"),
+        "direct" => Ok("direct"),
+        other => Err(TgProxyError::BadMode(other.to_string())),
+    }
 }
 
 /// `tracing` layer funneling the bridge library's diagnostics into the
@@ -191,13 +223,60 @@ impl TgProxyManager {
         }
     }
 
+    /// Finds a free TCP port, starting from the preferred one. If the
+    /// preferred port is busy (another app, a stale bridge), walks up to 20
+    /// ports ahead instead of failing. The chosen port is persisted so the
+    /// UI and the tg:// link always show the real one.
+    fn find_free_port(host: &str, preferred: u16) -> u16 {
+        for p in preferred..preferred.saturating_add(20) {
+            if p == 0 {
+                continue;
+            }
+            if std::net::TcpListener::bind(format!("{host}:{p}")).is_ok() {
+                return p;
+            }
+            if p == 65535 {
+                break;
+            }
+        }
+        preferred
+    }
+
+    /// Detects this machine's LAN IPv4 address via the standard UDP trick:
+    /// "connect" a datagram socket (no packets are sent) and read the local
+    /// address the OS would use. Returns None when offline.
+    fn detect_lan_ip() -> Option<String> {
+        let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+        sock.connect("8.8.8.8:80").ok()?;
+        let ip = sock.local_addr().ok()?.ip();
+        match ip {
+            std::net::IpAddr::V4(v4) if !v4.is_loopback() => Some(v4.to_string()),
+            _ => None,
+        }
+    }
+
+    fn bind_host(lan: bool) -> &'static str {
+        if lan {
+            TGWS_LAN_HOST
+        } else {
+            TGWS_DEFAULT_HOST
+        }
+    }
+
     /// Builds the bridge configuration through the library's own CLI parser,
     /// so all of its defaults (timeouts, pool sizes, fallbacks) stay exactly
     /// as the upstream project ships them — we only override what the user
-    /// controls: port, bind host and secret.
+    /// controls: port, bind host, secret and connection mode.
+    ///
+    /// The mode pins the upstream tier order: "auto" leaves the library's
+    /// default ladder alone (CF-proxy → direct WS → TCP); "cfproxy" tries
+    /// Cloudflare first; "direct" skips Cloudflare entirely. A pinned list
+    /// never falls through to unlisted tiers — that is the point of pinning.
     fn bridge_config(
+        host: &str,
         port: u16,
         secret: &str,
+        mode: &str,
     ) -> Result<tg_ws_proxy_rs::config::Config, TgProxyError> {
         // M1 hardening: the library declares `env = "TG_..."` on ~40 options.
         // try_parse_from would silently inherit them from our process
@@ -212,16 +291,30 @@ impl TgProxyManager {
             std::env::remove_var(k);
         }
         use clap::Parser;
-        tg_ws_proxy_rs::config::Config::try_parse_from([
-            "zapret2-tgbridge",
-            "--port",
-            &port.to_string(),
-            "--host",
-            TGWS_DEFAULT_HOST,
-            "--secret",
-            secret,
-        ])
-        .map_err(|e| TgProxyError::Bridge(format!("invalid bridge config: {e}")))
+        let mut args = vec![
+            "zapret2-tgbridge".to_string(),
+            "--port".to_string(),
+            port.to_string(),
+            "--host".to_string(),
+            host.to_string(),
+            "--secret".to_string(),
+            secret.to_string(),
+        ];
+        // Pin the tier order for non-default modes. Media connections keep
+        // the default ladder (pinning media too aggressively breaks calls).
+        match normalize_mode(mode) {
+            "cfproxy" => {
+                args.push("--pinned-upstream".to_string());
+                args.push("cfproxy,ws,tcp".to_string());
+            }
+            "direct" => {
+                args.push("--pinned-upstream".to_string());
+                args.push("ws,tcp".to_string());
+            }
+            _ => {}
+        }
+        tg_ws_proxy_rs::config::Config::try_parse_from(args)
+            .map_err(|e| TgProxyError::Bridge(format!("invalid bridge config: {e}")))
     }
 
     pub fn get_status(&self) -> TgProxyStatus {
@@ -233,6 +326,8 @@ impl TgProxyManager {
             .read()
             .map(|t| t.elapsed().as_secs())
             .unwrap_or(0);
+        let lan_enabled = settings.tgproxy_lan;
+        let link_host = Self::bind_host(lan_enabled);
         // The library generates the canonical tg:// link on bind; fall back
         // to a locally built one when the bridge has not bound yet.
         let tg_link = {
@@ -240,20 +335,28 @@ impl TgProxyManager {
             if link.is_empty() && Self::is_valid_secret(&secret) {
                 format!(
                     "tg://proxy?server={}&port={}&secret={}",
-                    TGWS_DEFAULT_HOST, port, secret
+                    link_host, port, secret
                 )
             } else {
                 link.clone()
             }
         };
+        let host = Self::bind_host(lan_enabled);
         TgProxyStatus {
             state: *self.state.read(),
-            host: TGWS_DEFAULT_HOST.to_string(),
+            host: host.to_string(),
             port,
             secret,
             tg_link,
             uptime_secs,
             last_error: self.last_error.read().clone(),
+            mode: normalize_mode(&settings.tgproxy_mode).to_string(),
+            lan_enabled,
+            lan_ip: if lan_enabled {
+                Self::detect_lan_ip()
+            } else {
+                None
+            },
         }
     }
 
@@ -281,7 +384,22 @@ impl TgProxyManager {
             .map_err(|e| TgProxyError::Settings(e.to_string()))?;
             self.supervisor.log("info", "Сгенерирован новый MTProto-secret");
         }
-        let port = Self::normalize_port(settings.tgproxy_port);
+        let host = Self::bind_host(settings.tgproxy_lan);
+        let mut port = Self::normalize_port(settings.tgproxy_port);
+        // If the preferred port is busy, pick a free one nearby instead of
+        // failing. Persist it so the UI and tg:// link show the real port.
+        let free = Self::find_free_port(host, port);
+        if free != port {
+            self.supervisor.log(
+                "info",
+                &format!("Порт {port} занят, мост использует {free}"),
+            );
+            port = free;
+            crate::win32::settings::update_settings(|s| {
+                s.tgproxy_port = port;
+            })
+            .map_err(|e| TgProxyError::Settings(e.to_string()))?;
+        }
 
         // m2: route the bridge's tracing diagnostics into our log buffer.
         // Installed once per process; the layer holds an Arc to `log_redact`
@@ -291,7 +409,7 @@ impl TgProxyManager {
 
         // M2: a config error must never leave us stuck in `Starting` with no
         // task running — build it before touching the state machine.
-        let config = Self::bridge_config(port, &secret)?;
+        let config = Self::bridge_config(host, port, &secret, &settings.tgproxy_mode)?;
 
         *self.state.write() = SupervisorState::Starting;
         *self.last_error.write() = None;
@@ -299,7 +417,7 @@ impl TgProxyManager {
         self.emit_state(SupervisorState::Starting);
         self.supervisor.log(
             "info",
-            &format!("Запуск встроенного Telegram-моста на {TGWS_DEFAULT_HOST}:{port}…"),
+            &format!("Запуск встроенного Telegram-моста на {host}:{port}…"),
         );
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -312,14 +430,13 @@ impl TgProxyManager {
             let state = this.state.clone();
             let last_error = this.last_error.clone();
             let supervisor = this.supervisor.clone();
-            let app_handle = this.app_handle.clone();
 
             // on_listen is FnOnce: hand it its own Arc clones so the originals
             // stay usable in the match below after run_with_listen returns.
             let cb_tg_link = tg_link.clone();
             let cb_state = state.clone();
             let cb_supervisor = supervisor.clone();
-            let cb_app_handle = app_handle.clone();
+            let cb_this = this.clone();
 
             let result = tg_ws_proxy_rs::server::run_with_listen(
                 config,
@@ -334,9 +451,7 @@ impl TgProxyManager {
                     if *st == SupervisorState::Starting {
                         *st = SupervisorState::Running;
                         drop(st);
-                        if let Some(handle) = cb_app_handle.read().as_ref() {
-                            let _ = handle.emit("tgproxy-state", SupervisorState::Running);
-                        }
+                        cb_this.emit_state(SupervisorState::Running);
                     }
                     cb_supervisor.log(
                         "info",
@@ -366,9 +481,7 @@ impl TgProxyManager {
                     let mut st = state.write();
                     if *st != SupervisorState::Stopping && *st != SupervisorState::Stopped {
                         *st = SupervisorState::Error;
-                        if let Some(handle) = app_handle.read().as_ref() {
-                            let _ = handle.emit("tgproxy-state", SupervisorState::Error);
-                        }
+                        this.emit_state(SupervisorState::Error);
                     }
                 }
             }
@@ -455,6 +568,79 @@ impl TgProxyManager {
         .map_err(|e| TgProxyError::Settings(e.to_string()))?;
         *self.log_redact.write() = secret;
         Ok(())
+    }
+
+    /// Updates the connection mode ("auto", "cfproxy", "direct").
+    /// Refused while running — the bridge reads the mode only at startup.
+    pub fn set_mode(&self, mode: String) -> Result<(), TgProxyError> {
+        self.ensure_config_change_allowed()?;
+        let mode = validate_mode(&mode)?.to_string();
+        crate::win32::settings::update_settings(|settings| {
+            settings.tgproxy_mode = mode.clone();
+        })
+        .map_err(|e| TgProxyError::Settings(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Toggles LAN access (bind to 0.0.0.0 so phones on the local network
+    /// can use the bridge). Refused while running.
+    pub fn set_lan(&self, enabled: bool) -> Result<(), TgProxyError> {
+        self.ensure_config_change_allowed()?;
+        crate::win32::settings::update_settings(|settings| {
+            settings.tgproxy_lan = enabled;
+        })
+        .map_err(|e| TgProxyError::Settings(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Honest end-to-end test of the running bridge: TCP connect to the
+    /// listener → obfuscated MTProto handshake → real `req_pq_multi` → the
+    /// reply must decrypt to Telegram's `resPQ`. Only the DC's answer proves
+    /// the full chain (listener, chosen upstream tier, DC) works.
+    ///
+    /// Returns the DC round-trip time, or a human-readable failure naming
+    /// the broken step.
+    pub async fn test_connection(&self) -> Result<std::time::Duration, TgProxyError> {
+        if *self.state.read() != SupervisorState::Running {
+            return Err(TgProxyError::Bridge(
+                "мост не запущен — сначала включите его".to_string(),
+            ));
+        }
+        let settings = crate::win32::settings::load_settings();
+        let port = Self::normalize_port(settings.tgproxy_port);
+        let secret = settings.tgproxy_secret.clone();
+        if !Self::is_valid_secret(&secret) {
+            return Err(TgProxyError::BadSecret);
+        }
+        let mut raw = [0u8; 16];
+        for (i, chunk) in secret.as_bytes().chunks(2).enumerate() {
+            raw[i] =
+                u8::from_str_radix(std::str::from_utf8(chunk).unwrap_or("00"), 16).unwrap_or(0);
+        }
+        let addr: std::net::SocketAddr = format!("{TGWS_DEFAULT_HOST}:{port}")
+            .parse()
+            .map_err(|e| TgProxyError::Bridge(format!("bad listener address: {e}")))?;
+        // DC 2: a representative data centre, same as the library's own
+        // --check-listener probe. dc_idx 0 is not a documented "pick for me".
+        match tg_ws_proxy_rs::check::probe_bridge_listener(
+            addr,
+            &raw,
+            2,
+            std::time::Duration::from_secs(15),
+        )
+        .await
+        {
+            tg_ws_proxy_rs::check::BridgeProbeResult::Ok(rtt) => {
+                self.supervisor.log(
+                    "info",
+                    &format!("Проверка моста: Telegram ответил за {} мс", rtt.as_millis()),
+                );
+                Ok(rtt)
+            }
+            tg_ws_proxy_rs::check::BridgeProbeResult::Fail(e) => {
+                Err(TgProxyError::Bridge(format!("проверка не прошла: {e}")))
+            }
+        }
     }
 
     /// Generates a fresh CSPRNG secret and persists it.

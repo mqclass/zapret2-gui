@@ -20,8 +20,9 @@ with secret redaction, `TG_*` env cleanup before config parsing).
 
 ## What was changed vs upstream
 
-The library sources under `src/` are **byte-identical** to upstream `v2.5.4`.
-Only the packaging was trimmed for embedding:
+The library sources under `src/` are **byte-identical** to upstream `v2.5.4`,
+except one deliberate addition (see below). Only the packaging was trimmed
+for embedding:
 
 - `Cargo.toml`: removed the `[workspace]` table (we do not vendor
   `crates/android-jni`), the `[[bin]]` target and `src/main.rs` (the standalone
@@ -30,6 +31,10 @@ Only the packaging was trimmed for embedding:
 - Not vendored: `tests/`, `examples/`, `docs/`, `android/`, `openwrt/`,
   `metadata/`, `Dockerfile`, `Cross.toml`, `install.sh`, `rust-toolchain.toml`,
   upstream `Cargo.lock`.
+- `src/check.rs`: added a public embedding API (`BridgeProbeResult`,
+  `probe_bridge_listener`) wrapping the private `probe_listener`. This is the
+  only source change vs upstream; it powers the app's "Test connection"
+  button (real end-to-end: handshake → `req_pq_multi` → `resPQ` from the DC).
 
 ## Syncing with upstream
 
