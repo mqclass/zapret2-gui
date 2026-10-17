@@ -216,7 +216,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
     }
   }, [status, fail]);
 
-  const tgLogs = logs.filter((l) => l.level === "tgproxy").slice(-60);
+  const tgLogs = logs.filter((l) => l.message.startsWith("[tg-bridge]")).slice(-60);
 
   const state = status?.state ?? "stopped";
   const isRunning = state === "running";
