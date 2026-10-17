@@ -1,0 +1,1099 @@
+//! Configuration for tg-ws-proxy-rs.
+//!
+//! Settings are read from CLI arguments.  Every flag also has a corresponding
+//! environment-variable fallback (e.g. `--port` → `TG_PORT`).
+//! That makes Docker / systemd deployments trivial without a config file.
+
+use std::collections::HashMap;
+use std::fmt;
+use std::net::UdpSocket;
+use std::sync::OnceLock;
+
+use clap::{Parser, ValueEnum};
+
+use crate::crypto;
+use crate::outbound::OutboundConnector;
+
+// ─── Telegram DC default IPs ─────────────────────────────────────────────────
+// These are the "fallback" addresses used when a DC is not listed in
+// `--dc-ip` or when WebSocket routing fails and we must fall back to TCP.
+const DEFAULT_DC_IPS: &[(u32, &str)] = &[
+    (1, "149.154.175.50"),
+    (2, "149.154.167.51"),
+    (3, "149.154.175.100"),
+    (4, "149.154.167.91"),
+    (5, "149.154.171.5"),
+    (203, "91.105.192.100"),
+];
+
+// DC numbers that are remapped to another DC for WebSocket domain selection.
+// DC 203 (the "test" DC) is treated as DC 2 for websocket connections.
+const DC_OVERRIDES: &[(u32, u32)] = &[(203, 2)];
+
+// Implicit `--dc-ip` targets used when the user configured neither `--dc-ip`
+// nor any Cloudflare routing.
+const DEFAULT_DC_IP_TARGETS: &[(u32, &str)] = &[(2, "149.154.167.220"), (4, "149.154.167.220")];
+
+pub fn default_dc_ips() -> HashMap<u32, String> {
+    DEFAULT_DC_IPS
+        .iter()
+        .map(|(dc, ip)| (*dc, ip.to_string()))
+        .collect()
+}
+
+/// The built-in fallback IP for `dc`, without building the whole map.
+pub fn default_dc_ip(dc: u32) -> Option<&'static str> {
+    DEFAULT_DC_IPS
+        .iter()
+        .find_map(|(id, ip)| (*id == dc).then_some(*ip))
+}
+
+pub fn default_dc_overrides() -> HashMap<u32, u32> {
+    DC_OVERRIDES.iter().copied().collect()
+}
+
+/// The DC whose WebSocket hostname should be used for `dc`.
+///
+/// A direct lookup over the (single-entry) override table, so the per-connect
+/// path doesn't build and throw away a whole `HashMap` — see
+/// [`default_dc_overrides`] for the mapping itself.
+pub fn websocket_dc(dc: u32) -> u32 {
+    DC_OVERRIDES
+        .iter()
+        .find_map(|(from, to)| (*from == dc).then_some(*to))
+        .unwrap_or(dc)
+}
+
+// ─── Upstream MTProto proxy config ───────────────────────────────────────────
+
+/// An upstream MTProto proxy to fall back to when the WebSocket path fails.
+#[derive(Clone, Debug)]
+pub struct MtProtoProxy {
+    pub host: String,
+    pub port: u16,
+    /// Hex-encoded proxy secret as it appears in the `tg://proxy` link.
+    /// May be 32 hex chars (16 bytes, plain secret), or 34 hex chars (17 bytes)
+    /// with a 1-byte mode-indicator prefix: `dd` = padded intermediate,
+    /// `ee` = FakeTLS.  The prefix byte is stripped before key derivation —
+    /// only the trailing 16 bytes are used as the actual cryptographic key.
+    pub secret: String,
+    secret_key: Vec<u8>,
+    faketls_hostname: Option<String>,
+}
+
+impl MtProtoProxy {
+    pub fn secret_key(&self) -> &[u8] {
+        &self.secret_key
+    }
+
+    pub fn faketls_hostname(&self) -> Option<&str> {
+        self.faketls_hostname.as_deref()
+    }
+}
+
+/// Parse a `HOST:PORT:SECRET` triplet.
+/// Splitting from the right handles IPv4/domain hosts; the two right-most
+/// colons delimit port and secret.
+/// Note: IPv6 addresses in bracket notation (e.g. `[::1]:443:secret`) are
+/// not supported — use a hostname or IPv4 address instead.
+fn parse_mtproto_proxy(s: &str) -> Result<MtProtoProxy, String> {
+    // rsplitn(3, ':') yields at most 3 parts, right-to-left: [secret, port, host]
+    let parts: Vec<&str> = s.rsplitn(3, ':').collect();
+    if parts.len() != 3 {
+        return Err(format!("expected HOST:PORT:SECRET, got {:?}", s));
+    }
+    let secret = parts[0].to_string();
+    let port: u16 = parts[1]
+        .parse()
+        .map_err(|_| format!("invalid port {:?}", parts[1]))?;
+    let host = parts[2].to_string();
+
+    let raw_secret =
+        hex::decode(&secret).map_err(|_| format!("invalid hex secret {:?}", secret))?;
+    let secret_key = crypto::secret_key(&raw_secret).to_vec();
+    let faketls_hostname = crypto::faketls_hostname(&raw_secret)
+        .map(std::str::from_utf8)
+        .transpose()
+        .map_err(|_| "FakeTLS secret hostname must be valid UTF-8".to_string())?
+        .map(ToOwned::to_owned);
+
+    Ok(MtProtoProxy {
+        host,
+        port,
+        secret,
+        secret_key,
+        faketls_hostname,
+    })
+}
+
+// ─── Upstream tier pinning ────────────────────────────────────────────────────
+
+/// One rung of the fallback ladder, as nameable from the CLI.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, ValueEnum)]
+pub enum UpstreamTier {
+    /// Direct WebSocket to the DC's `--dc-ip` target (pool, fresh connect;
+    /// fronted from the first attempt when `--fronting-domain` is set).
+    Ws,
+    /// Cloudflare Worker TCP tunnel (`--cf-worker-domain`).
+    Cfworker,
+    /// Cloudflare-proxied WebSocket (`--cf-domain` / `--default-domains`).
+    Cfproxy,
+    /// Upstream MTProto proxy (`--mtproto-proxy`).
+    Mtproto,
+    /// Raw TCP :443 to the DC.
+    Tcp,
+}
+
+impl fmt::Display for UpstreamTier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(
+            self.to_possible_value()
+                .expect("no skipped variants")
+                .get_name(),
+        )
+    }
+}
+
+// ─── CLI / env-var configuration ─────────────────────────────────────────────
+
+/// Parse a `DC:IP` pair such as `2:149.154.167.220`.
+fn parse_dc_ip(s: &str) -> Result<(u32, String), String> {
+    let (dc_s, ip_s) = s
+        .split_once(':')
+        .ok_or_else(|| format!("expected DC:IP, got {s:?}"))?;
+
+    let dc: u32 = dc_s
+        .parse()
+        .map_err(|_| format!("invalid DC number {dc_s:?}"))?;
+
+    // Validate the IP address string.
+    let _: std::net::IpAddr = ip_s
+        .parse()
+        .map_err(|_| format!("invalid IP address {ip_s:?}"))?;
+
+    Ok((dc, ip_s.to_string()))
+}
+
+#[derive(Parser, Clone, Debug)]
+#[command(
+    name = "tg-ws-proxy",
+    version,
+    about = "Telegram MTProto WebSocket Bridge Proxy",
+    long_about = "Local MTProto proxy that tunnels Telegram Desktop traffic \
+                  through WebSocket connections to Telegram DCs.\n\
+                  Useful on networks where raw TCP to Telegram is blocked."
+)]
+pub struct Config {
+    /// Port to listen on.
+    #[arg(long, default_value = "1443", env = "TG_PORT")]
+    pub port: u16,
+
+    /// Host / IP address to bind.
+    /// When omitted, the proxy binds `0.0.0.0` if a LAN IP can be
+    /// auto-detected (so the address advertised in the proxy link is
+    /// actually reachable), otherwise it falls back to `127.0.0.1`.
+    #[arg(long, env = "TG_HOST")]
+    pub host: Option<String>,
+
+    /// MTProto proxy secret(s) (32 hex chars each).
+    /// Can be specified multiple times or as a comma-separated list.
+    /// A random secret is generated if not provided.
+    #[arg(long = "secret", value_delimiter = ',', env = "TG_SECRET")]
+    pub secrets: Vec<String>,
+
+    /// Accept inbound Telegram clients using `ee` FakeTLS camouflage with this
+    /// SNI hostname. The generated proxy link will use `secret=ee<key><hosthex>`.
+    #[arg(long = "listen-faketls-domain", env = "TG_LISTEN_FAKETLS_DOMAIN")]
+    pub listen_faketls_domain: Option<String>,
+
+    /// Target IP for a DC, e.g. `--dc-ip 2:149.154.167.220`.
+    /// Can be specified multiple times.
+    /// Default: DC 2 and DC 4 → 149.154.167.220
+    #[arg(long = "dc-ip", value_name = "DC:IP", value_parser = parse_dc_ip)]
+    pub dc_ip: Vec<(u32, String)>,
+
+    /// Socket send/recv buffer size in KiB.
+    ///
+    /// Currently has no effect — accepted for backwards compatibility with
+    /// existing command lines and `TG_BUF_KB` deployments. The relay buffers
+    /// are a fixed size chosen to keep the per-connection footprint small on
+    /// low-memory devices.
+    #[arg(long = "buf-kb", default_value = "256", env = "TG_BUF_KB")]
+    pub buf_kb: usize,
+
+    /// Number of pre-warmed WebSocket connections per DC.
+    #[arg(long = "pool-size", default_value = "4", env = "TG_POOL_SIZE")]
+    pub pool_size: usize,
+
+    /// Maximum number of concurrent client connections.
+    /// When omitted, a safe value is computed automatically from the process's
+    /// soft file-descriptor limit (ulimit -n):
+    ///   max_connections = (fd_limit - reserved_fds) / 2
+    /// where reserved_fds covers the pool, the listener socket, and runtime
+    /// overhead.  Set this explicitly only if you need to override the
+    /// auto-computed limit.
+    #[arg(long = "max-connections", env = "TG_MAX_CONNECTIONS")]
+    pub max_connections: Option<usize>,
+
+    /// Enable verbose (DEBUG) logging.
+    #[arg(short, long, env = "TG_VERBOSE")]
+    pub verbose: bool,
+
+    /// Skip TLS certificate verification when connecting to Telegram.
+    /// Matches the Python reference implementation behaviour.
+    /// **Do not use on untrusted networks unless you understand the risks.**
+    #[arg(long = "danger-accept-invalid-certs", env = "TG_SKIP_TLS_VERIFY")]
+    pub skip_tls_verify: bool,
+
+    /// Suppress all log output (useful on routers / embedded devices).
+    /// Overrides `--verbose` when both are set.
+    #[arg(short = 'q', long, env = "TG_QUIET")]
+    pub quiet: bool,
+
+    /// Write log output to this file instead of stderr.
+    /// Log lines written to a file never contain ANSI color codes.
+    #[arg(long = "log-file", value_name = "PATH", env = "TG_LOG_FILE")]
+    pub log_file: Option<String>,
+
+    /// Upstream MTProto proxy to try when the WebSocket path fails.
+    /// Format: `HOST:PORT:SECRET` (32 hex chars).  Can be specified multiple times.
+    /// Multiple proxies are tried in order until one succeeds.
+    /// Via env: comma-separated list, e.g. `host1:443:sec1,host2:8888:sec2`.
+    #[arg(
+        long = "mtproto-proxy",
+        value_name = "HOST:PORT:SECRET",
+        value_parser = parse_mtproto_proxy,
+        value_delimiter = ',',
+        env = "TG_MTPROTO_PROXY"
+    )]
+    pub mtproto_proxies: Vec<MtProtoProxy>,
+
+    /// IP address to advertise in the generated `tg://proxy` link.
+    /// Useful when the proxy listens on `0.0.0.0` or `127.0.0.1` but clients
+    /// need to connect via a specific LAN or public IP.
+    /// When omitted, the proxy attempts to auto-detect a non-loopback local IP;
+    /// if that fails it falls back to `--host`.
+    #[arg(long = "link-ip", env = "TG_LINK_IP")]
+    pub link_ip: Option<String>,
+
+    /// Cloudflare-proxied domain(s) for alternative WebSocket routing.
+    ///
+    /// When set, the proxy will attempt to connect to Telegram DCs through
+    /// Cloudflare's CDN using `kws{N}.{cf-domain}` subdomains.  This can
+    /// bypass ISP-level blocks on Telegram's IP ranges (common in Russia).
+    ///
+    /// Setup: add `kws1`–`kws5` A records in your Cloudflare DNS pointing to
+    /// the respective Telegram DC IPs, enable the orange-cloud proxy, and set
+    /// SSL/TLS mode to **Flexible**.  See docs/CfProxy.md for full instructions.
+    ///
+    /// Multiple domains can be specified as a comma-separated list.  They are
+    /// tried in the order given (first domain has highest priority).
+    ///
+    /// The CF proxy is tried as a fallback after direct WebSocket connections
+    /// fail. For DCs without `--dc-ip`, the Python fallback order is used:
+    /// Worker, regular CF proxy, upstream proxies, then direct TCP.
+    #[arg(
+        long = "cf-domain",
+        value_name = "DOMAIN",
+        value_delimiter = ',',
+        env = "TG_CF_DOMAIN"
+    )]
+    pub cf_domains: Vec<String>,
+
+    /// Cloudflare Worker domain for the TCP-tunnel fallback.
+    ///
+    /// The Worker accepts WebSocket connections at `/apiws` and opens a raw
+    /// TCP connection to the Telegram DC IP passed in the query string. Unlike
+    /// `--cf-domain`, this does not require owning a Cloudflare DNS zone.
+    #[arg(
+        long = "cf-worker-domain",
+        alias = "cfproxy-worker-domain",
+        value_name = "DOMAIN",
+        value_delimiter = ',',
+        env = "TG_CF_WORKER_DOMAIN"
+    )]
+    pub cf_worker_domains: Vec<String>,
+
+    /// Legacy: try the Cloudflare tiers before direct WebSocket.
+    ///
+    /// Kept working — and hidden from the docs — only for already-deployed
+    /// configs (LuCI UCI `cf_priority`, `install.sh` systemd units with
+    /// `TG_CF_PRIORITY`, existing command lines). It is sugar for
+    /// `--pinned-upstream cfworker,cfproxy,ws,mtproto,tcp`; new configs
+    /// should use the pin directly.
+    #[arg(long = "cf-priority", env = "TG_CF_PRIORITY", hide = true)]
+    pub cf_priority: bool,
+
+    /// Evenly distribute connections across multiple Cloudflare proxy domains.
+    ///
+    /// When set and multiple `--cf-domain` values are given, each new
+    /// connection starts from a different CF domain in round-robin order
+    /// instead of always trying the first domain first.  The remaining domains
+    /// are still tried in order as fallbacks if the primary one fails.
+    ///
+    /// Has no effect when only one CF domain is configured.
+    #[arg(long = "cf-balance", env = "TG_CF_BALANCE")]
+    pub cf_balance: bool,
+
+    /// Upgrade Cloudflare proxy and Worker connections over plaintext
+    /// `ws://` (port 80) instead of `wss://` (port 443).
+    ///
+    /// Useful when a TLS-MITM middlebox breaks the WebSocket upgrade to
+    /// Cloudflare but plain HTTP passes. The cost: the obfuscated MTProto
+    /// stream is on the wire unencrypted — the 8-byte `auth_key_id` at the
+    /// front of every frame is readable and the obfuscation layer is
+    /// recoverable from captured bytes (#123), so each connection is
+    /// identifiable. Acceptable for media traffic; not for text.
+    ///
+    /// Applies to the `cfproxy` and `cfworker` tiers only — the direct
+    /// WebSocket path to Telegram always uses TLS.
+    #[arg(long = "cf-disable-tls", env = "TG_CF_DISABLE_TLS")]
+    pub cf_disable_tls: bool,
+
+    /// Pin the upstream tier order for non-media connections.
+    ///
+    /// Comma-separated tier names tried in the order given: `ws` (direct
+    /// WebSocket; needs a `--dc-ip` target for the DC), `cfworker` (Cloudflare
+    /// Worker tunnel), `cfproxy` (Cloudflare proxy), `mtproto` (upstream
+    /// MTProto proxy), `tcp` (raw TCP :443).  Tiers left out are never tried
+    /// for this class, and a class whose every listed tier fails is dropped
+    /// rather than falling through to the default ladder.  Unset → the
+    /// default priority order (see docs/Fallbacks.md).
+    #[arg(
+        long = "pinned-upstream",
+        value_name = "TIERS",
+        value_enum,
+        value_delimiter = ',',
+        env = "TG_PINNED_UPSTREAM"
+    )]
+    pub pinned_upstreams: Vec<UpstreamTier>,
+
+    /// Pin the upstream tier order for media connections — the ones whose
+    /// MTProto handshake asks for a media DC (negative DC index), where
+    /// Telegram clients already put photo/video/file transfers.
+    ///
+    /// Same tier names and semantics as `--pinned-upstream`; overrides it for
+    /// this class only. Without it, media connections inherit
+    /// `--pinned-upstream`.
+    #[arg(
+        long = "pinned-media-upstream",
+        value_name = "TIERS",
+        value_enum,
+        value_delimiter = ',',
+        env = "TG_PINNED_MEDIA_UPSTREAM"
+    )]
+    pub pinned_media_upstreams: Vec<UpstreamTier>,
+
+    /// Preferred Cloudflare edge IP(s) for the CF proxy and CF Worker tiers
+    /// (IPv4 or IPv6).
+    ///
+    /// When set, those tiers dial the next of these addresses instead of
+    /// resolving the `kws{N}` / Worker record — skipping whatever edge
+    /// DNS/anycast would have assigned. TLS SNI and HTTP `Host` still use the
+    /// real record, so certificates and routing inside Cloudflare are
+    /// unchanged. Multiple IPs are round-robined across dials (inline connects
+    /// and pool refills alike); typically fed from a latency scan of
+    /// Cloudflare's ranges for networks where the assigned edge is slow or
+    /// blocked.
+    ///
+    /// Applies to `--cf-domain`/`--default-domains` and `--cf-worker-domain`
+    /// connections only — never to direct-WS (`--dc-ip`), upstream MTProto
+    /// proxies, or the TCP fallback.
+    #[arg(
+        long = "cf-ip",
+        value_name = "IP",
+        value_delimiter = ',',
+        env = "TG_CF_IP"
+    )]
+    pub cf_ips: Vec<std::net::IpAddr>,
+
+    // ── Timeout / cooldown knobs ─────────────────────────────────────────
+    /// WebSocket connection timeout in seconds (normal path).
+    #[arg(
+        long = "ws-connect-timeout",
+        default_value = "10",
+        env = "TG_WS_CONNECT_TIMEOUT"
+    )]
+    pub ws_connect_timeout: u64,
+
+    /// WebSocket connection timeout in seconds when the DC is in failure
+    /// cooldown (fast-probe path, allows quick recovery after a network change).
+    #[arg(
+        long = "ws-fail-probe-timeout",
+        default_value = "2",
+        env = "TG_WS_FAIL_PROBE_TIMEOUT"
+    )]
+    pub ws_fail_probe_timeout: u64,
+
+    /// Seconds to back off from a DC's WebSocket after a connection failure.
+    #[arg(
+        long = "ws-fail-cooldown",
+        default_value = "30",
+        env = "TG_WS_FAIL_COOLDOWN"
+    )]
+    pub ws_fail_cooldown: u64,
+
+    /// Seconds to back off from a DC's WebSocket after all domains returned
+    /// a redirect (WS blacklisted by Telegram).
+    #[arg(
+        long = "ws-redirect-cooldown",
+        default_value = "300",
+        env = "TG_WS_REDIRECT_COOLDOWN"
+    )]
+    pub ws_redirect_cooldown: u64,
+
+    /// Seconds to skip the direct WebSocket path for a `--dc-ip` address whose
+    /// TCP connect timed out.
+    ///
+    /// A timeout (rather than a refusal or a redirect) is what a DPI-blocked
+    /// address looks like, and that does not lift within a connection's
+    /// lifetime — so the address is stepped over for a long window and every
+    /// client goes straight to the Cloudflare/upstream-proxy tiers instead of
+    /// paying `--ws-connect-timeout` first.
+    ///
+    /// Stepped over, not written off: a connection that finds every fallback
+    /// tier dead re-probes the address anyway, and the first direct connect
+    /// that succeeds clears the cooldown — so a window opened by a passing
+    /// glitch cannot strand anyone.  The skipping needs a fallback tier to be
+    /// configured; the record itself is always kept, since the pool reads it
+    /// to stop pre-connecting into the same hole.  Matches upstream
+    /// tg-ws-proxy's `IP_FAIL_COOLDOWN`.
+    #[arg(
+        long = "ip-fail-cooldown",
+        default_value = "3600",
+        env = "TG_IP_FAIL_COOLDOWN"
+    )]
+    pub ip_fail_cooldown: u64,
+
+    /// Client MTProto handshake read timeout in seconds.
+    #[arg(
+        long = "handshake-timeout",
+        default_value = "10",
+        env = "TG_HANDSHAKE_TIMEOUT"
+    )]
+    pub handshake_timeout: u64,
+
+    /// TCP fallback connect timeout in seconds.
+    #[arg(
+        long = "tcp-fallback-timeout",
+        default_value = "10",
+        env = "TG_TCP_FALLBACK_TIMEOUT"
+    )]
+    pub tcp_fallback_timeout: u64,
+
+    /// Connect timeout in seconds for upstream MTProto proxies.
+    #[arg(
+        long = "upstream-connect-timeout",
+        default_value = "5",
+        env = "TG_UPSTREAM_CONNECT_TIMEOUT"
+    )]
+    pub upstream_connect_timeout: u64,
+
+    /// Seconds to back off from an upstream MTProto proxy after a failure.
+    #[arg(
+        long = "upstream-fail-cooldown",
+        default_value = "60",
+        env = "TG_UPSTREAM_FAIL_COOLDOWN"
+    )]
+    pub upstream_fail_cooldown: u64,
+
+    /// Connect timeout in seconds for the Cloudflare proxy path.
+    #[arg(
+        long = "cf-connect-timeout",
+        default_value = "10",
+        env = "TG_CF_CONNECT_TIMEOUT"
+    )]
+    pub cf_connect_timeout: u64,
+
+    /// Seconds to back off from the Cloudflare proxy path after a failure.
+    #[arg(
+        long = "cf-fail-cooldown",
+        default_value = "60",
+        env = "TG_CF_FAIL_COOLDOWN"
+    )]
+    pub cf_fail_cooldown: u64,
+
+    /// Domain to always present as the TLS SNI for direct WebSocket
+    /// connections to a DC IP. The real DC IP and `Host` are still used —
+    /// only the SNI is swapped for this unrelated, presumably-unblocked
+    /// domain, e.g. `sprinthost.ru` (the value upstream tg-ws-proxy uses).
+    ///
+    /// When set, fronting is unconditional: the very first ClientHello
+    /// already carries the fronted SNI. A reactive, "front only after the
+    /// direct SNI times out" switch leaks the real `telegram.org` SNI first,
+    /// which networks that RST it on sight never let through (#111).
+    ///
+    /// **Only takes effect when `--dc-ip` is configured for that DC** — by
+    /// design, matching upstream tg-ws-proxy exactly: fronting only ever
+    /// applies to a direct connection to Telegram's real DC IP, never to the
+    /// CF proxy/Worker/upstream-proxy paths. If you rely solely on
+    /// `--cf-domain`/`--default-domains` (no `--dc-ip`), this flag has no
+    /// effect.
+    ///
+    /// Disabled unless set. TLS certificate verification is unconditionally
+    /// skipped on fronted connections: the real Telegram certificate can
+    /// never match a fronted SNI, so hostname verification would always fail
+    /// — this is inherent to the technique, not a bug.
+    #[arg(long = "fronting-domain", env = "TG_FRONTING_DOMAIN")]
+    pub fronting_domain: Option<String>,
+
+    /// Legacy: the sticky window that kept fronting active after a success.
+    ///
+    /// Fronting is now unconditional while `--fronting-domain` is set, so
+    /// there is no window to size. Kept parseable — and hidden — only for
+    /// already-deployed configs (LuCI UCI options, systemd units with
+    /// `TG_FRONTING_COOLDOWN`); the value is ignored.
+    #[arg(
+        long = "fronting-cooldown",
+        default_value = "1800",
+        env = "TG_FRONTING_COOLDOWN",
+        hide = true
+    )]
+    pub fronting_cooldown: u64,
+
+    /// Legacy: the cooldown after a failed fronting attempt.
+    ///
+    /// Fronting is now unconditional while `--fronting-domain` is set, so a
+    /// failed fronted connect is just a failed direct-WS attempt like any
+    /// other. Kept parseable — and hidden — only for already-deployed
+    /// configs; the value is ignored.
+    #[arg(
+        long = "fronting-fail-cooldown",
+        default_value = "60",
+        env = "TG_FRONTING_FAIL_COOLDOWN",
+        hide = true
+    )]
+    pub fronting_fail_cooldown: u64,
+
+    /// Maximum age of a pooled WebSocket connection in seconds.
+    /// Connections older than this are discarded and re-established.
+    #[arg(long = "pool-max-age", default_value = "55", env = "TG_POOL_MAX_AGE")]
+    pub pool_max_age: u64,
+
+    /// Test configured Cloudflare proxy domains and upstream MTProto proxies
+    /// for suitability, then exit.
+    ///
+    /// For each CF domain, a WebSocket connection is attempted through
+    /// `kws2.{domain}` (DC 2, non-media); the result is printed as OK/FAIL
+    /// with the round-trip latency.
+    ///
+    /// For each MTProto proxy, a TCP connection is made and the MTProto
+    /// obfuscation handshake is sent.  FakeTLS (0xee) proxies are also asked
+    /// to complete their TLS handshake so the check verifies end-to-end
+    /// protocol negotiation.
+    ///
+    /// Exits with status code 0 when all configured items pass, 1 otherwise.
+    #[arg(long = "check", env = "TG_CHECK")]
+    pub check: bool,
+
+    /// Also probe this proxy's own listener, end-to-end.
+    ///
+    /// The process binds and serves as usual, then probes the socket it just
+    /// bound with a client-side obfuscated handshake and a real `req_pq_multi`,
+    /// and requires the reply to decrypt to Telegram's `resPQ`.  This is the
+    /// only probe that covers the whole chain — the inbound handshake, the
+    /// upstream tier the routing picks and the DC itself — and because the
+    /// probe talks to this process's own socket, the secret, address and
+    /// inbound mode match the running config by construction.
+    ///
+    /// Implies `--check`, and stops the process with the check's exit code.
+    /// What it covers is the listener and the routing, not the `tg://` link:
+    /// the probe reaches the bound socket over loopback, so a wrong `--link-ip`
+    /// or a blocked LAN port still passes.
+    ///
+    /// A listener configured with `--listen-faketls-domain` is reported as
+    /// skipped rather than failed: its first byte is a TLS record, so the plain
+    /// probe cannot speak to it.  A run whose only probe was skipped exits
+    /// non-zero, because nothing was verified.
+    #[arg(long = "check-listener", env = "TG_CHECK_LISTENER")]
+    pub check_listener: bool,
+
+    /// Use the default Cloudflare-proxy domain list from the upstream repository.
+    ///
+    /// When set, the proxy fetches an obfuscated list of working CF proxy
+    /// domains from GitHub at startup, deobfuscates them, and uses them as
+    /// `--cf-domain` entries.  This lets users get started without having to
+    /// configure their own Cloudflare DNS zone.
+    ///
+    /// The fetched domains are appended after any domains supplied with
+    /// `--cf-domain`.  If the fetch fails the proxy falls back to a small
+    /// built-in list.
+    ///
+    /// Source:
+    ///   https://github.com/Flowseal/tg-ws-proxy/blob/main/.github/cfproxy-domains.txt
+    #[arg(long = "default-domains", env = "TG_DEFAULT_DOMAINS")]
+    pub default_domains: bool,
+
+    /// Outbound proxy used for all outgoing connections.
+    ///
+    /// Supports `http://user:pass@host:port` CONNECT proxies and
+    /// `socks5://` / `socks5h://` proxies.  Standard proxy environment
+    /// variables are also honored when this option is omitted:
+    /// `HTTPS_PROXY`, `ALL_PROXY`, then `HTTP_PROXY` (including lowercase
+    /// variants).
+    #[arg(long = "outbound-proxy", value_name = "URL", env = "TG_OUTBOUND_PROXY")]
+    pub outbound_proxy: Option<String>,
+
+    /// Disable automatic outbound proxy discovery from standard environment
+    /// variables. Also useful with `TG_OUTBOUND_PROXY=direct`.
+    #[arg(long = "no-outbound-proxy", env = "TG_NO_OUTBOUND_PROXY")]
+    pub no_outbound_proxy: bool,
+
+    /// Comma-separated hosts that should bypass the outbound proxy.
+    ///
+    /// Supports standard NO_PROXY host/domain entries, optional ports, CIDR,
+    /// bracketed IPv6 and `*`.  Bare domain entries may also match subdomains.
+    /// Standard `NO_PROXY` / `no_proxy` variables are honored when omitted.
+    #[arg(long = "no-proxy", value_name = "LIST", env = "TG_NO_PROXY")]
+    pub no_proxy: Option<String>,
+
+    #[arg(skip)]
+    normalized_secrets: OnceLock<Vec<Vec<u8>>>,
+
+    #[arg(skip)]
+    normalized_listen_faketls_domain: OnceLock<Option<String>>,
+}
+
+/// Split a shell-style argument line into tokens.
+///
+/// Understands single and double quotes and backslash escapes outside single
+/// quotes.  Used by the Android embedder (and anything else that has a text
+/// field rather than a real argv) so the same flags the binary accepts can
+/// be typed as one string.
+pub fn split_cli_args(line: &str) -> Result<Vec<String>, String> {
+    let mut args = Vec::new();
+    let mut cur = String::new();
+    let mut started = false;
+    let mut chars = line.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double => {
+                in_single = !in_single;
+                started = true;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                started = true;
+            }
+            c if c.is_whitespace() && !in_single && !in_double => {
+                if started {
+                    args.push(std::mem::take(&mut cur));
+                    started = false;
+                }
+            }
+            '\\' if !in_single => {
+                if let Some(next) = chars.next() {
+                    cur.push(next);
+                    started = true;
+                } else {
+                    return Err("trailing backslash in argument list".into());
+                }
+            }
+            other => {
+                cur.push(other);
+                started = true;
+            }
+        }
+    }
+
+    if in_single || in_double {
+        return Err("unclosed quote in argument list".into());
+    }
+    if started {
+        args.push(cur);
+    }
+    Ok(args)
+}
+
+impl Config {
+    /// Parse configuration from CLI arguments.
+    pub fn from_args() -> Self {
+        Self::parse().with_defaults()
+    }
+
+    /// Parse a single command-line string the same way the binary parses argv.
+    ///
+    /// A leading token that does not start with `-` is treated as the program
+    /// name (so `./tg-ws --port 9050` works).  Otherwise `tg-ws-proxy` is
+    /// prepended as argv0.
+    pub fn try_from_cli_line(line: &str) -> Result<Self, String> {
+        let tokens = split_cli_args(line.trim())?;
+        let args = match tokens.first() {
+            Some(first) if !first.starts_with('-') => tokens,
+            _ => {
+                let mut args = vec!["tg-ws-proxy".to_string()];
+                args.extend(tokens);
+                args
+            }
+        };
+        Self::try_parse_from(args)
+            .map(Self::with_defaults)
+            .map_err(|e| e.render().to_string())
+    }
+
+    /// Fill in the values that can only be defaulted after parsing.
+    ///
+    /// Split out of [`Self::from_args`] so a `Config` built from an explicit
+    /// argument list — tests, or anything embedding the library — goes through
+    /// exactly the same normalization the binary does.
+    pub fn with_defaults(mut self) -> Self {
+        // `--check-listener` promises "probe and exit", so it implies the check
+        // rather than being ignored when `--check` is absent — the flag is
+        // reachable from `config.conf` and container env, where a silent no-op
+        // is indistinguishable from a passing probe.
+        if self.check_listener {
+            self.check = true;
+        }
+
+        // Normalize the Worker domains once, so the routing path can read them
+        // as a plain slice.  Entries that normalize to nothing (empty values,
+        // a bare scheme) are dropped rather than rejected — a stray comma in
+        // the list is not worth refusing to start over.
+        self.cf_worker_domains = std::mem::take(&mut self.cf_worker_domains)
+            .iter()
+            .filter_map(|domain| Self::normalize_cf_worker_domain(domain))
+            .collect();
+
+        // Fill in a random secret if none was supplied.
+        if self.secrets.is_empty() {
+            let bytes: [u8; 16] = rand::random();
+            self.secrets.push(hex::encode(bytes));
+        }
+        let normalized_secrets: Vec<Vec<u8>> = self
+            .secrets
+            .iter()
+            .map(|secret| decode_secret_key(secret))
+            .collect();
+        let normalized_listen_faketls_domain = self.derive_listen_faketls_domain();
+        self.normalized_secrets = OnceLock::from(normalized_secrets);
+        self.normalized_listen_faketls_domain = OnceLock::from(normalized_listen_faketls_domain);
+
+        // If no --dc-ip was given, use the built-in defaults — unless a CF
+        // domain is configured or --default-domains was requested (in which
+        // case CF proxy becomes the primary path for all DCs without explicit
+        // IPs, and the default dc_ip list would be misleading).
+        if self.dc_ip.is_empty() && self.cf_domains.is_empty() && !self.default_domains {
+            self.dc_ip = DEFAULT_DC_IP_TARGETS
+                .iter()
+                .map(|(dc, ip)| (*dc, ip.to_string()))
+                .collect();
+        }
+
+        // Legacy --cf-priority, expanded here so the routing path only ever
+        // sees a pin.  Only the tiers actually configured make it into the
+        // expansion — the legacy flag was always a no-op for a missing tier,
+        // and pinning one would make startup refuse instead.  Each class keeps
+        // an explicit pin of its own; cf_priority never overrides one.
+        if self.cf_priority {
+            let mut legacy = Vec::new();
+            if !self.cf_worker_domains.is_empty() {
+                legacy.push(UpstreamTier::Cfworker);
+            }
+            // --default-domains can still supply the list after its fetch, so
+            // the proxy tier is kept on that promise alone and skipped at
+            // runtime if the fetch comes back empty.
+            if !self.cf_domains.is_empty() || self.default_domains {
+                legacy.push(UpstreamTier::Cfproxy);
+            }
+            legacy.push(UpstreamTier::Ws);
+            if !self.mtproto_proxies.is_empty() {
+                legacy.push(UpstreamTier::Mtproto);
+            }
+            legacy.push(UpstreamTier::Tcp);
+
+            if self.pinned_upstreams.is_empty() {
+                self.pinned_upstreams = legacy.clone();
+            }
+            if self.pinned_media_upstreams.is_empty() {
+                self.pinned_media_upstreams = legacy;
+            }
+        }
+
+        self
+    }
+
+    /// Primary proxy secret (the first configured value).
+    pub fn primary_secret(&self) -> &str {
+        self.secrets.first().map(String::as_str).unwrap_or("")
+    }
+
+    /// The proxy secret as raw bytes (decoded from hex).
+    pub fn secret_bytes(&self) -> Vec<u8> {
+        self.normalized_secrets()
+            .first()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// All configured proxy secrets as raw bytes.
+    pub fn secret_bytes_list(&self) -> Vec<Vec<u8>> {
+        self.normalized_secrets().to_vec()
+    }
+
+    /// All configured proxy secrets in the process-lifetime representation.
+    pub fn normalized_secrets(&self) -> &[Vec<u8>] {
+        self.normalized_secrets
+            .get_or_init(|| {
+                self.secrets
+                    .iter()
+                    .map(|secret| decode_secret_key(secret))
+                    .collect()
+            })
+            .as_slice()
+    }
+
+    /// Inbound FakeTLS domain, either from `--listen-faketls-domain` or from
+    /// an `ee<key><domainhex>` secret.
+    pub fn listen_faketls_domain(&self) -> Option<String> {
+        self.normalized_listen_faketls_domain()
+            .map(ToOwned::to_owned)
+    }
+
+    /// Borrow the normalized inbound FakeTLS domain without allocating.
+    pub fn normalized_listen_faketls_domain(&self) -> Option<&str> {
+        self.normalized_listen_faketls_domain
+            .get_or_init(|| self.derive_listen_faketls_domain())
+            .as_deref()
+    }
+
+    /// Full secret value for the generated Telegram link.
+    pub fn link_secret(&self) -> String {
+        self.link_secret_for(self.primary_secret())
+    }
+
+    /// Full secret value for the generated Telegram link for any configured secret.
+    pub fn link_secret_for(&self, secret: &str) -> String {
+        if let Some(domain) = self.listen_faketls_domain() {
+            let key = decode_secret_key(secret);
+            return format!("ee{}{}", hex::encode(key), hex::encode(domain.as_bytes()));
+        }
+
+        if secret.starts_with("dd") || secret.starts_with("ee") {
+            secret.to_string()
+        } else {
+            format!("dd{}", secret)
+        }
+    }
+
+    fn derive_listen_faketls_domain(&self) -> Option<String> {
+        if let Some(domain) = &self.listen_faketls_domain {
+            return Some(domain.clone());
+        }
+
+        let raw = hex::decode(self.primary_secret()).ok()?;
+        let hostname = crypto::faketls_hostname(&raw)?;
+        std::str::from_utf8(hostname).ok().map(ToOwned::to_owned)
+    }
+
+    /// Map of DC ID → target IP from `--dc-ip` flags.
+    pub fn dc_redirects(&self) -> HashMap<u32, String> {
+        self.dc_ip.iter().cloned().collect()
+    }
+
+    /// The user-pinned tier order for one traffic class, if any.
+    ///
+    /// `None` means "use the default priority ladder". Media connections are
+    /// the ones whose handshake carries a negative DC index; everything else
+    /// counts as non-media. A media class without its own pin inherits the
+    /// non-media one — `--pinned-media-upstream` exists to override, not to
+    /// opt media out of an egress decision the operator already made.
+    pub fn forced_upstreams(&self, is_media: bool) -> Option<&[UpstreamTier]> {
+        if is_media && !self.pinned_media_upstreams.is_empty() {
+            Some(&self.pinned_media_upstreams)
+        } else if !self.pinned_upstreams.is_empty() {
+            Some(&self.pinned_upstreams)
+        } else {
+            None
+        }
+    }
+
+    /// Refuse to start when a pinned tier has nothing configured behind it.
+    ///
+    /// A class pinned to an unconfigured tier would have every connection
+    /// dropped at runtime, which is indistinguishable from a broken proxy —
+    /// better to fail while the operator is still watching.  `ws` is exempt:
+    /// whether it is usable depends on the per-DC `--dc-ip` target, checked
+    /// per connection with a log line instead.  `cfproxy` is checked against
+    /// the domain list *after* `--default-domains` has been fetched, so this
+    /// belongs in the server startup path, not at parse time.
+    pub fn validate_pinned_upstreams(&self) -> Result<(), String> {
+        for (flag, tiers) in [
+            ("--pinned-upstream", &self.pinned_upstreams),
+            ("--pinned-media-upstream", &self.pinned_media_upstreams),
+        ] {
+            for tier in tiers {
+                let unconfigured = match tier {
+                    UpstreamTier::Cfworker => self.cf_worker_domains.is_empty(),
+                    UpstreamTier::Cfproxy => self.cf_domains.is_empty(),
+                    UpstreamTier::Mtproto => self.mtproto_proxies.is_empty(),
+                    UpstreamTier::Ws | UpstreamTier::Tcp => false,
+                };
+                if unconfigured {
+                    return Err(format!(
+                        "{flag} pins the {tier} tier but nothing configures it \
+                         (--cf-worker-domain / --cf-domain / --mtproto-proxy)"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The `--dc-ip` override for a single DC.
+    ///
+    /// A scan of the (tiny) flag list rather than [`Self::dc_redirects`], so
+    /// the per-connection routing path doesn't build and drop a `HashMap` for
+    /// one lookup.
+    ///
+    /// Scanned in reverse so a DC listed twice resolves to the last `--dc-ip`
+    /// given, matching what collecting into [`Self::dc_redirects`] does. The
+    /// two must agree: the pool warms itself from the map while the routing
+    /// path uses this lookup.
+    pub fn dc_target_ip(&self, dc: u32) -> Option<&str> {
+        self.dc_ip
+            .iter()
+            .rev()
+            .find_map(|(id, ip)| (*id == dc).then_some(ip.as_str()))
+    }
+
+    /// Cloudflare Worker domains, normalized for `Host` and TLS SNI use.
+    ///
+    /// Normalization happens once in [`Self::with_defaults`] rather than here:
+    /// this is read on the routing path of every connection, and rebuilding the
+    /// list per call put an allocation per domain there.
+    pub fn cf_worker_domains(&self) -> &[String] {
+        &self.cf_worker_domains
+    }
+
+    /// First normalized Cloudflare Worker domain.
+    /// Kept for compatibility with single-domain call sites.
+    pub fn cf_worker_domain(&self) -> Option<&str> {
+        self.cf_worker_domains.first().map(String::as_str)
+    }
+
+    /// Cloudflare Worker domain normalized for `Host` and TLS SNI use.
+    fn normalize_cf_worker_domain(domain: &str) -> Option<String> {
+        let domain = domain.trim();
+        if domain.is_empty() {
+            return None;
+        }
+
+        let domain = domain
+            .strip_prefix("https://")
+            .or_else(|| domain.strip_prefix("http://"))
+            .unwrap_or(domain);
+        let domain = domain
+            .split_once('/')
+            .map(|(host, _)| host)
+            .unwrap_or(domain)
+            .trim_end_matches('/');
+
+        if domain.is_empty() {
+            None
+        } else {
+            Some(domain.to_string())
+        }
+    }
+
+    /// Build the outbound connector from CLI/env settings.
+    pub fn outbound_connector(&self) -> Result<OutboundConnector, String> {
+        OutboundConnector::from_config(
+            self.outbound_proxy.as_deref(),
+            self.no_proxy.as_deref(),
+            !self.no_outbound_proxy,
+        )
+    }
+
+    /// The address the TCP listener actually binds to.
+    ///
+    /// Resolution order:
+    /// 1. `--host` if explicitly set — the user's choice is always respected.
+    /// 2. `0.0.0.0` (all interfaces) when no `--host` was given and a LAN IP
+    ///    can be auto-detected, so the address advertised by `link_host`
+    ///    below is actually reachable instead of only bindable on loopback.
+    /// 3. `127.0.0.1` as the final fallback (no LAN connectivity detected).
+    pub fn bind_host(&self) -> String {
+        if let Some(ref host) = self.host {
+            return host.clone();
+        }
+
+        if detect_lan_ip().is_some() {
+            "0.0.0.0".to_string()
+        } else {
+            "127.0.0.1".to_string()
+        }
+    }
+
+    /// The hostname/IP to advertise in the generated `tg://proxy` link.
+    ///
+    /// Resolution order:
+    /// 1. `--link-ip` if explicitly set.
+    /// 2. Auto-detected first non-loopback IPv4 address when the bind
+    ///    address (see `bind_host`) is a wildcard (`0.0.0.0`) or loopback
+    ///    (`127.0.0.1` / `::1`).
+    /// 3. The bind address verbatim as the final fallback.
+    pub fn link_host(&self) -> String {
+        if let Some(ref ip) = self.link_ip {
+            return ip.clone();
+        }
+
+        let bind_host = self.bind_host();
+
+        // Auto-detect when the bind address is not directly reachable by
+        // remote clients (wildcard or loopback).
+        let bind_is_local = matches!(bind_host.as_str(), "0.0.0.0" | "::" | "127.0.0.1" | "::1");
+        if bind_is_local && let Some(lan_ip) = detect_lan_ip() {
+            return lan_ip;
+        }
+
+        bind_host
+    }
+
+    /// Socket buffer size in bytes.
+    #[allow(dead_code)]
+    pub fn buf_bytes(&self) -> usize {
+        self.buf_kb * 1024
+    }
+}
+
+/// Decode a hex secret and strip its optional `dd`/`ee` mode prefix, leaving
+/// the raw key used for MTProto key derivation.
+fn decode_secret_key(secret: &str) -> Vec<u8> {
+    let raw = hex::decode(secret).expect("secret must be valid hex");
+
+    crypto::secret_key(&raw).to_vec()
+}
+
+// ─── LAN IP auto-detection ────────────────────────────────────────────────────
+
+/// Return the first non-loopback, non-link-local IPv4 address found on the
+/// system's network interfaces.  Used to generate a usable `tg://` proxy link
+/// when the proxy is bound to a wildcard or loopback address.
+///
+/// Works by opening a UDP socket and "connecting" it to a public IP (no
+/// packet is actually sent); the OS routing table then fills in the local
+/// source address.
+fn detect_lan_ip() -> Option<String> {
+    // 8.8.8.8:80 is Google's public DNS. No packet is actually sent — we just
+    // need any well-known routable address so the kernel can select the right
+    // source interface for us via the routing table.
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+
+    let local_addr = socket.local_addr().ok()?;
+    let ip = local_addr.ip();
+
+    // Only return a usable unicast IPv4 address.
+    if let std::net::IpAddr::V4(v4) = ip
+        && !v4.is_loopback()
+        && !v4.is_link_local()
+        && !v4.is_unspecified()
+    {
+        return Some(v4.to_string());
+    }
+
+    None
+}

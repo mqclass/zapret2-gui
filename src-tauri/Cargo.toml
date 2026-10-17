@@ -30,7 +30,7 @@ zip = "2"
 rand = "0.8"
 # Native Telegram MTProto→WebSocket bridge (MIT). Embedded in-process —
 # no downloaded executable, no sidecar. Pinned to a release tag.
-tg-ws-proxy-rs = { git = "https://github.com/valnesfjord/tg-ws-proxy-rs", tag = "v2.5.4" }
+tg-ws-proxy-rs = { path = "vendor/tg-ws-proxy" } # vendored v2.5.4, see vendor/tg-ws-proxy/VENDOR.md
 clap = { version = "4", features = ["derive"] }
 # Funnel the bridge library's tracing diagnostics into our log buffer.
 tracing = "0.1"
