@@ -4,7 +4,7 @@
 
 /* ═══════════════════════════════════════════════════════════════════
    zapret2-gui — two real themes, one token system.
-   `data-theme` on <html> switches everything: "macos" | "hyprland".
+   Single theme: `data-theme="macos"` is always set on <html>.
 
    macOS  — glassmorphism: frosted floating panels, aurora background,
             generous radii, calm iOS blue. (Like the iOS/macOS mockup.)
@@ -79,70 +79,6 @@
   --line-strong-alpha: 0.16;
 }
 
-[data-theme="hyprland"] {
-  /* ── Hyprland rice: Catppuccin Mocha + cyber neon ────── */
-  --c-app: 17 17 27;        /* crust #11111B */
-  --c-sidebar: 24 24 37;    /* mantle #181825 */
-  --c-card: 30 30 46;       /* base #1E1E2E */
-  --c-cardin: 24 24 37;     /* mantle #181825 */
-  --c-raise: 49 50 68;      /* surface0 #313244 */
-  --c-hovert: 69 71 90;     /* surface1 #45475A */
-  --c-overlay: rgba(17, 17, 27, 0.82);
-
-  --c-line: 137 220 235;    /* sky #89DCEB */
-  --c-linestrong: 137 220 235;
-
-  --c-ink: 205 214 244;     /* text #CDD6F4 */
-  --c-ink2: 186 194 222;    /* subtext1 #BAC2DE */
-  --c-ink3: 166 173 200;    /* subtext0 #A6ADC8 */
-  --c-ink4: 127 132 156;    /* overlay2 #7F849C */
-  --c-ink5: 88 91 112;      /* surface2 #585B70 */
-
-  --c-accent: 137 220 235;  /* sky #89DCEB */
-  --c-accent-soft: 180 233 245;
-  --c-accent-fill: 137 180 250;  /* blue #89B4FA */
-  --c-accent-fill-hover: 137 220 235;
-  --c-accent-contrast: 17 17 27;
-  --c-accent-wash: rgba(137, 220, 235, 0.1);
-  --c-accent-line: rgba(137, 220, 235, 0.38);
-  --c-mauve: 203 166 247;   /* mauve #CBA6F7 */
-  --c-mauve-wash: rgba(203, 166, 247, 0.12);
-  --c-green: 166 227 161;   /* green #A6E3A1 */
-
-  --c-danger-fill: 244 63 94;
-  --c-danger-fill-hover: 251 113 133;
-  --c-danger-wash: rgba(244, 63, 94, 0.1);
-  --c-danger-line: rgba(251, 113, 133, 0.4);
-
-  --c-ok-wash: rgba(52, 211, 153, 0.08);
-
-  --c-warn-wash: rgba(251, 191, 36, 0.07);
-  --c-warn-line: rgba(251, 191, 36, 0.32);
-
-  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
-
-  --r-card: 6px;
-  --r-panel: 6px;
-  --r-control: 4px;
-  --r-chip: 4px;
-
-  --glass-blur: blur(20px) saturate(140%);
-  --glass-blur-sm: blur(14px) saturate(130%);
-  --glass-sidebar-bg: rgba(7, 11, 18, 0.62);
-  --glass-card-bg: rgba(8, 13, 20, 0.58);
-  --glass-bar-bg: rgba(6, 10, 16, 0.66);
-  --glass-inset-hi: inset 0 1px 0 rgba(103, 232, 249, 0.07);
-
-  --shadow-card: 0 10px 34px rgba(0, 0, 0, 0.55),
-    0 0 22px rgba(34, 211, 238, 0.07), var(--glass-inset-hi);
-  --shadow-pop: 0 16px 50px rgba(0, 0, 0, 0.65),
-    0 0 30px rgba(34, 211, 238, 0.1);
-  --shadow-glow: 0 0 0 1px rgba(103, 232, 249, 0.28),
-    0 0 28px rgba(34, 211, 238, 0.35);
-
-  --line-alpha: 0.16;
-  --line-strong-alpha: 0.3;
-}
 
 @layer base {
   html {
@@ -161,9 +97,6 @@
     outline: 2px solid rgb(var(--c-accent));
     outline-offset: 2px;
     border-radius: var(--r-control);
-  }
-  [data-theme="hyprland"] :is(button, a, input, select, textarea, [tabindex]):focus-visible {
-    box-shadow: 0 0 14px rgba(34, 211, 238, 0.45);
   }
 
   ::selection {
@@ -216,12 +149,6 @@
     animation: aurora-drift 26s ease-in-out infinite alternate;
   }
   /* Hyprland ambient: faint cyan/magenta haze in the corners */
-  [data-theme="hyprland"] .app-bg {
-    background-image:
-      radial-gradient(800px 480px at 100% 0%, rgba(34, 211, 238, 0.06), transparent 60%),
-      radial-gradient(700px 500px at 0% 100%, rgba(232, 121, 249, 0.05), transparent 60%);
-    background-attachment: fixed;
-  }
 
   /* ══ Floating panels (the "gaps" look) ═════════════════ */
   .panel-float {
@@ -245,9 +172,6 @@
     border-radius: var(--r-card);
     box-shadow: var(--shadow-card);
   }
-  [data-theme="hyprland"] .glass-sidebar {
-    box-shadow: var(--shadow-card), 0 0 26px rgba(34, 211, 238, 0.06);
-  }
 
   /* ══ Cards ═════════════════════════════════════════════ */
   .t-card {
@@ -259,10 +183,6 @@
     -webkit-backdrop-filter: var(--glass-blur-sm);
     transition: border-color 0.25s ease, box-shadow 0.25s ease,
       transform 0.25s ease;
-  }
-  [data-theme="hyprland"] .t-card:hover {
-    border-color: rgb(var(--c-line) / 0.32);
-    box-shadow: var(--shadow-card), 0 0 22px rgba(34, 211, 238, 0.1);
   }
   .t-card-in {
     background: rgb(var(--c-cardin) / 0.72);
@@ -304,10 +224,6 @@
     background: rgb(var(--c-accent-fill-hover));
     box-shadow: 0 0 0 1px rgba(120, 180, 255, 0.2),
       0 0 40px rgba(10, 132, 255, 0.35);
-  }
-  [data-theme="hyprland"] .t-btn-primary:hover:not(:disabled) {
-    box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.35),
-      0 0 34px rgba(34, 211, 238, 0.5);
   }
   .t-btn-danger {
     background: rgb(var(--c-danger-fill));
@@ -362,9 +278,6 @@
     border-color: var(--c-accent-line);
     color: rgb(var(--c-accent-soft));
   }
-  [data-theme="hyprland"] .t-badge-accent {
-    box-shadow: 0 0 12px rgba(34, 211, 238, 0.18);
-  }
   .t-badge-ok {
     background: rgba(52, 211, 153, 0.1);
     border-color: rgba(52, 211, 153, 0.3);
@@ -391,18 +304,6 @@
     color: rgb(var(--c-ink));
     letter-spacing: 0.01em;
   }
-  [data-theme="hyprland"] .t-section-title {
-    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-    font-size: 0.6875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: rgb(var(--c-accent-soft));
-    text-shadow: 0 0 12px rgba(34, 211, 238, 0.4);
-  }
-  [data-theme="hyprland"] .t-section-title svg {
-    color: rgb(var(--c-accent));
-    filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.6));
-  }
 
   /* ══ Keyboard hints ════════════════════════════════════ */
   .t-kbd {
@@ -420,11 +321,6 @@
     border: 1px solid rgb(var(--c-line) / var(--line-alpha));
     border-bottom-width: 2px;
     border-radius: var(--r-chip);
-  }
-  [data-theme="hyprland"] .t-kbd {
-    color: rgb(var(--c-accent-soft));
-    border-color: var(--c-accent-line);
-    box-shadow: 0 0 10px rgba(34, 211, 238, 0.15);
   }
 
   /* ══ Inputs ════════════════════════════════════════════ */
@@ -469,10 +365,6 @@
     color: rgb(var(--c-ink));
     background: rgb(255 255 255 / 0.05);
   }
-  [data-theme="hyprland"] .t-navitem:hover {
-    background: var(--c-accent-wash);
-    box-shadow: inset 0 0 18px rgba(34, 211, 238, 0.06);
-  }
   .t-navitem-active {
     color: rgb(var(--c-ink));
     font-weight: 600;
@@ -498,27 +390,6 @@
     color: rgb(var(--c-accent-soft));
   }
   /* Hyprland: neon wash + glowing left bar */
-  [data-theme="hyprland"] .nav-active-pill {
-    background: var(--c-accent-wash);
-    border-color: var(--c-accent-line);
-    box-shadow: 0 0 18px rgba(34, 211, 238, 0.14),
-      inset 0 0 18px rgba(34, 211, 238, 0.05);
-  }
-  [data-theme="hyprland"] .nav-active-pill::before {
-    content: "";
-    position: absolute;
-    left: -1px;
-    top: 22%;
-    bottom: 22%;
-    width: 3px;
-    border-radius: 3px;
-    background: rgb(var(--c-accent));
-    box-shadow: 0 0 10px rgba(34, 211, 238, 0.9);
-  }
-  [data-theme="hyprland"] .t-navitem-active .t-navitem-icon {
-    color: rgb(var(--c-accent));
-    filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.7));
-  }
   .t-navitem-icon {
     display: inline-flex;
     color: rgb(var(--c-ink4));
@@ -537,14 +408,8 @@
   .view-enter {
     animation: view-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
-  [data-theme="hyprland"] .view-enter {
-    animation-duration: 0.26s;
-  }
 
   /* ══ Neon status dot (Hyprland) ════════════════════════ */
-  [data-theme="hyprland"] .neon-dot {
-    box-shadow: 0 0 8px currentColor;
-  }
 
   /* ══ Theme preview mock (settings cards) ═══════════════ */
   .theme-preview {
@@ -656,11 +521,6 @@
       0 0 90px rgba(48, 209, 88, 0.18),
       inset 0 1px 0 rgba(255, 255, 255, 0.25);
   }
-  [data-theme="hyprland"] .orb-connected .orb-core {
-    box-shadow: 0 0 44px rgba(166, 227, 161, 0.4),
-      0 0 90px rgba(137, 220, 235, 0.22),
-      inset 0 0 18px rgba(166, 227, 161, 0.15);
-  }
   /* shockwave fired on connect */
   .orb-shockwave {
     position: absolute;
@@ -672,27 +532,6 @@
   }
 
   /* ══ Hyprland animated conic border ══════════════════ */
-  [data-theme="hyprland"] .neon-frame {
-    position: relative;
-    border-radius: var(--r-card);
-  }
-  [data-theme="hyprland"] .neon-frame::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1.5px;
-    background: conic-gradient(
-      from var(--angle, 0deg),
-      #89b4fa, #cba6f7, #f5c2e7, #94e2d5, #89b4fa
-    );
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    animation: angle-spin 5s linear infinite;
-    pointer-events: none;
-    opacity: 0.85;
-  }
 
   /* ══ Staggered list entry ════════════════════════════ */
   .stagger-item {
@@ -707,36 +546,6 @@
   }
   .hover-lift:hover {
     transform: translateY(-2px);
-  }
-  [data-theme="hyprland"] .hover-lift:hover {
-    border-color: rgb(var(--c-line) / 0.35);
-    box-shadow: var(--shadow-card), 0 0 24px rgba(137, 220, 235, 0.12);
-  }
-
-  /* ══ Waybar pills (hyprland topbar) ══════════════════ */
-  [data-theme="hyprland"] .waybar-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 0.3rem 0.8rem;
-    border-radius: 999px;
-    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    background: rgb(var(--c-cardin) / 0.72);
-    border: 1px solid rgb(var(--c-line) / 0.14);
-    color: rgb(var(--c-ink3));
-    backdrop-filter: var(--glass-blur-sm);
-    -webkit-backdrop-filter: var(--glass-blur-sm);
-    white-space: nowrap;
-  }
-  [data-theme="hyprland"] .waybar-pill-active {
-    color: rgb(var(--c-accent-soft));
-    border-color: var(--c-accent-line);
-    background: var(--c-accent-wash);
-    box-shadow: 0 0 14px rgba(137, 220, 235, 0.22);
-    text-shadow: 0 0 10px rgba(137, 220, 235, 0.5);
   }
 
   /* ══ macOS traffic lights ════════════════════════════ */
@@ -841,14 +650,6 @@
     );
     animation: skeleton-shimmer 1.6s ease-in-out infinite;
   }
-  [data-theme="hyprland"] .skeleton::after {
-    background: linear-gradient(
-      100deg,
-      transparent 20%,
-      rgba(137, 220, 235, 0.08) 50%,
-      transparent 80%
-    );
-  }
   @keyframes skeleton-shimmer {
     from { transform: translateX(-100%); }
     to { transform: translateX(100%); }
@@ -876,10 +677,6 @@
     border-color: rgb(var(--c-accent) / 0.6);
     box-shadow: 0 0 0 3px rgb(var(--c-accent) / 0.15);
     background: rgb(var(--c-card));
-  }
-  [data-theme="hyprland"] .t-input:focus {
-    box-shadow: 0 0 0 3px rgba(137, 220, 235, 0.12),
-      0 0 16px rgba(137, 220, 235, 0.08);
   }
   .t-input:disabled {
     opacity: 0.55;
@@ -924,11 +721,6 @@
     border-color: var(--c-accent-line);
     background: var(--c-accent-wash);
     color: rgb(var(--c-accent-soft));
-  }
-  [data-theme="hyprland"] .t-badge {
-    font-family: var(--font-mono);
-    text-transform: uppercase;
-    font-size: 0.6rem;
   }
 
   /* ══ Empty state ═════════════════════════════════════ */
@@ -1005,12 +797,6 @@
     box-shadow: 0 4px 16px rgb(var(--c-accent) / 0.35),
       inset 0 1px 0 rgb(255 255 255 / 0.35);
   }
-  [data-theme="hyprland"] .t-btn-primary {
-    font-family: var(--font-mono);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    box-shadow: 0 0 20px rgb(var(--c-accent) / 0.3);
-  }
   .t-btn-ghost {
     background: rgb(255 255 255 / 0.04);
     border-color: rgb(var(--c-line) / var(--line-alpha));
@@ -1053,7 +839,6 @@
   .orb-connecting .orb-ring,
   .orb-connecting .orb-ripple,
   .orb-connected .orb-aura,
-  [data-theme="hyprland"] .neon-frame::before,
   .stagger-item {
     animation: none;
   }

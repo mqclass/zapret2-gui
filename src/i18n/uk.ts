@@ -405,6 +405,8 @@ export const uk: Translations = {
       "Перевіряти нові релізи на GitHub під час запуску та кожні 6 годин. Перевірка тиха: якщо GitHub недоступний, застосунок просто спробує пізніше.",
     autoCheckOn: "Увімкнено",
     autoCheckOff: "Вимкнено",
+    autoCheckDisable: "Вимкнути",
+    autoCheckEnable: "Увімкнути",
     versionTitle: "Версія та перевірка",
     versionDesc: "Поточна версія та ручна перевірка нових релізів",
     currentVersionLabel: "Поточна версія",
@@ -508,6 +510,8 @@ export const uk: Translations = {
     uptimeH: "г",
     uptimeM: "хв",
     uptimeS: "с",
+    bypassOnHeadline: "Обхід працює",
+    bypassOffHeadline: "Обхід вимкнено",
 
   },
   telegram: {

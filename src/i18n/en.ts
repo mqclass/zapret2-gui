@@ -405,6 +405,8 @@ export const en: Translations = {
       "Check for new releases on GitHub at startup and every 6 hours. Checks are quiet: if GitHub is unreachable the app simply retries later.",
     autoCheckOn: "Enabled",
     autoCheckOff: "Disabled",
+    autoCheckDisable: "Disable",
+    autoCheckEnable: "Enable",
     versionTitle: "Version & manual check",
     versionDesc: "Current version and manual release check",
     currentVersionLabel: "Current version",
@@ -508,6 +510,8 @@ export const en: Translations = {
     uptimeH: "h",
     uptimeM: "m",
     uptimeS: "s",
+    bypassOnHeadline: "Bypass is on",
+    bypassOffHeadline: "Bypass is off",
 
   },
   telegram: {

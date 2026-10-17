@@ -60,7 +60,7 @@ export const ListsView: React.FC = React.memo(() => {
 
   const loadFiles = useCallback(async () => {
     try {
-      const fileList = await invoke<string[]>("list_domain_files");
+      const fileList = (await invoke<string[]>("list_domain_files")) ?? [];
       setFiles(fileList);
       if (fileList.length > 0 && !fileList.includes(selectedFileRef.current)) {
         const saved = localStorage.getItem("zapret2_selected_host_list");
@@ -80,7 +80,7 @@ export const ListsView: React.FC = React.memo(() => {
     if (!file) return;
     setIsLoading(true);
     try {
-      const list = await invoke<string[]>("read_domain_list", { filename: file });
+      const list = (await invoke<string[]>("read_domain_list", { filename: file })) ?? [];
       setDomains(list);
     } catch (e) {
       setFeedback({ type: "error", text: String(e) });

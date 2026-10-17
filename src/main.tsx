@@ -3,17 +3,14 @@ import ReactDOM from "react-dom/client";
 import { MotionConfig } from "framer-motion";
 import App from "./App";
 import "./index.css";
-import { ThemeProvider, initTheme } from "./theme/ThemeContext";
 
-// Apply persisted theme before first paint to avoid a flash of the wrong theme.
-initTheme();
+// Single theme: always "macos" (dark glass). No theme switching.
+document.documentElement.dataset.theme = "macos";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ThemeProvider>
-      <MotionConfig reducedMotion="user">
-        <App />
-      </MotionConfig>
-    </ThemeProvider>
+    <MotionConfig reducedMotion="user">
+      <App />
+    </MotionConfig>
   </React.StrictMode>
 );
