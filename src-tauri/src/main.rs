@@ -3,6 +3,7 @@
 
 mod commands;
 mod engine;
+mod svc_ipc;
 mod win32;
 
 use std::sync::Arc;
