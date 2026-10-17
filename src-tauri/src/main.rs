@@ -147,10 +147,9 @@ async fn main() {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
                     // Migrate to the detached svc when its binary is present.
-                    if crate::svc_client::backend_needs_attach(
-                        &backend_auto.read().clone(),
-                    )
-                    .await
+                    // Bind the clone first: parking_lot guard is not Send.
+                    let backend_snapshot = backend_auto.read().clone();
+                    if crate::svc_client::backend_needs_attach(&backend_snapshot).await
                     {
                         if let Ok(client) = crate::svc_client::ensure_svc_attached(
                             std::time::Duration::from_secs(10),
@@ -226,10 +225,8 @@ async fn main() {
                             let h = app_h.clone();
                             tokio::spawn(async move {
                                 // Same svc-migration policy as the Start button.
-                                if crate::svc_client::backend_needs_attach(
-                                    &backend.read().clone(),
-                                )
-                                .await
+                                let backend_snapshot = backend.read().clone();
+                                if crate::svc_client::backend_needs_attach(&backend_snapshot).await
                                 {
                                     if let Ok(client) =
                                         crate::svc_client::ensure_svc_attached(
