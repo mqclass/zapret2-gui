@@ -96,6 +96,17 @@ export const ru: Translations = {
     editCustom: "Редактировать",
     deleteCustom: "Удалить",
     noStrategiesInTab: "В этой категории нет доступных профилей",
+    goalTitle: "Что хотите разблокировать?",
+    goalSubtitle: "Выберите цель — подберём проверенный пресет",
+    goalYoutube: "YouTube",
+    goalYoutubeDesc: "Видео без тормозов, 4K",
+    goalDiscord: "Discord и игры",
+    goalDiscordDesc: "Голосовой чат и низкий пинг",
+    goalAll: "Всё сразу",
+    goalAllDesc: "Максимальный обход для всех сайтов",
+    goalCustom: "Своя настройка",
+    goalCustomDesc: "Настроить вручную",
+
   },
   modal: {
     createTitle: "Создать свой конфиг обхода",

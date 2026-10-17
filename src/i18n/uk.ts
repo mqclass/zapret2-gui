@@ -96,6 +96,17 @@ export const uk: Translations = {
     editCustom: "Редагувати",
     deleteCustom: "Видалити",
     noStrategiesInTab: "У цій категорії немає доступних профілів",
+    goalTitle: "Що хочете розблокувати?",
+    goalSubtitle: "Оберіть ціль — підберемо перевірений пресет",
+    goalYoutube: "YouTube",
+    goalYoutubeDesc: "Відео без гальм, 4K",
+    goalDiscord: "Discord та ігри",
+    goalDiscordDesc: "Голосовий чат і низький пінг",
+    goalAll: "Все одразу",
+    goalAllDesc: "Максимальний обхід для всіх сайтів",
+    goalCustom: "Своє налаштування",
+    goalCustomDesc: "Налаштувати вручну",
+
   },
   modal: {
     createTitle: "Створити свій конфіг обходу",

@@ -96,6 +96,17 @@ export const en: Translations = {
     editCustom: "Edit",
     deleteCustom: "Delete",
     noStrategiesInTab: "No available profiles found in this category",
+    goalTitle: "What do you want to unblock?",
+    goalSubtitle: "Pick a goal — we will select a proven preset for you",
+    goalYoutube: "YouTube",
+    goalYoutubeDesc: "Videos without buffering, 4K",
+    goalDiscord: "Discord & games",
+    goalDiscordDesc: "Voice chat and low ping",
+    goalAll: "Everything at once",
+    goalAllDesc: "Maximum bypass for all sites",
+    goalCustom: "My own setup",
+    goalCustomDesc: "Fine-tune manually",
+
   },
   modal: {
     createTitle: "Create Custom Bypass Profile",

@@ -93,6 +93,17 @@ export interface Translations {
     editCustom: string;
     deleteCustom: string;
     noStrategiesInTab: string;
+    goalTitle: string;
+    goalSubtitle: string;
+    goalYoutube: string;
+    goalYoutubeDesc: string;
+    goalDiscord: string;
+    goalDiscordDesc: string;
+    goalAll: string;
+    goalAllDesc: string;
+    goalCustom: string;
+    goalCustomDesc: string;
+
   };
   modal: {
     createTitle: string;
