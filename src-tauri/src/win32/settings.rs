@@ -142,6 +142,7 @@ impl Default for AppSettings {
             tgproxy_lan: false,
             active_transport_id: None,
             transport_configs: HashMap::new(),
+            custom_dns: Vec::new(),
         }
     }
 }
