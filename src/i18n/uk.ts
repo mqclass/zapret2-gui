@@ -630,4 +630,15 @@ export const uk: Translations = {
     configure: "Налаштувати",
     selectedCount: "Вибрано: {n}",
   },
+  dnsSplit: {
+    title: "Split-DNS за доменами",
+    subtitle: "Які домени резолвити через безпечний DNS, а які через звичайний",
+    placeholder: "example.com",
+    add: "Додати",
+    remove: "Видалити",
+    close: "Закрити",
+    configure: "Налаштувати",
+    customTitle: "Свої домени",
+    builtinTitle: "Вбудовані",
+  },
 };

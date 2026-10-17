@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { DnsStatus, SpeedtestResult } from "../../types";
 import { useI18n } from "../../i18n";
+import { DnsSplitModal } from "../DnsSplitModal";
 
 export const DnsSpeedView: React.FC = React.memo(() => {
   const { t } = useI18n();
@@ -35,6 +36,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
   const [customPrimary, setCustomPrimary] = useState("");
   const [customSecondary, setCustomSecondary] = useState("");
   const [isAddingCustom, setIsAddingCustom] = useState(false);
+  const [isDnsSplitOpen, setIsDnsSplitOpen] = useState(false);
 
   // Speedtest State
   const [isSpeedRunning, setIsSpeedRunning] = useState<boolean>(false);
@@ -243,13 +245,24 @@ export const DnsSpeedView: React.FC = React.memo(() => {
         <div className="rounded-panel border border-line bg-hovert p-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-medium text-ink3">{t.dns.scopeLabel}</span>
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full font-mono ${
-              dnsStatus?.split_dns_active
-                ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
-                : "bg-accent-wash border border-accent-line text-accent-soft"
-            }`}>
-              {dnsStatus?.split_dns_active ? t.dns.splitActiveBadge : "ADAPTER"}
-            </span>
+            <div className="flex items-center gap-2">
+              {dnsStatus?.split_dns_active && (
+                <button
+                  type="button"
+                  onClick={() => setIsDnsSplitOpen(true)}
+                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-hovert border border-line text-ink3 hover:text-accent hover:border-accent-line transition-all cursor-pointer"
+                >
+                  {t.dnsSplit.configure}
+                </button>
+              )}
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full font-mono ${
+                dnsStatus?.split_dns_active
+                  ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+                  : "bg-accent-wash border border-accent-line text-accent-soft"
+              }`}>
+                {dnsStatus?.split_dns_active ? t.dns.splitActiveBadge : "ADAPTER"}
+              </span>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -600,6 +613,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
           </div>
         </div>
       </div>
+      <DnsSplitModal isOpen={isDnsSplitOpen} onClose={() => setIsDnsSplitOpen(false)} />
     </div>
   );
 });

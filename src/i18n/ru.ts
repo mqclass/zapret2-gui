@@ -630,4 +630,15 @@ export const ru: Translations = {
     configure: "Настроить",
     selectedCount: "Выбрано: {n}",
   },
+  dnsSplit: {
+    title: "Split-DNS по доменам",
+    subtitle: "Какие домены резолвить через безопасный DNS, а какие через обычный",
+    placeholder: "example.com",
+    add: "Добавить",
+    remove: "Удалить",
+    close: "Закрыть",
+    configure: "Настроить",
+    customTitle: "Свои домены",
+    builtinTitle: "Встроенные",
+  },
 };

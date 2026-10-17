@@ -306,8 +306,18 @@ pub fn check_split_dns_status() -> (bool, Vec<String>) {
 
 /// Applies selective Split-DNS using Windows Name Resolution Policy Table (NRPT).
 pub fn apply_split_dns_nrpt(primary: &str, secondary: &str) -> Result<(), String> {
+    // Built-in namespaces + user-defined custom domains.
+    // Re-validate custom domains here (defense in depth): settings are
+    // user-writable and this script runs elevated.
+    let custom: Vec<String> = load_settings()
+        .dns_split_custom_domains
+        .into_iter()
+        .filter(|d| is_valid_domain(d))
+        .collect();
     let ns_list = SPLIT_DNS_NAMESPACES
         .iter()
+        .map(|s| s.to_string())
+        .chain(custom.into_iter())
         .flat_map(|ns| {
             let clean = ns.trim_start_matches('.');
             vec![
@@ -348,6 +358,85 @@ pub fn apply_split_dns_nrpt(primary: &str, secondary: &str) -> Result<(), String
     }
 
     Ok(())
+}
+
+/// Validates a domain name for the Split-DNS custom list.
+/// Accepts "example.com" or ".example.com"; rejects IPs, wildcards, ports, paths.
+fn is_valid_domain(s: &str) -> bool {
+    let s = s.trim().trim_start_matches('.');
+    if s.is_empty() || s.len() > 253 {
+        return false;
+    }
+    // Reject anything that looks like an IP address.
+    if s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) && s.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return false;
+    }
+    let labels: Vec<&str> = s.split('.').collect();
+    if labels.len() < 2 {
+        return false;
+    }
+    labels.iter().all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+    })
+}
+
+/// Returns the built-in Split-DNS namespaces plus user custom domains.
+pub fn get_split_dns_domains() -> Vec<String> {
+    let mut domains: Vec<String> = SPLIT_DNS_NAMESPACES.iter().map(|s| s.to_string()).collect();
+    domains.extend(load_settings().dns_split_custom_domains);
+    domains
+}
+
+/// Adds a custom domain to the Split-DNS list.
+pub fn add_split_dns_domain(domain: &str) -> Result<Vec<String>, String> {
+    let domain = domain.trim().trim_start_matches('.').to_lowercase();
+    if !is_valid_domain(&domain) {
+        return Err(format!("Некорректное доменное имя: {}", domain));
+    }
+    // Don't add duplicates of built-in namespaces.
+    let built_in: std::collections::HashSet<String> = SPLIT_DNS_NAMESPACES
+        .iter()
+        .map(|s| s.trim_start_matches('.').to_lowercase())
+        .collect();
+    if built_in.contains(&domain) {
+        return Err("Этот домен уже есть во встроенном списке".into());
+    }
+    update_settings(|s| {
+        if s.dns_split_custom_domains.len() >= 50 {
+            s.dns_split_custom_domains.remove(0);
+        }
+        if !s.dns_split_custom_domains.contains(&domain) {
+            s.dns_split_custom_domains.push(domain.clone());
+        }
+        s.dns_split_custom_domains.clone()
+    })
+    .map_err(|e| e.to_string())?;
+    // If split-DNS is currently live, re-apply so the new domain takes effect immediately.
+    if check_split_dns_status().0 {
+        let provider = load_settings().dns_provider.clone();
+        set_system_dns(&provider, Some("split"))?;
+    }
+    Ok(load_settings().dns_split_custom_domains)
+}
+
+/// Removes a custom domain from the Split-DNS list.
+pub fn remove_split_dns_domain(domain: &str) -> Result<Vec<String>, String> {
+    let domain = domain.trim().trim_start_matches('.').to_lowercase();
+    update_settings(|s| {
+        s.dns_split_custom_domains.retain(|d| d != &domain);
+        s.dns_split_custom_domains.clone()
+    })
+    .map_err(|e| e.to_string())?;
+    // If split-DNS is currently live, re-apply so the removal takes effect immediately.
+    if check_split_dns_status().0 {
+        let provider = load_settings().dns_provider.clone();
+        set_system_dns(&provider, Some("split"))?;
+    }
+    Ok(load_settings().dns_split_custom_domains)
 }
 
 /// Clears Zapret2 Split-DNS NRPT rule.
@@ -502,16 +591,27 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
         } else if let Some(target) = providers.iter().find(|p| p.id == provider_id) {
             // Custom entries store "-" as a display placeholder for an empty
             // secondary; never pass it to PowerShell as an address.
-            let secondary = if target.secondary == "-" { "" } else { target.secondary.as_str() };
+            // Re-validate (defense in depth): settings are user-writable.
+            let primary = target.primary.as_str();
+            if !is_valid_ipv4(primary) {
+                return Err(format!("Invalid DNS address in settings: {}", primary));
+            }
+            let secondary = if target.secondary == "-" {
+                ""
+            } else if target.secondary.is_empty() || is_valid_ipv4(&target.secondary) {
+                target.secondary.as_str()
+            } else {
+                return Err(format!("Invalid DNS address in settings: {}", target.secondary));
+            };
             match effective_scope {
                 crate::win32::settings::DnsScope::Split => {
                     // In Split mode: NRPT cleanly overlays on top of the adapter without destroying user's static/custom DNS
-                    apply_split_dns_nrpt(&target.primary, secondary)
+                    apply_split_dns_nrpt(primary, secondary)
                 }
                 crate::win32::settings::DnsScope::Full => {
                     // In Full mode: clear any Split NRPT rules and set adapter DNS
                     clear_split_dns_nrpt()?;
-                    set_adapter_dns(&adapter_esc, &target.primary, secondary)
+                    set_adapter_dns(&adapter_esc, primary, secondary)
                 }
             }
         } else {

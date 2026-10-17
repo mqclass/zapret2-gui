@@ -83,6 +83,9 @@ pub struct AppSettings {
     /// List of executable paths (lowercase) for per-app split tunneling.
     #[serde(default)]
     pub app_split_list: Vec<String>,
+    /// User-defined domains for Split-DNS (added to the built-in NRPT list).
+    #[serde(default)]
+    pub dns_split_custom_domains: Vec<String>,
     pub game_filter_tcp: String,
     pub game_filter_udp: String,
     pub dns_provider: String, // "system", "cloudflare", "google", "quad9", "comss" or "custom:<id>"
@@ -164,6 +167,7 @@ impl Default for AppSettings {
             custom_dns: Vec::new(),
             app_split_mode: AppSplitMode::Disabled,
             app_split_list: Vec::new(),
+            dns_split_custom_domains: Vec::new(),
         }
     }
 }

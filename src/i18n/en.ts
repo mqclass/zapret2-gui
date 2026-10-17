@@ -630,4 +630,15 @@ export const en: Translations = {
     configure: "Configure",
     selectedCount: "Selected: {n}",
   },
+  dnsSplit: {
+    title: "Split-DNS by domains",
+    subtitle: "Which domains to resolve via secure DNS vs regular DNS",
+    placeholder: "example.com",
+    add: "Add",
+    remove: "Remove",
+    close: "Close",
+    configure: "Configure",
+    customTitle: "Custom domains",
+    builtinTitle: "Built-in",
+  },
 };

@@ -917,6 +917,38 @@ pub struct AppSplitConfig {
     pub apps: Vec<String>,
 }
 
+/// Gets the Split-DNS domain lists (built-in + custom).
+#[tauri::command]
+pub async fn get_split_dns_domains() -> Result<SplitDnsDomains, String> {
+    Ok(SplitDnsDomains {
+        builtin: crate::win32::dns::SPLIT_DNS_NAMESPACES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        custom: crate::win32::settings::load_settings().dns_split_custom_domains,
+    })
+}
+
+/// Adds a custom domain to the Split-DNS list.
+#[tauri::command]
+pub async fn add_split_dns_domain(domain: String) -> Result<SplitDnsDomains, String> {
+    crate::win32::dns::add_split_dns_domain(&domain)?;
+    get_split_dns_domains().await
+}
+
+/// Removes a custom domain from the Split-DNS list.
+#[tauri::command]
+pub async fn remove_split_dns_domain(domain: String) -> Result<SplitDnsDomains, String> {
+    crate::win32::dns::remove_split_dns_domain(&domain)?;
+    get_split_dns_domains().await
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SplitDnsDomains {
+    pub builtin: Vec<String>,
+    pub custom: Vec<String>,
+}
+
 /// Runs a real YouTube 4K stream download speedtest.
 #[tauri::command]
 pub async fn benchmark_youtube_speed() -> Result<crate::engine::speedtest::SpeedtestResult, String> {

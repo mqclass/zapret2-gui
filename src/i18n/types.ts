@@ -617,4 +617,15 @@ export interface Translations {
     configure: string;
     selectedCount: string;
   };
+  dnsSplit: {
+    title: string;
+    subtitle: string;
+    placeholder: string;
+    add: string;
+    remove: string;
+    close: string;
+    configure: string;
+    customTitle: string;
+    builtinTitle: string;
+  };
 }
