@@ -50,7 +50,7 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
       <div className="flex flex-col items-center gap-3">
         <motion.button
           type="button"
-          onClick={onToggle}
+          onClick={() => onToggle()}
           disabled={disabled}
           whileTap={{ scale: 0.9 }}
           transition={{ type: "spring", stiffness: 380, damping: 28, mass: 0.8 }}
