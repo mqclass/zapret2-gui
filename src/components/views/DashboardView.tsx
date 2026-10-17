@@ -67,16 +67,26 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
     const { t } = useI18n();
 
     // Rolling ping history for sparklines (real probe data, 40 samples).
-    const pingHist = React.useRef<Record<string, (number | null)[]>>({});
-    const pushPing = (key: string, v: number | null) => {
-      const h = pingHist.current[key] ?? [];
-      h.push(v);
-      if (h.length > 40) h.shift();
-      pingHist.current[key] = h;
-      return h;
-    };
-    const ytHist = pushPing("yt", diagnostics.youtube.latency_ms);
-    const dcHist = pushPing("dc", diagnostics.discord.latency_ms);
+    // Keyed by diagnostics.timestamp so re-renders without new probe data
+    // don't push duplicates.
+    const pingHist = React.useRef<{ ts: number; data: Record<string, (number | null)[]> }>({
+      ts: -1,
+      data: {},
+    });
+    if (pingHist.current.ts !== diagnostics.timestamp) {
+      pingHist.current.ts = diagnostics.timestamp;
+      for (const [key, v] of [
+        ["yt", diagnostics.youtube.latency_ms],
+        ["dc", diagnostics.discord.latency_ms],
+      ] as const) {
+        const h = pingHist.current.data[key] ?? [];
+        h.push(v);
+        if (h.length > 40) h.shift();
+        pingHist.current.data[key] = h;
+      }
+    }
+    const ytHist = pingHist.current.data["yt"] ?? [];
+    const dcHist = pingHist.current.data["dc"] ?? [];
 
     const isRunning = status.state === "running";
     const isStarting = status.state === "starting";
