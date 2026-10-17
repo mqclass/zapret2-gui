@@ -598,5 +598,23 @@ export interface Translations {
     loadError: string;
     unavailableHint: string;
     docsHint: string;
-    configExampleLabel: string;  };
+    configExampleLabel: string;
+  };
+  appSplit: {
+    title: string;
+    subtitle: string;
+    modeDisabled: string;
+    modeDisabledDesc: string;
+    modeAllowlist: string;
+    modeAllowlistDesc: string;
+    modeBlocklist: string;
+    modeBlocklistDesc: string;
+    searchPlaceholder: string;
+    noApps: string;
+    refresh: string;
+    cancel: string;
+    apply: string;
+    configure: string;
+    selectedCount: string;
+  };
 }

@@ -864,6 +864,59 @@ pub async fn remove_custom_dns(id: String) -> Result<crate::win32::dns::DnsStatu
     crate::win32::dns::remove_custom_dns(&id)
 }
 
+/// Lists running applications for per-app split tunneling selection.
+#[tauri::command]
+pub async fn list_running_apps() -> Result<Vec<crate::win32::app_split::AppInfo>, String> {
+    // Process enumeration does OpenProcess per PID; don't block the async runtime.
+    tauri::async_runtime::spawn_blocking(|| crate::win32::app_split::list_running_apps())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Gets the current per-app split tunneling configuration.
+#[tauri::command]
+pub async fn get_app_split_config() -> Result<AppSplitConfig, String> {
+    let s = crate::win32::settings::load_settings();
+    Ok(AppSplitConfig {
+        mode: format!("{:?}", s.app_split_mode).to_lowercase(),
+        apps: s.app_split_list,
+    })
+}
+
+/// Sets the per-app split tunneling mode and application list atomically.
+#[tauri::command]
+pub async fn set_app_split_config(
+    mode: String,
+    apps: Vec<String>,
+) -> Result<AppSplitConfig, String> {
+    let parsed = match mode.to_lowercase().as_str() {
+        "disabled" => crate::win32::settings::AppSplitMode::Disabled,
+        "allowlist" => crate::win32::settings::AppSplitMode::Allowlist,
+        "blocklist" => crate::win32::settings::AppSplitMode::Blocklist,
+        _ => return Err(format!("Unknown app split mode: {}", mode)),
+    };
+    // Deduplicate: direct IPC callers may send duplicates.
+    let mut seen = std::collections::HashSet::new();
+    let normalized: Vec<String> = apps
+        .into_iter()
+        .map(|p| crate::win32::app_split::normalize_app_path(&p))
+        .filter(|p| !p.is_empty() && seen.insert(p.clone()))
+        .take(100)
+        .collect();
+    crate::win32::settings::update_settings(|s| {
+        s.app_split_mode = parsed;
+        s.app_split_list = normalized;
+    })
+    .map_err(|e| e.to_string())?;
+    get_app_split_config().await
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AppSplitConfig {
+    pub mode: String,
+    pub apps: Vec<String>,
+}
+
 /// Runs a real YouTube 4K stream download speedtest.
 #[tauri::command]
 pub async fn benchmark_youtube_speed() -> Result<crate::engine::speedtest::SpeedtestResult, String> {

@@ -28,6 +28,18 @@ pub enum SplitTunnelMode {
     GameMode, // Gaming mode: Includes gaming UDP/TCP ports with ACTIVE_GAME_UDP.bin desync
 }
 
+/// Per-application split tunneling mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AppSplitMode {
+    #[default]
+    Disabled,
+    /// Only apps in app_split_list go through the bypass; rest go direct.
+    Allowlist,
+    /// Apps in app_split_list go direct; rest go through the bypass.
+    Blocklist,
+}
+
 impl Default for SplitTunnelMode {
     fn default() -> Self {
         SplitTunnelMode::Full
@@ -64,6 +76,13 @@ pub struct CustomDnsEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub split_tunnel_mode: SplitTunnelMode,
+    /// Per-app split tunneling: Disabled, Allowlist (only listed apps use bypass),
+    /// or Blocklist (listed apps bypass the bypass, go direct).
+    #[serde(default)]
+    pub app_split_mode: AppSplitMode,
+    /// List of executable paths (lowercase) for per-app split tunneling.
+    #[serde(default)]
+    pub app_split_list: Vec<String>,
     pub game_filter_tcp: String,
     pub game_filter_udp: String,
     pub dns_provider: String, // "system", "cloudflare", "google", "quad9", "comss" or "custom:<id>"
@@ -143,6 +162,8 @@ impl Default for AppSettings {
             active_transport_id: None,
             transport_configs: HashMap::new(),
             custom_dns: Vec::new(),
+            app_split_mode: AppSplitMode::Disabled,
+            app_split_list: Vec::new(),
         }
     }
 }

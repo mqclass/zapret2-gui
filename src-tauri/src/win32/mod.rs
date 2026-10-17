@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 pub mod autostart;
+pub mod app_split;
 pub mod conflicts;
 pub mod custom_profiles;
 pub mod deelevate;

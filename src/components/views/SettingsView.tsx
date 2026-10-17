@@ -16,6 +16,7 @@ import {
   FileDown,
   ArrowDownToLine,
   BadgeCheck,
+  AppWindow,
 } from "lucide-react";
 import { ZapretLogo } from "../ZapretLogo";
 import { useI18n } from "../../i18n";
@@ -23,6 +24,7 @@ import { Language } from "../../i18n/types";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { UpdateInfo } from "../../types";
 import { TransportsSection } from "../TransportsSection";
+import { AppSplitModal } from "../AppSplitModal";
 
 /** External links opened via the opener plugin (L-2). The capability allowlist
  *  restricts this to https://github.com/* — no webview navigation is enabled. */
@@ -80,6 +82,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     updateInfo,
   }) => {
     const { language, setLanguage, t } = useI18n();
+    const [isAppSplitOpen, setIsAppSplitOpen] = React.useState(false);
     const languages: { code: Language; label: string; full: string }[] = [
       { code: "ru", label: "RU", full: "Русский" },
       { code: "en", label: "EN", full: "English" },
@@ -414,6 +417,28 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
 
         {/* Camouflage Transports (experimental framework) */}
         <TransportsSection />
+
+        {/* Per-app split tunneling */}
+        <div className="rounded-card border border-line bg-card p-5 space-y-3 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-panel bg-accent-wash border border-accent-line text-accent">
+                <AppWindow className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-semibold text-ink">{t.appSplit.title}</h3>
+                <p className="text-[11px] text-ink4">{t.appSplit.subtitle}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsAppSplitOpen(true)}
+              className="rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer"
+            >
+              {t.appSplit.configure}
+            </button>
+          </div>
+        </div>
+        <AppSplitModal isOpen={isAppSplitOpen} onClose={() => setIsAppSplitOpen(false)} />
 
         {/* Security & Warning Against Fakes */}
         <div className="rounded-card border border-warnline bg-warnwash p-4 space-y-2 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>
