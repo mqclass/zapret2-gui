@@ -60,14 +60,11 @@ async fn main() {
         std::process::exit(11);
     }
 
-    // The engine needs admin rights for WinDivert/WFP.
-    if !win32::privileges::is_elevated().unwrap_or(false) {
-        eprintln!("zapret2-svc requires administrator rights; requesting elevation...");
-        if let Err(e) = win32::privileges::ensure_elevated() {
-            eprintln!("elevation failed: {e}");
-            std::process::exit(12);
-        }
-        return; // the elevated copy continues from here
+    // The engine needs admin rights for WinDivert/WFP. If we are not elevated,
+    // this relaunches zapret2-svc.exe via UAC and terminates this copy.
+    if let Err(e) = win32::privileges::ensure_elevated() {
+        eprintln!("zapret2-svc requires administrator rights: {e}");
+        std::process::exit(12);
     }
 
     let supervisor = Arc::new(

@@ -3,6 +3,7 @@
 
 mod commands;
 mod engine;
+mod svc_client;
 mod svc_ipc;
 mod win32;
 
@@ -62,7 +63,9 @@ async fn main() {
             }
         })
         .manage(AppState {
-            supervisor: supervisor_clone,
+            backend: Arc::new(parking_lot::RwLock::new(
+                crate::svc_client::SupervisorBackend::Local(supervisor_clone),
+            )),
             diagnostics: diagnostics_clone,
             cached_binaries: Arc::new(parking_lot::RwLock::new(CachedBinaries {
                 resolved: None,
@@ -74,6 +77,24 @@ async fn main() {
             tgproxy: tgproxy_clone,        })
         .setup(move |app| {
             let handle = app.handle().clone();
+            // If a svc instance is already running (e.g. the GUI was restarted
+            // while the bypass stayed up), attach to it instead of the local engine.
+            {
+                let app_state = handle.state::<crate::commands::AppState>();
+                let backend = app_state.backend.clone();
+                let handle_clone = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(client) = crate::svc_client::SvcClient::connect().await {
+                        if client.ping().await.is_ok() {
+                            *backend.write() =
+                                crate::svc_client::SupervisorBackend::Remote(std::sync::Arc::new(client));
+                            tauri::async_runtime::spawn(
+                                crate::svc_client::SvcClient::forward_events(handle_clone),
+                            );
+                        }
+                    }
+                });
+            }
             let sink: Arc<dyn crate::engine::EventSink> =
                 Arc::new(crate::engine::TauriSink::new(handle.clone()));
             supervisor.set_event_sink(sink.clone());
@@ -99,12 +120,30 @@ async fn main() {
                 }
 
                 // Automatically start bypass engine on Windows logon
-                let supervisor_auto = supervisor.clone();
+                let backend_auto = app.state::<crate::commands::AppState>().backend.clone();
+                let app_auto = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     // Small delay to allow Windows network adapters to finish DHCP/gateway connection
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-                    if let Err(e) = supervisor_auto.start(None, None).await {
+                    // Migrate to the detached svc when its binary is present.
+                    if !backend_auto.read().clone().is_remote()
+                        && crate::svc_client::find_svc_exe().is_some()
+                    {
+                        if let Ok(client) = crate::svc_client::ensure_svc_attached(
+                            std::time::Duration::from_secs(10),
+                        )
+                        .await
+                        {
+                            *backend_auto.write() =
+                                crate::svc_client::SupervisorBackend::Remote(client);
+                            let h = app_auto.clone();
+                            tokio::spawn(async move {
+                                crate::svc_client::SvcClient::forward_events(h).await;
+                            });
+                        }
+                    }
+                    if let Err(e) = backend_auto.read().clone().start(None, None).await {
                         eprintln!("Warning: Failed to auto-start bypass on boot: {}", e);
                     }
                 });
@@ -126,7 +165,6 @@ async fn main() {
                 ],
             )?;
 
-            let supervisor_tray = supervisor.clone();
             let tgproxy_tray = tgproxy.clone();
 
             let icon = match app.default_window_icon().cloned() {
@@ -153,24 +191,46 @@ async fn main() {
                             }
                         }
                         "start" => {
-                            let sup = supervisor_tray.clone();
+                            let backend = app_h.state::<crate::commands::AppState>().backend.clone();
+                            let h = app_h.clone();
                             tokio::spawn(async move {
-                                let _ = sup.start(None, None).await;
+                                // Same svc-migration policy as the Start button.
+                                if !backend.read().clone().is_remote()
+                                    && crate::svc_client::find_svc_exe().is_some()
+                                {
+                                    if let Ok(client) =
+                                        crate::svc_client::ensure_svc_attached(
+                                            std::time::Duration::from_secs(10),
+                                        )
+                                        .await
+                                    {
+                                        *backend.write() =
+                                            crate::svc_client::SupervisorBackend::Remote(client);
+                                        tokio::spawn(
+                                            crate::svc_client::SvcClient::forward_events(h),
+                                        );
+                                    }
+                                }
+                                let _ = backend.read().clone().start(None, None).await;
                             });
                         }
                         "stop" => {
-                            let sup = supervisor_tray.clone();
+                            let backend = app_h.state::<crate::commands::AppState>().backend.clone();
                             tokio::spawn(async move {
-                                let _ = sup.stop().await;
+                                let _ = backend.read().clone().stop().await;
                             });
                         }
                         "quit" => {
-                            let sup = supervisor_tray.clone();
+                            let backend = app_h.state::<crate::commands::AppState>().backend.clone();
                             let tgp = tgproxy_tray.clone();
                             let h = app_h.clone();
                             tokio::spawn(async move {
                                 let _ = tgp.stop().await;
-                                let _ = sup.stop().await;
+                                // Only stop the engine when it runs in-process: a remote
+                                // svc outlives the GUI by design (the bypass stays up).
+                                if !backend.read().clone().is_remote() {
+                                    let _ = backend.read().clone().stop().await;
+                                }
                                 h.exit(0);
                             });
                         }

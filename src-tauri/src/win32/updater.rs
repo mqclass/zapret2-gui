@@ -664,10 +664,10 @@ fn rollback_swap(install_dir: &Path, backup_dir: &Path, staging_dir: &Path) {
 /// before the rename cycle — so a start racing the install is caught as late
 /// as possible.
 fn check_engines_stopped(
-    supervisor: &Supervisor,
+    engine_state: SupervisorState,
     sidecars: &[Arc<dyn ManagedSidecar>],
 ) -> Result<(), String> {
-    if supervisor.get_status().state != SupervisorState::Stopped {
+    if engine_state != SupervisorState::Stopped {
         return Err(
             "ENGINE_RUNNING: stop the bypass engine before installing the update".to_string(),
         );
@@ -708,10 +708,10 @@ fn discard_staged(staged: &StagedRecord) {
 /// this function spawns the new executable and terminates the current
 /// process — it never returns `Ok`.
 pub fn install_update(
-    supervisor: &Supervisor,
+    engine_state: SupervisorState,
     sidecars: &[Arc<dyn ManagedSidecar>],
 ) -> Result<(), String> {
-    check_engines_stopped(supervisor, sidecars)?;
+    check_engines_stopped(engine_state, sidecars)?;
 
     let staged = STAGED_UPDATE
         .write()
