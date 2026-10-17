@@ -1,0 +1,101 @@
+[package]
+name = "tg-ws-proxy-rs"
+version = "2.5.4"
+edition = "2024"
+description = "Telegram MTProto WebSocket Bridge Proxy — Rust port of Flowseal/tg-ws-proxy"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/valnesfjord/tg-ws-proxy-rs"
+homepage = "https://github.com/valnesfjord/tg-ws-proxy-rs"
+documentation = "https://docs.rs/tg-ws-proxy-rs"
+keywords = ["telegram", "mtproto", "websocket", "proxy", "rust"]
+categories = ["network-programming", "command-line-utilities"]
+
+[dependencies]
+# Async runtime
+# Only the features actually reached from src/ and tests/. `full` additionally
+# pulls in fs/process/signal; LTO strips the unused code either way (~16 KB), so
+# this is about the dependency tree, not the binary — it drops parking_lot,
+# signal-hook-registry and six more transitive crates.
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "io-util",
+    "time",
+    "sync",
+] }
+
+# WebSocket protocol with TLS support
+tokio-tungstenite = { version = "0.24", default-features = false, features = [
+    "rustls-tls-webpki-roots",
+    "connect",
+    "handshake",
+] }
+tungstenite = { version = "0.24", default-features = false, features = [
+    "handshake",
+] }
+
+# AES-256-CTR encryption for MTProto obfuscation
+aes = "0.8"
+ctr = "0.9"
+cipher = "0.4"
+
+# SHA-256 for MTProto key derivation
+sha2 = "0.10"
+
+# HMAC-SHA256 for FakeTLS upstream proxy authentication
+hmac = "0.12"
+
+# Random bytes for handshake generation
+rand = "0.9"
+
+# Hex encoding / decoding utilities
+hex = "0.4"
+
+# CLI argument parsing (with env-variable fallback)
+clap = { version = "4", features = ["derive", "env"] }
+
+# Proxy URL parsing and proxy protocol clients
+url = "2"
+percent-encoding = "2"
+ipnet = "2"
+httparse = "1"
+async-http-proxy = { version = "1.2", features = [
+    "runtime-tokio",
+    "basic-auth",
+] }
+tokio-socks = "0.5"
+
+# Structured logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Async stream utilities (SinkExt, StreamExt)
+futures-util = "0.3"
+
+# Custom TLS configuration (skip-verify option)
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+    "logging",
+] }
+rustls-pki-types = "1"
+# Bundled Mozilla root cert store (used by the default TLS connector)
+webpki-roots = "0.26"
+# Async TLS streams (transitive dep of tokio-tungstenite; used for HTTPS GET in default_domains)
+tokio-rustls = { version = "0.26", default-features = false, features = [
+    "ring",
+    "tls12",
+    "logging",
+] }
+
+[dev-dependencies]
+rcgen = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
