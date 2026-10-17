@@ -55,6 +55,7 @@ jobs:
           New-Item -ItemType Directory -Path $pkgDir -Force | Out-Null
           
           Copy-Item src-tauri/target/release/zapret2-supervisor.exe "$pkgDir/zapret2.exe" -Force
+          Copy-Item src-tauri/target/release/zapret2-svc.exe "$pkgDir/zapret2-svc.exe" -Force
           Copy-Item -Path ./bin -Destination "$pkgDir/bin" -Recurse -Force
           Copy-Item -Path ./lists -Destination "$pkgDir/lists" -Recurse -Force
           if (Test-Path "strategies") { Copy-Item -Path ./strategies -Destination "$pkgDir/strategies" -Recurse -Force }

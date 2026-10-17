@@ -39,6 +39,9 @@
         "type": "embedBootstrapper"
       },
       "minimumWebview2Version": "120.0.0.0"
+    },
+    "resources": {
+      "target/release/zapret2-svc.exe": "zapret2-svc.exe"
     }
   }
 }

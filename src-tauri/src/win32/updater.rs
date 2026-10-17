@@ -40,7 +40,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
 use crate::engine::managed::ManagedSidecar;
-use crate::engine::supervisor::{Supervisor, SupervisorState};
+use crate::engine::supervisor::SupervisorState;
 use crate::win32::settings::{load_settings, save_settings};
 
 /// GitHub API endpoint for the latest zapret2-gui release.
@@ -664,10 +664,10 @@ fn rollback_swap(install_dir: &Path, backup_dir: &Path, staging_dir: &Path) {
 /// before the rename cycle — so a start racing the install is caught as late
 /// as possible.
 fn check_engines_stopped(
-    supervisor: &Supervisor,
+    engine_state: SupervisorState,
     sidecars: &[Arc<dyn ManagedSidecar>],
 ) -> Result<(), String> {
-    if supervisor.get_status().state != SupervisorState::Stopped {
+    if engine_state != SupervisorState::Stopped {
         return Err(
             "ENGINE_RUNNING: stop the bypass engine before installing the update".to_string(),
         );
@@ -708,10 +708,15 @@ fn discard_staged(staged: &StagedRecord) {
 /// this function spawns the new executable and terminates the current
 /// process — it never returns `Ok`.
 pub fn install_update(
-    supervisor: &Supervisor,
+    engine_state: SupervisorState,
     sidecars: &[Arc<dyn ManagedSidecar>],
 ) -> Result<(), String> {
-    check_engines_stopped(supervisor, sidecars)?;
+    check_engines_stopped(engine_state, sidecars)?;
+
+    // Stop a running svc before the file swap: its exe cannot be replaced
+    // while the process is alive, and an old svc would otherwise keep
+    // serving the new GUI from the pipe (version skew).
+    crate::svc_client::shutdown_svc_blocking();
 
     let staged = STAGED_UPDATE
         .write()
@@ -791,7 +796,7 @@ pub fn install_update(
 
     // Narrow the TOCTOU window on the engine state: re-check immediately
     // before the first rename of the swap.
-    check_engines_stopped(supervisor, sidecars)?;
+    check_engines_stopped(engine_state, sidecars)?;
 
     let backup_name = match install_dir.file_name() {
         Some(n) => format!("{}.bak", n.to_string_lossy()),

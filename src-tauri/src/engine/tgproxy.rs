@@ -23,7 +23,7 @@ use std::time::Instant;
 use parking_lot::{Mutex, RwLock};
 use rand::rngs::OsRng;
 use rand::RngCore;
-use tauri::{AppHandle, Emitter};
+use crate::engine::events::{EventSink, SinkSlot};
 
 use crate::engine::supervisor::{Supervisor, SupervisorState};
 
@@ -140,7 +140,7 @@ pub struct TgProxyManager {
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     /// Current MTProto secret, mirrored for log redaction (see BridgeLogLayer).
     log_redact: Arc<RwLock<String>>,
-    app_handle: Arc<RwLock<Option<AppHandle>>>,
+    sink: SinkSlot,
     supervisor: Arc<Supervisor>,
 }
 
@@ -155,20 +155,18 @@ impl TgProxyManager {
             bridge_task: Arc::new(Mutex::new(None)),
             shutdown_tx: Arc::new(Mutex::new(None)),
             log_redact: Arc::new(RwLock::new(String::new())),
-            app_handle: Arc::new(RwLock::new(None)),
+            sink: SinkSlot::new(),
             supervisor,
         }
     }
 
-    /// Sets the Tauri application handle for emitting frontend events.
-    pub fn set_app_handle(&self, handle: AppHandle) {
-        *self.app_handle.write() = Some(handle);
+    /// Installs the UI event sink.
+    pub fn set_event_sink(&self, sink: Arc<dyn EventSink>) {
+        self.sink.set(sink);
     }
 
     fn emit_state(&self, state: SupervisorState) {
-        if let Some(handle) = self.app_handle.read().as_ref() {
-            let _ = handle.emit("tgproxy-state", state);
-        }
+        self.sink.emit_tgproxy_state(state);
     }
 
     fn is_valid_secret(s: &str) -> bool {

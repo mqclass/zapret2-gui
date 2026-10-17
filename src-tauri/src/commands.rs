@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use tauri::State;
 
 use crate::engine::probes::{DiagnosticsReport, DiagnosticsService};
-use crate::engine::supervisor::{LogEntry, Supervisor, SupervisorState, SupervisorStatus};
+use crate::engine::supervisor::{LogEntry, SupervisorState, SupervisorStatus};
 use crate::engine::tgproxy::{TgProxyManager, TgProxyStatus};
 use crate::win32::conflicts::{
     resolve_all_conflicts_excluding as win32_resolve_all_conflicts,
@@ -37,7 +37,9 @@ pub struct SystemStatusResponse {
 
 /// Shared application state managed by Tauri runtime.
 pub struct AppState {
-    pub supervisor: Arc<Supervisor>,
+    /// Where the engine runs: in-process or attached to zapret2-svc.exe.
+    /// Swapped to Remote when the GUI attaches to a running service.
+    pub backend: Arc<parking_lot::RwLock<crate::svc_client::SupervisorBackend>>,
     pub diagnostics: Arc<DiagnosticsService>,
     pub cached_binaries: Arc<parking_lot::RwLock<CachedBinaries>>,
     /// Auxiliary long-lived processes (sidecars) managed by the app.
@@ -61,7 +63,7 @@ pub struct CachedBinaries {
 #[tauri::command]
 pub async fn get_system_status(state: State<'_, AppState>) -> Result<SystemStatusResponse, String> {
     let elevated = is_elevated().unwrap_or(false);
-    let supervisor_status = state.supervisor.get_status();
+    let supervisor_status = state.backend.read().clone().get_status().await;
     let diag = state.diagnostics.get_report();
 
     // Cache resolved binaries in memory to eliminate repeated disk traversals,
@@ -131,32 +133,55 @@ pub struct SupervisorStatusResponse {
 pub async fn get_supervisor_status(state: State<'_, AppState>) -> Result<SupervisorStatusResponse, String> {
     Ok(SupervisorStatusResponse {
         is_elevated: is_elevated().unwrap_or(false),
-        supervisor: state.supervisor.get_status(),
+        supervisor: state.backend.read().clone().get_status().await,
     })
 }
 
 /// Starts `winws2.exe` using the specified strategy and options.
+///
+/// Prefers the detached `zapret2-svc.exe` service when its binary is present:
+/// the engine then outlives this GUI process. Falls back to in-process when
+/// the svc binary is missing or fails to attach.
 #[tauri::command]
 pub async fn start_supervisor(
     strategy_id: Option<String>,
     custom_args: Option<Vec<String>>,
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     // NOTE (M-1): the fail-closed admin gate lives inside Supervisor::start()
-    // itself, so tray/autostart callers get the same protection. This command
-    // only translates the error for the UI (ADMIN_REQUIRED -> admin modal).
+    // itself (and inside the svc), so tray/autostart callers get the same
+    // protection. This command only translates the error for the UI
+    // (ADMIN_REQUIRED -> admin modal).
+    if crate::svc_client::backend_needs_attach(&state.backend.read().clone()).await
+    {
+        match crate::svc_client::ensure_svc_attached(std::time::Duration::from_secs(10)).await
+        {
+            Ok(client) => {
+                *state.backend.write() =
+                    crate::svc_client::SupervisorBackend::Remote(client);
+                let app_clone = app.clone();
+                tokio::spawn(async move {
+                    crate::svc_client::SvcClient::forward_events(app_clone).await;
+                });
+            }
+            Err(e) => {
+                eprintln!("svc attach failed, falling back to in-process engine: {e}");
+            }
+        }
+    }
     state
-        .supervisor
+        .backend
+        .read()
         .clone()
         .start(strategy_id, custom_args)
         .await
-        .map_err(|e| e.to_string())
 }
 
 /// Stops the active `winws2.exe` instance and releases WinDivert.
 #[tauri::command]
 pub async fn stop_supervisor(state: State<'_, AppState>) -> Result<(), String> {
-    state.supervisor.stop().await.map_err(|e| e.to_string())
+    state.backend.read().clone().stop().await
 }
 
 /// Retrieves the latest network probe diagnostics (YouTube TLS 1.3 & Discord).
@@ -179,13 +204,13 @@ pub async fn refresh_probes(state: State<'_, AppState>) -> Result<DiagnosticsRep
 /// Retrieves all buffered logs currently in the Ring Buffer.
 #[tauri::command]
 pub async fn get_logs(state: State<'_, AppState>) -> Result<Vec<LogEntry>, String> {
-    Ok(state.supervisor.get_all_logs())
+    Ok(state.backend.read().clone().get_all_logs().await)
 }
 
 /// Clears the log ring buffer.
 #[tauri::command]
 pub async fn clear_logs(state: State<'_, AppState>) -> Result<(), String> {
-    state.supervisor.clear_logs();
+    state.backend.read().clone().clear_logs().await;
     Ok(())
 }
 
@@ -199,7 +224,7 @@ pub async fn relaunch_elevated() -> Result<(), String> {
 /// protecting the actively running process from accidental termination.
 #[tauri::command]
 pub async fn kill_stray_processes(state: State<'_, AppState>) -> Result<usize, String> {
-    let active_pid = state.supervisor.get_status().pid;
+    let active_pid = state.backend.read().clone().get_status().await.pid;
     let count = kill_stray_winws2_processes(active_pid);
     Ok(count)
 }
@@ -207,14 +232,14 @@ pub async fn kill_stray_processes(state: State<'_, AppState>) -> Result<usize, S
 /// Scans for conflicting DPI bypass processes and Windows services.
 #[tauri::command]
 pub async fn scan_conflicts(state: State<'_, AppState>) -> Result<Vec<ConflictItem>, String> {
-    let pid = state.supervisor.get_status().pid;
+    let pid = state.backend.read().clone().get_status().await.pid;
     Ok(win32_scan_conflicts(pid))
 }
 
 /// Terminates conflicting DPI bypass processes and stops conflicting Windows services.
 #[tauri::command]
 pub async fn resolve_conflicts(state: State<'_, AppState>) -> Result<usize, String> {
-    let pid = state.supervisor.get_status().pid;
+    let pid = state.backend.read().clone().get_status().await.pid;
     win32_resolve_all_conflicts(pid)
 }
 
@@ -245,7 +270,11 @@ pub async fn parse_args_string(raw: String) -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn exit_app(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
     let _ = state.tgproxy.stop().await;
-    let _ = state.supervisor.stop().await;
+    // A remote svc outlives the GUI by design (the bypass stays up); only
+    // stop the engine when it runs in this process.
+    if !state.backend.read().clone().is_remote() {
+        let _ = state.backend.read().clone().stop().await;
+    }
     app.exit(0);
     Ok(())
 }
@@ -295,13 +324,13 @@ pub async fn reveal_lists_folder() -> Result<(), String> {
 /// Opens the persistent logs folder in Windows Explorer.
 #[tauri::command]
 pub async fn open_logs_folder(state: State<'_, AppState>) -> Result<(), String> {
-    state.supervisor.open_logs_folder()
+    state.backend.read().clone().open_logs_folder()
 }
 
 /// Retrieves the absolute file path to the active log file.
 #[tauri::command]
 pub async fn get_log_file_path(state: State<'_, AppState>) -> Result<String, String> {
-    Ok(state.supervisor.get_log_file_path())
+    Ok(state.backend.read().clone().get_log_file_path())
 }
 
 /// Probes a user-specified custom target domain or URL.
@@ -675,7 +704,7 @@ pub async fn export_diagnostics_bundle(
 
     // 3. Supervisor state.
     let _ = writeln!(out, "----- supervisor -----");
-    let status = state.supervisor.get_status();
+    let status = state.backend.read().clone().get_status().await;
     let _ = writeln!(out, "state: {:?}", status.state);
     let _ = writeln!(out, "pid: {:?}", status.pid);
     let _ = writeln!(out);
@@ -694,7 +723,7 @@ pub async fn export_diagnostics_bundle(
 
     // 5. Recent engine logs (last 200 entries).
     let _ = writeln!(out, "----- engine logs (last 200) -----");
-    let logs = state.supervisor.get_all_logs();
+    let logs = state.backend.read().clone().get_all_logs().await;
     let tail: Vec<_> = logs.iter().rev().take(200).collect();
     if tail.is_empty() {
         let _ = writeln!(out, "<no logs buffered>");
@@ -725,7 +754,7 @@ pub async fn set_split_tunnel_mode(
 pub async fn run_auto_doctor(
     state: State<'_, AppState>,
 ) -> Result<crate::win32::doctor::DoctorReport, String> {
-    let status = state.supervisor.get_status();
+    let status = state.backend.read().clone().get_status().await;
     // Never let the doctor tear the WinDivert driver down from under a running engine.
     let engine_running = status.state == SupervisorState::Running;
     Ok(crate::win32::doctor::run_auto_doctor(status.pid, engine_running).await)
@@ -792,10 +821,12 @@ pub async fn download_update(app: tauri::AppHandle) -> Result<String, String> {
 /// copy fallback are disk-heavy and must not stall the async runtime.
 #[tauri::command]
 pub async fn install_update(state: State<'_, AppState>) -> Result<(), String> {
-    let supervisor = state.supervisor.clone();
+    // Fail fast when the engine is running: installing over a live engine
+    // (local or svc) would rename files out from under it.
+    let engine_state = state.backend.read().clone().get_status().await.state;
     let sidecars = state.sidecars.clone();
     tokio::task::spawn_blocking(move || {
-        crate::win32::updater::install_update(&supervisor, &sidecars)
+        crate::win32::updater::install_update(engine_state, &sidecars)
     })
     .await
     .map_err(|e| format!("Install task failed: {e}"))?

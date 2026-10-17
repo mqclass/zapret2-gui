@@ -5,6 +5,10 @@ description = "zapret2 Windows DPI Bypass Utility"
 authors = ["zapret2-gui"]
 edition = "2021"
 
+[[bin]]
+name = "zapret2-svc"
+path = "src/bin/svc.rs"
+
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
 embed-resource = "2.5"
@@ -50,4 +54,8 @@ features = [
     "Win32_System_Registry",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Services",
+    # svc-split: CreateNamedPipeW + SDDL DACL for the IPC pipe.
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    "Win32_Security_Authorization",
 ]
