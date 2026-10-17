@@ -1,4 +1,5 @@
 #![allow(unused_imports)]
+pub mod events;
 pub mod logger;
 pub mod managed;
 pub mod probes;
@@ -6,6 +7,7 @@ pub mod speedtest;
 pub mod supervisor;
 pub mod tgproxy;
 pub mod transport;
+pub use events::{EventSink, NullSink, SinkSlot, TauriSink};
 pub use logger::FileLogger;
 pub use managed::ManagedSidecar;
 pub use probes::{DiagnosticsReport, DiagnosticsService, ProbeMetric, ProbeStatus, StrategyBenchmarkResult};

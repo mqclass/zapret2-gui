@@ -73,8 +73,10 @@ async fn main() {
             tgproxy: tgproxy_clone,        })
         .setup(move |app| {
             let handle = app.handle().clone();
-            supervisor.set_app_handle(handle.clone());
-            tgproxy.set_app_handle(handle.clone());
+            let sink: Arc<dyn crate::engine::EventSink> =
+                Arc::new(crate::engine::TauriSink::new(handle.clone()));
+            supervisor.set_event_sink(sink.clone());
+            tgproxy.set_event_sink(sink);
 
             // If the Telegram proxy was left enabled, restore it (best-effort).
             let tgproxy_auto = tgproxy.clone();

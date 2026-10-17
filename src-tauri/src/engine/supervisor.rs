@@ -6,7 +6,8 @@
 //! 3. Binds process to the Windows Job Object immediately.
 //! 4. Asynchronously reads stdout/stderr line-by-line via `AsyncBufReadExt`.
 //! 5. Ring Buffer + Micro-Batching Engine: Buffers lines and flushes batches every 150 ms
-//!    over Tauri channel `"log-batch"` using `tauri::Emitter::emit`.
+//!    to the installed [`EventSink`](crate::engine::events::EventSink)
+//!    (Tauri frontend channel `"log-batch"` in GUI mode).
 //! 6. Enforces strict memory footprint by capping the ring buffer to 1,000 entries.
 
 use std::collections::VecDeque;
@@ -16,7 +17,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use crate::engine::events::{EventSink, SinkSlot};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::interval;
@@ -89,7 +91,8 @@ pub struct Supervisor {
     log_tx: Sender<LogEntry>,
     file_logger: Arc<FileLogger>,
 
-    app_handle: Arc<RwLock<Option<AppHandle>>>,
+    sink: SinkSlot,
+    probes_started: Arc<AtomicBool>,
 }
 
 impl Supervisor {
@@ -102,7 +105,6 @@ impl Supervisor {
 
         let (log_tx, log_rx) = channel::<LogEntry>(2_000);
 
-        let app_handle = Arc::new(RwLock::new(None::<AppHandle>));
 
         let supervisor = Self {
             lifecycle: Arc::new(tokio::sync::Mutex::new(())),
@@ -118,7 +120,8 @@ impl Supervisor {
             ring_buffer,
             log_tx,
             file_logger: file_logger.clone(),
-            app_handle,
+            sink: SinkSlot::new(),
+            probes_started: Arc::new(AtomicBool::new(false)),
         };
 
         // Spawn high-throughput micro-batching engine
@@ -141,21 +144,24 @@ impl Supervisor {
         Ok(supervisor)
     }
 
-    /// Sets the Tauri application handle for emitting frontend events.
-    pub fn set_app_handle(&self, handle: AppHandle) {
-        *self.app_handle.write() = Some(handle.clone());
+    /// Installs the UI event sink. The background network probe loop is started
+    /// exactly once, on the first call; it always emits through the *current*
+    /// sink so the destination can be swapped at runtime.
+    pub fn set_event_sink(&self, sink: Arc<dyn EventSink>) {
+        self.sink.set(sink);
 
-        // Start background network probes with push notifications to Tauri
-        let handle_clone = handle.clone();
-        self.diagnostics.clone().start_polling_loop(move |report| {
-            let _ = handle_clone.emit("probe-update", report);
-        });
+        if !self.probes_started.swap(true, Ordering::SeqCst) {
+            let slot = self.sink.clone();
+            self.diagnostics.clone().start_polling_loop(move |report| {
+                slot.emit_probe_update(&report);
+            });
+        }
     }
 
     /// Spawns the dedicated Tokio micro-batching worker running every 150 ms.
     fn spawn_micro_batching_worker(&self, mut log_rx: Receiver<LogEntry>) {
         let ring_buffer = self.ring_buffer.clone();
-        let app_handle = self.app_handle.clone();
+        let sink = self.sink.clone();
 
         tokio::spawn(async move {
             let mut ticker = interval(Duration::from_millis(BATCH_FLUSH_INTERVAL_MS));
@@ -178,10 +184,8 @@ impl Supervisor {
                                 }
                             }
 
-                            // Emit batch to frontend
-                            if let Some(handle) = app_handle.read().as_ref() {
-                                let _ = handle.emit("log-batch", &batch_to_emit);
-                            }
+                            // Emit batch to the installed sink
+                            sink.emit_log_batch(&batch_to_emit);
                         }
                     }
                     entry = log_rx.recv() => {
@@ -200,9 +204,7 @@ impl Supervisor {
                                             buffer.push_back(e.clone());
                                         }
                                     }
-                                    if let Some(handle) = app_handle.read().as_ref() {
-                                        let _ = handle.emit("log-batch", &batch_to_emit);
-                                    }
+                                    sink.emit_log_batch(&batch_to_emit);
                                 }
                             }
                             None => break,
@@ -279,9 +281,7 @@ impl Supervisor {
     /// Clears the log ring buffer.
     pub fn clear_logs(&self) {
         self.ring_buffer.lock().clear();
-        if let Some(handle) = self.app_handle.read().as_ref() {
-            let _ = handle.emit("logs-cleared", ());
-        }
+        self.sink.emit_logs_cleared();
     }
 
     /// Starts the DPI bypass engine with selected strategy and optional custom arguments.
@@ -1383,9 +1383,7 @@ impl Supervisor {
     }
 
     fn emit_state_change(&self, state: SupervisorState) {
-        if let Some(handle) = self.app_handle.read().as_ref() {
-            let _ = handle.emit("state-changed", state);
-        }
+        self.sink.emit_state_changed(state);
     }
 }
 

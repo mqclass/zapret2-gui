@@ -4554,7 +4554,6 @@ dependencies = [
 [[package]]
 name = "tg-ws-proxy-rs"
 version = "2.5.4"
-source = "git+https://github.com/valnesfjord/tg-ws-proxy-rs?tag=v2.5.4#a796423e561c558fcc7ff4ecfe3e5853a434ce84"
 dependencies = [
  "aes",
  "async-http-proxy",
