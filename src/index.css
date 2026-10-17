@@ -56,13 +56,14 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
     Inter, system-ui, sans-serif;
 
-  --r-card: 20px;
-  --r-panel: 16px;
-  --r-control: 12px;
-  --r-chip: 8px;
+  --r-card: 12px;
+  --r-panel: 12px;
+  --r-control: 8px;
+  --r-chip: 6px;
+  --r-window: 16px;
 
-  /* Frosted glass surfaces */
-  --glass-blur: blur(28px) saturate(180%);
+  /* Frosted glass surfaces — Cupertino vibrancy */
+  --glass-blur: blur(28px) saturate(190%);
   --glass-blur-sm: blur(18px) saturate(160%);
   --glass-sidebar-bg: rgba(30, 43, 72, 0.58);
   --glass-card-bg: rgba(25, 35, 58, 0.5);
@@ -79,31 +80,34 @@
 }
 
 [data-theme="hyprland"] {
-  /* ── Hyprland rice: neon on black ────────────────────── */
-  --c-app: 4 6 11;
-  --c-sidebar: 7 11 18;
-  --c-card: 8 13 20;
-  --c-cardin: 5 8 14;
-  --c-raise: 13 19 28;
-  --c-hovert: 17 24 35;
-  --c-overlay: rgba(2, 4, 8, 0.78);
+  /* ── Hyprland rice: Catppuccin Mocha + cyber neon ────── */
+  --c-app: 17 17 27;        /* crust #11111B */
+  --c-sidebar: 24 24 37;    /* mantle #181825 */
+  --c-card: 30 30 46;       /* base #1E1E2E */
+  --c-cardin: 24 24 37;     /* mantle #181825 */
+  --c-raise: 49 50 68;      /* surface0 #313244 */
+  --c-hovert: 69 71 90;     /* surface1 #45475A */
+  --c-overlay: rgba(17, 17, 27, 0.82);
 
-  --c-line: 103 232 249;
-  --c-linestrong: 103 232 249;
+  --c-line: 137 220 235;    /* sky #89DCEB */
+  --c-linestrong: 137 220 235;
 
-  --c-ink: 235 242 250;
-  --c-ink2: 198 210 224;
-  --c-ink3: 154 168 186;
-  --c-ink4: 106 118 134;
-  --c-ink5: 68 78 94;
+  --c-ink: 205 214 244;     /* text #CDD6F4 */
+  --c-ink2: 186 194 222;    /* subtext1 #BAC2DE */
+  --c-ink3: 166 173 200;    /* subtext0 #A6ADC8 */
+  --c-ink4: 127 132 156;    /* overlay2 #7F849C */
+  --c-ink5: 88 91 112;      /* surface2 #585B70 */
 
-  --c-accent: 103 232 249;
-  --c-accent-soft: 190 245 253;
-  --c-accent-fill: 8 145 178;
-  --c-accent-fill-hover: 34 211 238;
-  --c-accent-contrast: 4 10 16;
-  --c-accent-wash: rgba(34, 211, 238, 0.1);
-  --c-accent-line: rgba(103, 232, 249, 0.4);
+  --c-accent: 137 220 235;  /* sky #89DCEB */
+  --c-accent-soft: 180 233 245;
+  --c-accent-fill: 137 180 250;  /* blue #89B4FA */
+  --c-accent-fill-hover: 137 220 235;
+  --c-accent-contrast: 17 17 27;
+  --c-accent-wash: rgba(137, 220, 235, 0.1);
+  --c-accent-line: rgba(137, 220, 235, 0.38);
+  --c-mauve: 203 166 247;   /* mauve #CBA6F7 */
+  --c-mauve-wash: rgba(203, 166, 247, 0.12);
+  --c-green: 166 227 161;   /* green #A6E3A1 */
 
   --c-danger-fill: 244 63 94;
   --c-danger-fill-hover: 251 113 133;
@@ -117,10 +121,10 @@
 
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 
-  --r-card: 12px;
-  --r-panel: 10px;
-  --r-control: 8px;
-  --r-chip: 6px;
+  --r-card: 6px;
+  --r-panel: 6px;
+  --r-control: 4px;
+  --r-chip: 4px;
 
   --glass-blur: blur(20px) saturate(140%);
   --glass-blur-sm: blur(14px) saturate(130%);
@@ -570,6 +574,253 @@
   }
   50% {
     opacity: 0.55;
+  }
+}
+
+
+@layer components {
+  /* ══ Hero Power Orb ═══════════════════════════════════
+     Massive status orb: idle breathing → connecting conic ring →
+     connected shockwave + ambient aura. All transform/opacity only. */
+  .orb {
+    position: relative;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .orb-core {
+    position: relative;
+    z-index: 2;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.4s ease, box-shadow 0.4s ease;
+  }
+  /* idle: subtle breathing */
+  .orb-idle .orb-core {
+    animation: orb-breathe 3s ease-in-out infinite;
+  }
+  /* connecting: rotating conic neon ring + pulse ripples */
+  .orb-connecting .orb-ring {
+    position: absolute;
+    inset: -6px;
+    border-radius: 9999px;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      rgb(var(--c-accent)) 90deg,
+      transparent 180deg,
+      rgb(var(--c-mauve, var(--c-accent))) 270deg,
+      transparent 360deg
+    );
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    animation: orb-spin 1.1s linear infinite;
+  }
+  .orb-connecting .orb-ripple {
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    border: 2px solid rgb(var(--c-accent) / 0.5);
+    animation: orb-ripple 1.6s ease-out infinite;
+  }
+  .orb-connecting .orb-ripple:nth-child(2) {
+    animation-delay: 0.55s;
+  }
+  .orb-connecting .orb-ripple:nth-child(3) {
+    animation-delay: 1.1s;
+  }
+  /* connected: ambient aura glow */
+  .orb-connected .orb-aura {
+    position: absolute;
+    inset: -18px;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgb(var(--c-accent) / 0.28), transparent 70%);
+    animation: orb-breathe 3s ease-in-out infinite;
+    pointer-events: none;
+  }
+  [data-theme="macos"] .orb-connected .orb-core {
+    box-shadow: 0 0 44px rgba(48, 209, 88, 0.45),
+      0 0 90px rgba(48, 209, 88, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+  [data-theme="hyprland"] .orb-connected .orb-core {
+    box-shadow: 0 0 44px rgba(166, 227, 161, 0.4),
+      0 0 90px rgba(137, 220, 235, 0.22),
+      inset 0 0 18px rgba(166, 227, 161, 0.15);
+  }
+  /* shockwave fired on connect */
+  .orb-shockwave {
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    border: 3px solid rgb(var(--c-accent));
+    animation: orb-shockwave 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+    pointer-events: none;
+  }
+
+  /* ══ Hyprland animated conic border ══════════════════ */
+  [data-theme="hyprland"] .neon-frame {
+    position: relative;
+    border-radius: var(--r-card);
+  }
+  [data-theme="hyprland"] .neon-frame::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.5px;
+    background: conic-gradient(
+      from var(--angle, 0deg),
+      #89b4fa, #cba6f7, #f5c2e7, #94e2d5, #89b4fa
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: angle-spin 5s linear infinite;
+    pointer-events: none;
+    opacity: 0.85;
+  }
+
+  /* ══ Staggered list entry ════════════════════════════ */
+  .stagger-item {
+    animation: stagger-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: calc(var(--stagger-i, 0) * 25ms);
+  }
+
+  /* ══ Hover lift (cards) ══════════════════════════════ */
+  .hover-lift {
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.28s ease, border-color 0.28s ease;
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+  }
+  [data-theme="hyprland"] .hover-lift:hover {
+    border-color: rgb(var(--c-line) / 0.35);
+    box-shadow: var(--shadow-card), 0 0 24px rgba(137, 220, 235, 0.12);
+  }
+
+  /* ══ Waybar pills (hyprland topbar) ══════════════════ */
+  [data-theme="hyprland"] .waybar-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.3rem 0.8rem;
+    border-radius: 999px;
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    background: rgb(var(--c-cardin) / 0.72);
+    border: 1px solid rgb(var(--c-line) / 0.14);
+    color: rgb(var(--c-ink3));
+    backdrop-filter: var(--glass-blur-sm);
+    -webkit-backdrop-filter: var(--glass-blur-sm);
+    white-space: nowrap;
+  }
+  [data-theme="hyprland"] .waybar-pill-active {
+    color: rgb(var(--c-accent-soft));
+    border-color: var(--c-accent-line);
+    background: var(--c-accent-wash);
+    box-shadow: 0 0 14px rgba(137, 220, 235, 0.22);
+    text-shadow: 0 0 10px rgba(137, 220, 235, 0.5);
+  }
+
+  /* ══ macOS traffic lights ════════════════════════════ */
+  [data-theme="macos"] .traffic-lights {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  [data-theme="macos"] .traffic-light {
+    width: 12px;
+    height: 12px;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    color: rgba(0, 0, 0, 0.55);
+    cursor: pointer;
+    border: 0.5px solid rgba(0, 0, 0, 0.12);
+    transition: transform 0.15s ease;
+  }
+  [data-theme="macos"] .traffic-light:hover {
+    transform: scale(1.12);
+  }
+  [data-theme="macos"] .traffic-light .glyph {
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  [data-theme="macos"] .traffic-lights:hover .glyph {
+    opacity: 1;
+  }
+  [data-theme="macos"] .tl-close { background: #ff5f56; }
+  [data-theme="macos"] .tl-min { background: #ffbd2e; }
+  [data-theme="macos"] .tl-max { background: #27c93f; }
+
+  /* ══ Sparkline ══════════════════════════════════════ */
+  .sparkline {
+    display: block;
+    overflow: visible;
+  }
+  .sparkline-path {
+    fill: none;
+    stroke: rgb(var(--c-accent));
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 4px rgb(var(--c-accent) / 0.6));
+  }
+  .sparkline-area {
+    fill: rgb(var(--c-accent) / 0.12);
+  }
+}
+
+/* ═══════════════ orb & fx keyframes ═══════════════ */
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes angle-spin {
+  to { --angle: 360deg; }
+}
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+@keyframes orb-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes orb-ripple {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+@keyframes orb-shockwave {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+@keyframes stagger-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb-idle .orb-core,
+  .orb-connecting .orb-ring,
+  .orb-connecting .orb-ripple,
+  .orb-connected .orb-aura,
+  [data-theme="hyprland"] .neon-frame::before,
+  .stagger-item {
+    animation: none;
   }
 }
 

@@ -263,7 +263,8 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
       </div>
 
       {/* Connection parameters */}
-        <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-4">
+        <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-4 hover-lift stagger-item"
+          style={{ "--stagger-i": 0 } as React.CSSProperties}>
           <h3 className="text-sm font-semibold text-ink">{t.telegram.connectionTitle}</h3>
           <p className="text-xs text-ink4 leading-relaxed">{t.telegram.connectionHint}</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -335,7 +336,8 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
         </div>
 
           {/* Settings */}
-          <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-4">
+          <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-4 hover-lift stagger-item"
+            style={{ "--stagger-i": 1 } as React.CSSProperties}>
             <h3 className="text-sm font-semibold text-ink">{t.telegram.settingsTitle}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="space-y-1.5 block">
@@ -403,7 +405,8 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
           </div>
 
           {/* Logs */}
-          <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-3">
+          <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-3 hover-lift stagger-item"
+            style={{ "--stagger-i": 2 } as React.CSSProperties}>
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-ink">{t.telegram.logsTitle}</h3>
               <button onClick={refresh} className="t-btn t-btn-ghost !px-2 !py-1" title={t.telegram.logsTitle}>

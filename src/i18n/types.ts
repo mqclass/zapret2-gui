@@ -448,6 +448,19 @@ export interface Translations {
     hint: string;
     defaultStrategy: string;
     checkingConnection: string;
+    startBypass: string;
+    stopBypass: string;
+    pleaseWait: string;
+    hubPresets: string;
+    hubPresetsDesc: string;
+    hubDns: string;
+    hubDnsDesc: string;
+    hubDoctor: string;
+    hubDoctorDesc: string;
+    uptimeH: string;
+    uptimeM: string;
+    uptimeS: string;
+
   };
   telegram: {
     title: string;
@@ -492,6 +505,7 @@ export interface Translations {
     notifyStoppedTitle: string;
     notifyStoppedBody: string;
     notifyErrorTitle: string;
+
   },
   transports: {
     title: string;

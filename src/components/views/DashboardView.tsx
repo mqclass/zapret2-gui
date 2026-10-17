@@ -21,6 +21,8 @@ import {
 } from "../../types";
 import { useI18n } from "../../i18n";
 import { SplitTunnelBar } from "../SplitTunnelBar";
+import { HeroOrb, OrbState } from "../HeroOrb";
+import { Sparkline } from "../Sparkline";
 import { UpdateBanner } from "../UpdateBanner";
 import { NavTab } from "../Sidebar";
 
@@ -64,10 +66,42 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
   }) => {
     const { t } = useI18n();
 
+    // Rolling ping history for sparklines (real probe data, 40 samples).
+    // Keyed by diagnostics.timestamp so re-renders without new probe data
+    // don't push duplicates.
+    const pingHist = React.useRef<{ ts: number; data: Record<string, (number | null)[]> }>({
+      ts: -1,
+      data: {},
+    });
+    if (pingHist.current.ts !== diagnostics.timestamp) {
+      pingHist.current.ts = diagnostics.timestamp;
+      for (const [key, v] of [
+        ["yt", diagnostics.youtube.latency_ms],
+        ["dc", diagnostics.discord.latency_ms],
+      ] as const) {
+        const h = pingHist.current.data[key] ?? [];
+        h.push(v);
+        if (h.length > 40) h.shift();
+        pingHist.current.data[key] = h;
+      }
+    }
+    const ytHist = pingHist.current.data["yt"] ?? [];
+    const dcHist = pingHist.current.data["dc"] ?? [];
+
     const isRunning = status.state === "running";
     const isStarting = status.state === "starting";
     const isStopping = status.state === "stopping";
     const isTransitioning = isStarting || isStopping;
+    const orbState: OrbState = isRunning
+      ? "connected"
+      : isTransitioning
+      ? "connecting"
+      : "idle";
+    const orbLabel = isRunning
+      ? t.dashboard.stopBypass
+      : isTransitioning
+      ? t.dashboard.pleaseWait
+      : t.dashboard.startBypass;
 
     const activeStrat = strategies.find((s) => s.id === status.active_strategy);
     const selectedStrat = strategies.find((s) => s.id === selectedStrategyId);
@@ -76,9 +110,10 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
       const hrs = Math.floor(secs / 3600);
       const mins = Math.floor((secs % 3600) / 60);
       const s = secs % 60;
-      if (hrs > 0) return `${hrs}ч ${mins}м ${s}с`;
-      if (mins > 0) return `${mins}м ${s}с`;
-      return `${s}с`;
+      const { uptimeH: h, uptimeM: m, uptimeS: sec } = t.dashboard;
+      if (hrs > 0) return `${hrs}${h} ${mins}${m} ${s}${sec}`;
+      if (mins > 0) return `${mins}${m} ${s}${sec}`;
+      return `${s}${sec}`;
     };
 
     return (
@@ -92,7 +127,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           />
         )}
         {/* Hero Control Card */}
-        <div className="rounded-card border border-line bg-card p-6 shadow-sm">
+        <div className="rounded-card border border-line bg-card p-6 shadow-sm neon-frame">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             {/* Status and Active Info */}
             <div className="space-y-3">
@@ -157,35 +192,14 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               </div>
             </div>
 
-            {/* Main Power Toggle Button */}
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={isRunning ? onStop : onStart}
+            {/* Hero Power Orb */}
+            <div className="flex items-center justify-center md:justify-end md:pr-4">
+              <HeroOrb
+                state={orbState}
+                onToggle={isRunning ? onStop : onStart}
                 disabled={isTransitioning}
-                className={`relative flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-panel text-sm font-semibold tracking-wide transition-all shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isRunning
-                    ? "bg-danger-fill hover:bg-danger-fill-hover text-white active:scale-[0.98]"
-                    : "bg-accent-fill hover:bg-accent-fill-hover text-accent-contrast active:scale-[0.98]"
-                }`}
-              >
-                {isTransitioning ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Подождите...</span>
-                  </>
-                ) : isRunning ? (
-                  <>
-                    <Square className="h-4 w-4 fill-current" />
-                    <span>ОСТАНОВИТЬ ОБХОД</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4 fill-current" />
-                    <span>ЗАПУСТИТЬ ОБХОД</span>
-                  </>
-                )}
-              </button>
+                label={orbLabel}
+              />
             </div>
           </div>
 
@@ -203,7 +217,10 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
         {/* Live Service Diagnostics Quick Matrix */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* YouTube Probe Card */}
-          <div className="rounded-panel border border-line bg-card p-4 flex items-center justify-between">
+          <div
+            className="rounded-panel border border-line bg-card p-4 flex items-center justify-between hover-lift stagger-item"
+            style={{ "--stagger-i": 0 } as React.CSSProperties}
+          >
             <div className="flex items-center gap-3.5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-panel bg-red-500/10 border border-red-500/20 text-red-400">
                 <Tv className="h-5 w-5" />
@@ -226,7 +243,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                 </p>
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right flex flex-col items-end gap-1">
               {diagnostics.youtube.latency_ms !== null ? (
                 <span className="text-xs font-mono font-semibold text-emerald-400">
                   {diagnostics.youtube.latency_ms} ms
@@ -234,11 +251,15 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               ) : (
                 <span className="text-xs font-mono text-ink5">—</span>
               )}
+              <Sparkline values={ytHist} width={110} height={30} />
             </div>
           </div>
 
           {/* Discord Voice & Gateway Probe Card */}
-          <div className="rounded-panel border border-line bg-card p-4 flex items-center justify-between">
+          <div
+            className="rounded-panel border border-line bg-card p-4 flex items-center justify-between hover-lift stagger-item"
+            style={{ "--stagger-i": 1 } as React.CSSProperties}
+          >
             <div className="flex items-center gap-3.5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-panel bg-accent-wash border border-accent-line text-accent">
                 <Mic className="h-5 w-5" />
@@ -261,7 +282,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                 </p>
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right flex flex-col items-end gap-1">
               {diagnostics.discord.latency_ms !== null ? (
                 <span className="text-xs font-mono font-semibold text-emerald-400">
                   {diagnostics.discord.latency_ms} ms
@@ -269,6 +290,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               ) : (
                 <span className="text-xs font-mono text-ink5">—</span>
               )}
+              <Sparkline values={dcHist} width={110} height={30} />
             </div>
           </div>
         </div>
@@ -283,12 +305,12 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-accent">
                 <Zap className="h-4 w-4" />
-                <span className="text-xs font-semibold">Пресеты обхода</span>
+                <span className="text-xs font-semibold">{t.dashboard.hubPresets}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-ink5 group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
             </div>
             <p className="text-[11px] text-ink4 leading-relaxed">
-              Выбор готовых конфигураций: Flowseal Alt, Fake TLS Auto, или создание своего профиля.
+              {t.dashboard.hubPresetsDesc}
             </p>
           </div>
 
@@ -300,12 +322,12 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-cyan-400">
                 <Globe2 className="h-4 w-4" />
-                <span className="text-xs font-semibold">DNS & Тест скорости</span>
+                <span className="text-xs font-semibold">{t.dashboard.hubDns}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-ink5 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition-all" />
             </div>
             <p className="text-[11px] text-ink4 leading-relaxed">
-              Переключение на Cloudflare 1.1.1.1 / Google DNS и замер реального видеопотока YouTube.
+              {t.dashboard.hubDnsDesc}
             </p>
           </div>
 
@@ -317,12 +339,12 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-amber-400">
                 <Wrench className="h-4 w-4" />
-                <span className="text-xs font-semibold">Авто-Доктор Сети</span>
+                <span className="text-xs font-semibold">{t.dashboard.hubDoctor}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-ink5 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all" />
             </div>
             <p className="text-[11px] text-ink4 leading-relaxed">
-              Сброс Winsock, очистка DNS кэша, восстановление WinDivert и автоподбор пресета.
+              {t.dashboard.hubDoctorDesc}
             </p>
           </div>
         </div>
