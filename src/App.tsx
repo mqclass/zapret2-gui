@@ -349,6 +349,26 @@ const AppContent: React.FC = () => {
     };
   }, [runUpdateCheck]);
 
+  // Smart hosts: best-effort daily refresh of community hosts lists.
+  // The backend only acts when 24h passed since the last refresh.
+  useEffect(() => {
+    let cancelled = false;
+    const maybeRefreshHosts = async () => {
+      try {
+        await invoke("maybe_refresh_smart_hosts");
+      } catch (err) {
+        if (!cancelled) console.debug("Smart hosts refresh skipped:", err);
+      }
+    };
+    const timeoutId = window.setTimeout(maybeRefreshHosts, 120_000);
+    const intervalId = window.setInterval(maybeRefreshHosts, 6 * 3600_000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   const handleExportDiagnostics = useCallback(async () => {
     setIsExportingDiag(true);
     try {

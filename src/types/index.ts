@@ -206,6 +206,23 @@ export interface DnsStatus {
   split_dns_servers?: string[];
 }
 
+export interface SmartHostsSourceInfo {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface SmartHostsStatus {
+  enabled: boolean;
+  sources: SmartHostsSourceInfo[];
+  include_adblock: boolean;
+  last_update: number | null;
+  entry_count: number;
+  section_present: boolean;
+  backup_present: boolean;
+}
+
 export interface SpeedtestResult {
   success: boolean;
   speed_mbps: number;

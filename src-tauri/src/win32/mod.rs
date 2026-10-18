@@ -11,6 +11,7 @@ pub mod lists;
 pub mod privileges;
 pub mod process;
 pub mod settings;
+pub mod smart_hosts;
 pub mod updater;
 pub mod webview_check;
 

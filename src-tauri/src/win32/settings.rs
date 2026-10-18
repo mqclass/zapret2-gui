@@ -130,6 +130,22 @@ pub struct AppSettings {
     /// defaults to empty instead of resetting all settings.
     #[serde(default)]
     pub transport_configs: HashMap<String, TransportConfig>,
+    /// Smart hosts: whether community hosts lists are merged into the
+    /// system hosts file.
+    #[serde(default)]
+    pub smart_hosts_enabled: bool,
+    /// Enabled smart-hosts source ids (see win32::smart_hosts::HOST_SOURCES).
+    #[serde(default = "default_smart_hosts_sources")]
+    pub smart_hosts_sources: Vec<String>,
+    /// Whether `0.0.0.0` adblock entries from sources are applied too.
+    #[serde(default)]
+    pub smart_hosts_include_adblock: bool,
+    /// Unix timestamp of the last successful smart-hosts refresh.
+    #[serde(default)]
+    pub smart_hosts_last_update: Option<u64>,
+    /// Entries written by the last successful refresh (UI display).
+    #[serde(default)]
+    pub smart_hosts_entry_count: usize,
 }
 
 fn default_true() -> bool {
@@ -142,6 +158,10 @@ fn default_tgproxy_port() -> u16 {
 
 fn default_tgproxy_mode() -> String {
     "auto".to_string()
+}
+
+fn default_smart_hosts_sources() -> Vec<String> {
+    vec!["malw".to_string(), "geohide".to_string()]
 }
 
 impl Default for AppSettings {
@@ -168,6 +188,11 @@ impl Default for AppSettings {
             app_split_mode: AppSplitMode::Disabled,
             app_split_list: Vec::new(),
             dns_split_custom_domains: Vec::new(),
+            smart_hosts_enabled: false,
+            smart_hosts_sources: default_smart_hosts_sources(),
+            smart_hosts_include_adblock: false,
+            smart_hosts_last_update: None,
+            smart_hosts_entry_count: 0,
         }
     }
 }

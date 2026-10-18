@@ -322,6 +322,29 @@ export interface Translations {
     customAddBtn: string;
     customDeleteTitle: string;
   };
+  smartHosts: {
+    title: string;
+    subtitle: string;
+    enableBtn: string;
+    disableBtn: string;
+    enabling: string;
+    enabledBadge: string;
+    disabledBadge: string;
+    sourcesLabel: string;
+    adblockLabel: string;
+    adblockDesc: string;
+    lastUpdateLabel: string;
+    neverUpdated: string;
+    entriesLabel: string;
+    refreshNowBtn: string;
+    refreshing: string;
+    successEnabled: string;
+    successDisabled: string;
+    successRefreshed: string;
+    howItWorks: string;
+    backupNote: string;
+    sourcesSavedHint: string;
+  };
   speedtest: {
     title: string;
     subtitle: string;

@@ -15,8 +15,10 @@ import {
   ShieldCheck,
   Trash2,
   Plus,
+  FileText,
+  Clock,
 } from "lucide-react";
-import { DnsStatus, SpeedtestResult } from "../../types";
+import { DnsStatus, SpeedtestResult, SmartHostsStatus } from "../../types";
 import { useI18n } from "../../i18n";
 import { DnsSplitModal } from "../DnsSplitModal";
 
@@ -44,9 +46,123 @@ export const DnsSpeedView: React.FC = React.memo(() => {
   const [speedResult, setSpeedResult] = useState<SpeedtestResult | null>(null);
   const [speedError, setSpeedError] = useState<string | null>(null);
 
+  // Smart hosts state
+  const [hostsStatus, setHostsStatus] = useState<SmartHostsStatus | null>(null);
+  const [hostsBusy, setHostsBusy] = useState<boolean>(false);
+  const [hostsBusyOp, setHostsBusyOp] = useState<"toggle" | "refresh" | "sources" | null>(null);
+  const [hostsError, setHostsError] = useState<string | null>(null);
+  const hostsTimers = React.useRef<number[]>([]);
+
+  useEffect(() => {
+    return () => {
+      hostsTimers.current.forEach((id) => window.clearTimeout(id));
+      hostsTimers.current = [];
+    };
+  }, []);
+
+  const flashHostsMessage = (msg: string) => {
+    setDnsMessage(msg);
+    const id = window.setTimeout(() => setDnsMessage(null), 4000);
+    hostsTimers.current.push(id);
+  };
+
   useEffect(() => {
     loadDns();
+    loadSmartHosts();
   }, []);
+
+  const loadSmartHosts = async () => {
+    try {
+      const res = await invoke<SmartHostsStatus>("get_smart_hosts_status");
+      setHostsStatus(res);
+    } catch (err: any) {
+      console.error("Failed to load smart hosts status:", err);
+      setHostsError(typeof err === "string" ? err : JSON.stringify(err));
+    }
+  };
+
+  const handleToggleSmartHosts = async () => {
+    setHostsBusy(true);
+    setHostsBusyOp("toggle");
+    setHostsError(null);
+    setDnsMessage(null);
+    try {
+      const res = await invoke<SmartHostsStatus>(
+        hostsStatus?.enabled ? "disable_smart_hosts" : "enable_smart_hosts"
+      );
+      setHostsStatus(res);
+      flashHostsMessage(hostsStatus?.enabled ? t.smartHosts.successDisabled : t.smartHosts.successEnabled);
+    } catch (err: any) {
+      setHostsError(typeof err === "string" ? err : JSON.stringify(err));
+    } finally {
+      setHostsBusy(false);
+      setHostsBusyOp(null);
+    }
+  };
+
+  const handleRefreshSmartHosts = async () => {
+    setHostsBusy(true);
+    setHostsBusyOp("refresh");
+    setHostsError(null);
+    setDnsMessage(null);
+    try {
+      const res = await invoke<SmartHostsStatus>("refresh_smart_hosts");
+      setHostsStatus(res);
+      flashHostsMessage(t.smartHosts.successRefreshed);
+    } catch (err: any) {
+      setHostsError(typeof err === "string" ? err : JSON.stringify(err));
+    } finally {
+      setHostsBusy(false);
+      setHostsBusyOp(null);
+    }
+  };
+
+  const handleToggleSource = async (sourceId: string) => {
+    const current = hostsStatus?.sources ?? [];
+    const next = current
+      .filter((s) => (s.id === sourceId ? !s.enabled : s.enabled))
+      .map((s) => s.id);
+    setHostsBusy(true);
+    setHostsBusyOp("sources");
+    setHostsError(null);
+    try {
+      const res = await invoke<SmartHostsStatus>("set_smart_hosts_sources", { sources: next });
+      setHostsStatus(res);
+      if (!res.enabled) {
+        flashHostsMessage(t.smartHosts.sourcesSavedHint);
+      }
+    } catch (err: any) {
+      setHostsError(typeof err === "string" ? err : JSON.stringify(err));
+    } finally {
+      setHostsBusy(false);
+      setHostsBusyOp(null);
+    }
+  };
+
+  const handleToggleAdblock = async () => {
+    setHostsBusy(true);
+    setHostsBusyOp("sources");
+    setHostsError(null);
+    try {
+      const res = await invoke<SmartHostsStatus>("set_smart_hosts_adblock", {
+        include: !(hostsStatus?.include_adblock ?? false),
+      });
+      setHostsStatus(res);
+      if (!res.enabled) {
+        flashHostsMessage(t.smartHosts.sourcesSavedHint);
+      }
+    } catch (err: any) {
+      setHostsError(typeof err === "string" ? err : JSON.stringify(err));
+    } finally {
+      setHostsBusy(false);
+      setHostsBusyOp(null);
+    }
+  };
+
+  const formatHostsDate = (ts: number | null) => {
+    if (!ts) return t.smartHosts.neverUpdated;
+    return new Date(ts * 1000).toLocaleString();
+  };
 
   const loadDns = async () => {
     setIsLoadingDns(true);
@@ -478,6 +594,124 @@ export const DnsSpeedView: React.FC = React.memo(() => {
             )}
             <span>{t.dns.customAddBtn}</span>
           </button>
+        </div>
+
+        {/* Smart hosts */}
+        <div className="rounded-panel border border-line bg-cardin p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-violet-500/20 to-accent-fill/5 border border-accent-line text-violet-400 shadow-sm shadow-violet-500/5">
+                <FileText className="h-4 w-4 shrink-0" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-ink">{t.smartHosts.title}</h4>
+                <p className="text-[11px] text-ink4">{t.smartHosts.subtitle}</p>
+              </div>
+            </div>
+            <span className={`rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 ${
+              hostsStatus?.enabled
+                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                : "bg-hovert text-ink4 border-line"
+            }`}>
+              {hostsStatus?.enabled ? t.smartHosts.enabledBadge : t.smartHosts.disabledBadge}
+            </span>
+          </div>
+
+          <p className="text-[11px] text-ink4 leading-relaxed">{t.smartHosts.howItWorks}</p>
+          <p className="text-[10px] text-ink5 leading-relaxed">{t.smartHosts.backupNote}</p>
+
+          {hostsError && (
+            <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+              <span>{hostsError}</span>
+            </div>
+          )}
+
+          {/* Sources */}
+          <div className="space-y-1.5">
+            <span className="text-[11px] font-medium text-ink3">{t.smartHosts.sourcesLabel}</span>
+            {hostsStatus?.sources.map((s) => (
+              <label
+                key={s.id}
+                className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={s.enabled}
+                  disabled={hostsBusy}
+                  onChange={() => handleToggleSource(s.id)}
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500 cursor-pointer"
+                />
+                <span>
+                  <span className="block text-xs font-semibold text-ink">{s.name}</span>
+                  <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{s.description}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {/* Adblock toggle */}
+          <label className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors">
+            <input
+              type="checkbox"
+              checked={hostsStatus?.include_adblock ?? false}
+              disabled={hostsBusy}
+              onChange={handleToggleAdblock}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500 cursor-pointer"
+            />
+            <span>
+              <span className="block text-xs font-semibold text-ink">{t.smartHosts.adblockLabel}</span>
+              <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{t.smartHosts.adblockDesc}</span>
+            </span>
+          </label>
+
+          {/* Status line */}
+          {hostsStatus?.enabled && (
+            <div className="flex items-center gap-2 text-[11px] text-ink4">
+              <Clock className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {t.smartHosts.lastUpdateLabel} {formatHostsDate(hostsStatus.last_update)}
+                {hostsStatus.entry_count > 0 && (
+                  <> · {hostsStatus.entry_count} {t.smartHosts.entriesLabel}</>
+                )}
+              </span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleToggleSmartHosts}
+              disabled={hostsBusy}
+              className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+                hostsStatus?.enabled
+                  ? "bg-hovert hover:bg-rose-500/15 text-ink3 hover:text-rose-300 border-line hover:border-rose-500/30"
+                  : "bg-accent-fill hover:opacity-90 text-accent-contrast border-transparent"
+              }`}
+            >
+              {hostsBusy && hostsBusyOp === "toggle" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              <span>
+                {hostsBusyOp === "toggle"
+                  ? t.smartHosts.enabling
+                  : hostsStatus?.enabled
+                  ? t.smartHosts.disableBtn
+                  : t.smartHosts.enableBtn}
+              </span>
+            </button>
+            {hostsStatus?.enabled && (
+              <button
+                type="button"
+                onClick={handleRefreshSmartHosts}
+                disabled={hostsBusy}
+                className="flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${hostsBusyOp === "refresh" ? "animate-spin" : ""}`} />
+                <span>{hostsBusyOp === "refresh" ? t.smartHosts.refreshing : t.smartHosts.refreshNowBtn}</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

@@ -943,6 +943,82 @@ pub async fn remove_split_dns_domain(domain: String) -> Result<SplitDnsDomains, 
     get_split_dns_domains().await
 }
 
+// ---------------------------------------------------------------------------
+// Smart hosts
+// ---------------------------------------------------------------------------
+
+/// Returns the smart-hosts status snapshot.
+#[tauri::command]
+pub async fn get_smart_hosts_status() -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
+    Ok(crate::win32::smart_hosts::status())
+}
+
+/// Enables smart hosts (downloads and applies fresh lists immediately).
+#[tauri::command]
+pub async fn enable_smart_hosts() -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
+    crate::win32::smart_hosts::enable_smart_hosts().await
+}
+
+/// Disables smart hosts (removes our section from the hosts file).
+#[tauri::command]
+pub async fn disable_smart_hosts() -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
+    crate::win32::smart_hosts::disable_smart_hosts()
+}
+
+/// Re-downloads and re-applies smart hosts now.
+#[tauri::command]
+pub async fn refresh_smart_hosts() -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
+    crate::win32::smart_hosts::refresh_smart_hosts().await
+}
+
+/// Sets which sources are merged (ids from smart_hosts::HOST_SOURCES).
+#[tauri::command]
+pub async fn set_smart_hosts_sources(
+    sources: Vec<String>,
+) -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
+    let known: std::collections::HashSet<&str> = crate::win32::smart_hosts::HOST_SOURCES
+        .iter()
+        .map(|s| s.id)
+        .collect();
+    let filtered: Vec<String> = sources
+        .into_iter()
+        .filter(|id| known.contains(id.as_str()))
+        .collect();
+    if filtered.is_empty() {
+        return Err("Выберите хотя бы один источник".to_string());
+    }
+    crate::win32::settings::update_settings(|s| {
+        s.smart_hosts_sources = filtered;
+    });
+    // Re-apply with the new source set if currently enabled.
+    if crate::win32::settings::load_settings().smart_hosts_enabled {
+        crate::win32::smart_hosts::refresh_smart_hosts().await
+    } else {
+        Ok(crate::win32::smart_hosts::status())
+    }
+}
+
+/// Toggles inclusion of `0.0.0.0` adblock entries.
+#[tauri::command]
+pub async fn set_smart_hosts_adblock(
+    include: bool,
+) -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
+    crate::win32::settings::update_settings(|s| {
+        s.smart_hosts_include_adblock = include;
+    });
+    if crate::win32::settings::load_settings().smart_hosts_enabled {
+        crate::win32::smart_hosts::refresh_smart_hosts().await
+    } else {
+        Ok(crate::win32::smart_hosts::status())
+    }
+}
+
+/// Best-effort daily refresh hook for the frontend scheduler.
+#[tauri::command]
+pub async fn maybe_refresh_smart_hosts() {
+    crate::win32::smart_hosts::maybe_refresh_smart_hosts().await
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SplitDnsDomains {
     pub builtin: Vec<String>,
