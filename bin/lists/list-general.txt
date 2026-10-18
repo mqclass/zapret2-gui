@@ -76,3 +76,8 @@ giphy.com
 media.giphy.com
 api.giphy.com
 i.giphy.com
+
+# Roblox (game client + CDN)
+roblox.com
+rbxcdn.com
+rbxtrk.com

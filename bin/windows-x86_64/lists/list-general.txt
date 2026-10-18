@@ -57,3 +57,8 @@ betterttv.net
 localizeapi.com
 klipy.com
 live-video.net
+
+# Roblox (game client + CDN)
+roblox.com
+rbxcdn.com
+rbxtrk.com
