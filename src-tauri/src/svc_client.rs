@@ -23,6 +23,11 @@ use crate::svc_ipc::{ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION, S
 /// through a mutex: one in-flight request at a time.
 pub struct SvcClient {
     io: Mutex<BufReader<tokio::net::windows::named_pipe::NamedPipeClient>>,
+    /// Last successfully fetched status + when. Returned on transient pipe
+    /// failures so the UI doesn't fabricate an "Error" state (which prompts
+    /// users to hammer the start button). Expires after 30s so a dead svc
+    /// can't masquerade as "running" forever.
+    last_good: Mutex<Option<(SupervisorStatus, std::time::Instant)>>,
 }
 
 impl SvcClient {
@@ -30,6 +35,7 @@ impl SvcClient {
         let client = ClientOptions::new().open(SVC_PIPE_NAME)?;
         Ok(Self {
             io: Mutex::new(BufReader::new(client)),
+            last_good: Mutex::new(None),
         })
     }
 
@@ -90,10 +96,25 @@ impl SvcClient {
             .roundtrip(&ClientMessage::GetStatus)
             .await
             .map_err(|e| e.to_string())?;
-        match Self::into_response(msg)? {
-            ServerMessage::Response { status: Some(s), .. } => Ok(s),
-            _ => Err("svc returned no status".to_string()),
-        }
+        let status = match Self::into_response(msg)? {
+            ServerMessage::Response { status: Some(s), .. } => s,
+            _ => return Err("svc returned no status".to_string()),
+        };
+        // Cache the good read for transient pipe failures.
+        *self.last_good.lock().await = Some((status.clone(), std::time::Instant::now()));
+        Ok(status)
+    }
+
+    /// Last known-good status, if fresh (under 30s old).
+    pub async fn last_known_status(&self) -> Option<SupervisorStatus> {
+        let guard = self.last_good.lock().await;
+        guard.as_ref().and_then(|(s, t)| {
+            if t.elapsed() < std::time::Duration::from_secs(30) {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
     }
 
     pub async fn start(
@@ -307,15 +328,22 @@ impl SupervisorBackend {
     pub async fn get_status(&self) -> SupervisorStatus {
         match self {
             Self::Local(s) => s.get_status(),
-            Self::Remote(c) => c.get_status().await.unwrap_or(SupervisorStatus {
-                state: crate::engine::SupervisorState::Error,
-                pid: None,
-                active_strategy: None,
-                active_transport: None,
-                binary_path: None,
-                uptime_secs: 0,
-                total_logs_buffered: 0,
-            }),
+            Self::Remote(c) => match c.get_status().await {
+                Ok(s) => s,
+                // Transient pipe failure: report last known state instead of
+                // fabricating "Error" (which prompts users to hammer start).
+                Err(_) => {
+                    c.last_known_status().await.unwrap_or(SupervisorStatus {
+                        state: crate::engine::SupervisorState::Error,
+                        pid: None,
+                        active_strategy: None,
+                        active_transport: None,
+                        binary_path: None,
+                        uptime_secs: 0,
+                        total_logs_buffered: 0,
+                    })
+                }
+            },
         }
     }
 
@@ -543,9 +571,20 @@ pub async fn backend_needs_attach(backend: &SupervisorBackend) -> bool {
     }
 }
 
+/// Process-wide mutex serializing svc attach: without it, two concurrent
+/// `start_supervisor` calls can both miss the fast-path connect and both
+/// spawn `zapret2-svc.exe`, each with its own Supervisor → duplicate engines.
+static ATTACH_MUTEX: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+fn attach_mutex() -> &'static tokio::sync::Mutex<()> {
+    ATTACH_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
 /// Attach to a running svc, spawning it first if necessary. Polls the pipe
 /// until the svc answers or the timeout expires.
 pub async fn ensure_svc_attached(timeout: Duration) -> Result<Arc<SvcClient>, String> {
+    // Serialize check-then-spawn so concurrent callers can't both decide to spawn.
+    let _guard = attach_mutex().lock().await;
     // Fast path: svc already running.
     if let Ok(client) = SvcClient::connect().await {
         if client.hello().await.is_ok() {

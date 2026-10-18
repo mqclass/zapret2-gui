@@ -387,6 +387,12 @@ const AppContent: React.FC = () => {
   // Buffer ref to throttle log updates and prevent high-frequency re-renders
   const pendingLogsRef = useRef<LogEntry[]>([]);
 
+  // Re-entrancy guard for engine start/stop: the backend start is slow
+  // (svc attach up to ~10s) and the heartbeat must not re-enable the
+  // buttons mid-flight (see heartbeat merge below). A ref (not state)
+  // because handleStart's closure would read stale state.
+  const engineTransitionRef = useRef(false);
+
   // Monotonic client-side ids for stable React keys (backend entries have none).
   const logSeqRef = useRef(0);
   const assignLogIds = useCallback((entries: LogEntry[]): LogEntry[] => {
@@ -520,7 +526,16 @@ const AppContent: React.FC = () => {
       invoke<SupervisorStatusResponse>("get_supervisor_status")
         .then((res) => {
           setIsElevated(res.is_elevated);
-          setStatus(res.supervisor);
+          setStatus((prev) => {
+            // Never let a slow poll clobber an in-flight start: while svc
+            // attach is underway the backend still reports "stopped", which
+            // would re-enable the start buttons mid-start. (Stopping has no
+            // such slow window, so only "starting" is guarded.)
+            if (prev.state === "starting" && res.supervisor.state === "stopped") {
+              return prev;
+            }
+            return res.supervisor;
+          });
         })
         .catch(() => {});
     }, 2500);
@@ -559,13 +574,15 @@ const AppContent: React.FC = () => {
   }, [errorAlert]);
 
   const handleStart = useCallback(async (customArgs?: string[]) => {
+    if (engineTransitionRef.current) return;
+    engineTransitionRef.current = true;
     setErrorAlert(null);
     setSuccessAlert(null);
     setStatus((prev) => ({ ...prev, state: "starting" }));
     try {
       await invoke("start_supervisor", {
         strategy_id: selectedStrategyId || null,
-        custom_args: customArgs || null,
+        custom_args: customArgs?.length ? customArgs : null,
       });
       const stratName =
         strategies.find((s) => s.id === selectedStrategyId)?.name || selectedStrategyId || "";
@@ -585,10 +602,14 @@ const AppContent: React.FC = () => {
         setShowAdminGate(true);
       }
       setStatus((prev) => ({ ...prev, state: "stopped" }));
+    } finally {
+      engineTransitionRef.current = false;
     }
   }, [selectedStrategyId, handleRefreshProbes, strategies, t]);
 
   const handleStartStrategy = useCallback(async (strategyId: string) => {
+    if (engineTransitionRef.current) return;
+    engineTransitionRef.current = true;
     setSelectedStrategyId(strategyId);
     setErrorAlert(null);
     setSuccessAlert(null);
@@ -615,10 +636,14 @@ const AppContent: React.FC = () => {
         setShowAdminGate(true);
       }
       setStatus((prev) => ({ ...prev, state: "stopped" }));
+    } finally {
+      engineTransitionRef.current = false;
     }
   }, [handleRefreshProbes, strategies, t]);
 
   const handleStop = useCallback(async () => {
+    if (engineTransitionRef.current) return;
+    engineTransitionRef.current = true;
     setErrorAlert(null);
     setSuccessAlert(null);
     setStatus((prev) => ({ ...prev, state: "stopping" }));
@@ -632,6 +657,8 @@ const AppContent: React.FC = () => {
       console.error("Failed to stop bypass:", err);
       setErrorAlert(formatErrorMessage(err));
       setStatus((prev) => ({ ...prev, state: "stopped" }));
+    } finally {
+      engineTransitionRef.current = false;
     }
   }, [handleRefreshProbes, t]);
 
