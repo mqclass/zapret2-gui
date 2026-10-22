@@ -129,7 +129,6 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                   {t.header.version}
                 </span>
               </div>
-              <p data-tauri-drag-region className="text-[10px] font-medium text-ink4">{t.sidebar.tagline}</p>
             </div>
           </div>
         </div>

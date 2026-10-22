@@ -136,9 +136,6 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
             <h2 data-tauri-drag-region title={meta.title} className="text-sm font-semibold tracking-tight text-ink leading-tight truncate">
               {meta.title}
             </h2>
-            <p data-tauri-drag-region title={meta.subtitle} className="text-[11px] text-ink4 font-normal truncate">
-              {meta.subtitle}
-            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
