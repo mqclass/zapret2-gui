@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import {
   SupervisorStatus,
   DiagnosticsReport,
@@ -792,7 +793,10 @@ const AppContent: React.FC = () => {
   }, [selectedStrategyId, t.alerts.configDeleted]);
 
   return (
-    <div className="app-bg flex h-screen w-screen overflow-hidden font-sans text-ink select-none gap-3 p-3">
+    <div
+      data-engine={status.state === "running" ? "on" : "off"}
+      className="app-bg flex h-screen w-screen overflow-hidden font-sans text-ink select-none gap-3 p-3"
+    >
       {/* Sidebar Navigation — floating frosted panel */}
       <Sidebar
         activeTab={activeTab}
@@ -819,8 +823,16 @@ const AppContent: React.FC = () => {
           />
         </div>
 
-        {/* Scrollable View Area */}
-        <main key={activeTab} className="view-enter relative z-10 flex-1 overflow-y-auto px-6 py-5 space-y-4">
+        {/* Scrollable View Area — crossfade/slide between tabs */}
+        <AnimatePresence mode="wait">
+        <motion.main
+          key={activeTab}
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8, transition: { duration: 0.13, ease: "easeIn" } }}
+          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          className="relative z-10 flex-1 overflow-y-auto px-6 py-5 space-y-4"
+        >
           <ErrorBoundary key={activeTab} label={activeTab}>
           {/* Conflicting Software Warning Banner */}
           <ConflictBanner
@@ -955,7 +967,8 @@ const AppContent: React.FC = () => {
             />
           )}
           </ErrorBoundary>
-        </main>
+        </motion.main>
+        </AnimatePresence>
       </div>
 
       {/* Admin gate: shown when the app runs without Administrator privileges */}
@@ -1009,9 +1022,11 @@ const AppContent: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <I18nProvider>
-      <AppContent />
-    </I18nProvider>
+    <MotionConfig reducedMotion="user">
+      <I18nProvider>
+        <AppContent />
+      </I18nProvider>
+    </MotionConfig>
   );
 };
 

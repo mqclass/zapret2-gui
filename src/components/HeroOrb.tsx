@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Power, Loader2, ShieldCheck } from "lucide-react";
 
 export type OrbState = "idle" | "connecting" | "connected";
@@ -82,11 +82,24 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
           )}
           {/* rotating ring while connecting */}
           {state === "connecting" && <span className="orb-ring" />}
+          {/* slow aurora ring while idle — quiet sign of life */}
+          {state === "idle" && <span className="orb-ring-idle" />}
           {/* glass disc */}
           <span className="absolute inset-0 rounded-full border border-white/[0.14] bg-white/[0.05] backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)] transition-colors duration-500 group-hover:border-white/[0.22]">
-            {/* icon */}
+            {/* icon — crossfades between states */}
             <span className="absolute inset-0 flex items-center justify-center">
-              {icon}
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.span
+                  key={state}
+                  initial={{ opacity: 0, scale: 0.55, rotate: -24 }}
+                  animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                  exit={{ opacity: 0, scale: 0.55, rotate: 24 }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex items-center justify-center"
+                >
+                  {icon}
+                </motion.span>
+              </AnimatePresence>
             </span>
           </span>
         </motion.button>

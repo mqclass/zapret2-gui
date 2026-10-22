@@ -1,4 +1,5 @@
 import React from "react";
+import { motion } from "framer-motion";
 import {
   Shield,
   ShieldCheck,
@@ -117,7 +118,15 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
     };
 
     return (
-      <div className="space-y-4 pb-4">
+      <motion.div
+        className="space-y-4 pb-4"
+        initial="hidden"
+        animate="show"
+        variants={{
+          hidden: {},
+          show: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } },
+        }}
+      >
         {/* Update availability banner (announces only — no silent downloads) */}
         {updateInfo?.update_available && (
           <UpdateBanner
@@ -127,14 +136,35 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           />
         )}
         {/* Hero Control Card */}
-        <div className="rounded-card border border-line bg-card p-6 md:p-8 shadow-sm">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
+        <motion.div
+          variants={{
+            hidden: { opacity: 0, y: 18 },
+            show: {
+              opacity: 1,
+              y: 0,
+              transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+            },
+          }}
+          className="t-card relative overflow-hidden p-6 md:p-8"
+        >
+          {/* ambient glow that warms up when the bypass is on */}
+          <span
+            aria-hidden
+            className={`pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full blur-3xl transition-colors duration-1000 ${
+              isRunning ? "bg-emerald-500/[0.13]" : "bg-accent/[0.09]"
+            }`}
+          />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent-line to-transparent"
+          />
+          <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-8">
             {/* Status and Active Info */}
             <div className="space-y-4 max-w-xl">
               <span
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase ${
                   isRunning
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.22)]"
                     : isTransitioning
                     ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
                     : "border-linestrong bg-raise/60 text-ink4"
@@ -158,7 +188,13 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                   : t.dashboard.stopped}
               </span>
 
-              <h1 className="text-3xl md:text-[2.6rem] font-extrabold tracking-tight text-ink leading-none">
+              <h1
+                className={`text-3xl md:text-[2.6rem] font-extrabold tracking-tight leading-none ${
+                  isRunning
+                    ? "bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent"
+                    : "text-ink"
+                }`}
+              >
                 {isRunning ? t.dashboard.bypassOnHeadline : t.dashboard.bypassOffHeadline}
               </h1>
               <p className="text-sm text-ink3 leading-relaxed">
@@ -204,15 +240,22 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               disabled={isTransitioning}
             />
           </div>
-        </div>
+        </motion.div>
 
         {/* Live Service Diagnostics Quick Matrix */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <motion.div
+          variants={{
+            hidden: { opacity: 0, y: 18 },
+            show: {
+              opacity: 1,
+              y: 0,
+              transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+            },
+          }}
+          className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        >
           {/* YouTube Probe Card */}
-          <div
-            className="rounded-panel border border-line bg-card p-4 flex items-center justify-between hover-lift stagger-item"
-            style={{ "--stagger-i": 0 } as React.CSSProperties}
-          >
+          <div className="t-card p-4 flex items-center justify-between hover-lift">
             <div className="flex items-center gap-3.5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-panel bg-red-500/10 border border-red-500/20 text-red-400">
                 <Tv className="h-5 w-5" />
@@ -248,10 +291,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           </div>
 
           {/* Discord Voice & Gateway Probe Card */}
-          <div
-            className="rounded-panel border border-line bg-card p-4 flex items-center justify-between hover-lift stagger-item"
-            style={{ "--stagger-i": 1 } as React.CSSProperties}
-          >
+          <div className="t-card p-4 flex items-center justify-between hover-lift">
             <div className="flex items-center gap-3.5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-panel bg-accent-wash border border-accent-line text-accent">
                 <Mic className="h-5 w-5" />
@@ -285,18 +325,27 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               <Sparkline values={dcHist} width={110} height={30} />
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* Quick Hub Navigation Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <motion.div
+          variants={{
+            hidden: { opacity: 0, y: 18 },
+            show: {
+              opacity: 1,
+              y: 0,
+              transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+            },
+          }}
+          className="grid grid-cols-1 md:grid-cols-3 gap-3"
+        >
           {/* Card 1: Strategies */}
           <div
             role="button"
             tabIndex={0}
             onClick={() => onNavigateTab("strategies")}
             onKeyDown={(e) => e.key === "Enter" && onNavigateTab("strategies")}
-            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
-            style={{ "--stagger-i": 2 } as React.CSSProperties}
+            className="group cursor-pointer t-card p-4 hover-lift"
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-accent">
@@ -316,8 +365,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             tabIndex={0}
             onClick={() => onNavigateTab("dns")}
             onKeyDown={(e) => e.key === "Enter" && onNavigateTab("dns")}
-            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
-            style={{ "--stagger-i": 3 } as React.CSSProperties}
+            className="group cursor-pointer t-card p-4 hover-lift"
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-cyan-400">
@@ -337,8 +385,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             tabIndex={0}
             onClick={() => onNavigateTab("diagnostics")}
             onKeyDown={(e) => e.key === "Enter" && onNavigateTab("diagnostics")}
-            className="group cursor-pointer rounded-panel border border-line bg-card p-4 hover:border-linestrong hover:bg-hovert transition-all hover-lift stagger-item"
-            style={{ "--stagger-i": 4 } as React.CSSProperties}
+            className="group cursor-pointer t-card p-4 hover-lift"
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-amber-400">
@@ -351,8 +398,8 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               {t.dashboard.hubDoctorDesc}
             </p>
           </div>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
     );
   }
 );

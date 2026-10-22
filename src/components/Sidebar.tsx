@@ -115,9 +115,9 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
               <span
                 className={`absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 items-center justify-center rounded-full border-2 border-sidebar ${
                   isRunning
-                    ? "bg-emerald-500"
+                    ? "bg-emerald-500 shadow-[0_0_8px_rgba(52,211,153,0.9)]"
                     : isStarting || isStopping
-                    ? "bg-amber-500"
+                    ? "bg-amber-500 animate-pulse"
                     : "bg-ink5"
                 }`}
               />

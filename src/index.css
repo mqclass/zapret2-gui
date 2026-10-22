@@ -18,22 +18,22 @@
 :root,
 [data-theme="macos"] {
   /* ── macOS glassmorphism ─────────────────────────────── */
-  --c-app: 7 11 22;
-  --c-sidebar: 23 32 52;
-  --c-card: 24 33 54;
-  --c-cardin: 17 24 40;
-  --c-raise: 31 41 66;
-  --c-hovert: 38 50 78;
-  --c-overlay: rgba(5, 8, 16, 0.66);
+  --c-app: 5 8 17;
+  --c-sidebar: 20 28 48;
+  --c-card: 26 36 60;
+  --c-cardin: 15 21 37;
+  --c-raise: 32 43 70;
+  --c-hovert: 40 53 84;
+  --c-overlay: rgba(4, 6, 13, 0.68);
 
   --c-line: 255 255 255;
   --c-linestrong: 255 255 255;
 
-  --c-ink: 245 247 252;
-  --c-ink2: 219 226 238;
-  --c-ink3: 183 193 212;
-  --c-ink4: 141 151 175;
-  --c-ink5: 96 105 128;
+  --c-ink: 246 248 253;
+  --c-ink2: 221 228 240;
+  --c-ink3: 185 195 214;
+  --c-ink4: 142 152 176;
+  --c-ink5: 94 103 126;
 
   --c-accent: 90 163 255;
   --c-accent-soft: 174 208 255;
@@ -42,6 +42,8 @@
   --c-accent-contrast: 255 255 255;
   --c-accent-wash: rgba(10, 132, 255, 0.16);
   --c-accent-line: rgba(120, 180, 255, 0.35);
+  /* Duotone partner for gradients (violet) */
+  --c-accent2: 139 124 255;
 
   --c-danger-fill: 255 69 58;
   --c-danger-fill-hover: 255 110 100;
@@ -56,9 +58,9 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
     Inter, system-ui, sans-serif;
 
-  --r-card: 12px;
-  --r-panel: 12px;
-  --r-control: 8px;
+  --r-card: 16px;
+  --r-panel: 14px;
+  --r-control: 10px;
   --r-chip: 6px;
   --r-window: 16px;
 
@@ -129,6 +131,7 @@
   .app-bg {
     background-color: rgb(var(--c-app));
     position: relative;
+    isolation: isolate;
   }
   /* macOS aurora: slow-drifting blue/violet ambient glows */
   [data-theme="macos"] .app-bg {
@@ -147,6 +150,25 @@
       radial-gradient(900px 500px at 85% -5%, rgba(90, 200, 250, 0.14), transparent 60%),
       radial-gradient(760px 540px at -5% 100%, rgba(10, 132, 255, 0.16), transparent 60%);
     animation: aurora-drift 26s ease-in-out infinite alternate;
+  }
+  /* Engine-on ambience: when the bypass runs, the backdrop warms up with an
+     emerald breath so the whole window quietly says "you are protected".
+     data-engine lives on the .app-bg element itself; z-index:-1 inside the
+     isolated stacking context keeps the wash strictly behind the panels. */
+  .app-bg::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    background-image:
+      radial-gradient(900px 520px at 50% -12%, rgba(52, 211, 153, 0.13), transparent 62%),
+      radial-gradient(700px 480px at 100% 110%, rgba(52, 211, 153, 0.08), transparent 60%);
+  }
+  .app-bg[data-engine="on"]::after {
+    opacity: 1;
   }
   /* Hyprland ambient: faint cyan/magenta haze in the corners */
 
@@ -380,7 +402,11 @@
   }
   /* macOS: frosted pill with top highlight, like iOS sidebar selection */
   [data-theme="macos"] .t-navitem-active::before {
-    background: rgba(255, 255, 255, 0.1);
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.12),
+      rgba(120, 180, 255, 0.07)
+    );
     border-color: rgba(255, 255, 255, 0.12);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12),
       0 4px 14px rgba(0, 0, 0, 0.25);
@@ -405,13 +431,6 @@
     border-color: rgb(var(--c-line) / var(--line-alpha));
   }
 
-  /* ══ View enter animation ══════════════════════════════ */
-  .view-enter {
-    animation: view-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
-  /* ══ Neon status dot (Hyprland) ════════════════════════ */
-
   /* ══ Theme preview mock (settings cards) ═══════════════ */
   .theme-preview {
     border-radius: var(--r-panel);
@@ -421,17 +440,6 @@
 }
 
 /* ═══════════════ keyframes ═══════════════ */
-@keyframes view-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.995);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
 @keyframes aurora-drift {
   from {
     transform: translate3d(-2%, -1%, 0) scale(1);
@@ -481,6 +489,25 @@
   /* standalone breathe utility (glass orb halo) */
   .orb-breathe {
     animation: orb-breathe 3s ease-in-out infinite;
+  }
+  /* idle: slow duotone aurora ring, barely-there */
+  .orb-idle .orb-ring-idle {
+    position: absolute;
+    inset: -6px;
+    border-radius: 9999px;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      rgb(var(--c-accent) / 0.4) 55deg,
+      transparent 130deg,
+      rgb(var(--c-accent2) / 0.35) 225deg,
+      transparent 305deg
+    );
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    animation: orb-spin 16s linear infinite;
+    opacity: 0.55;
+    pointer-events: none;
   }
   /* connecting: rotating conic neon ring + pulse ripples */
   .orb-connecting .orb-ring {
@@ -840,6 +867,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .orb-idle .orb-core,
+  .orb-idle .orb-ring-idle,
   .orb-connecting .orb-ring,
   .orb-connecting .orb-ripple,
   .orb-connected .orb-aura,
@@ -853,7 +881,7 @@
   .modal-backdrop-enter,
   .modal-panel-enter,
   .skeleton::after,
-  .view-enter,
+  .animate-pulse,
   [data-theme="macos"] .app-bg::before {
     animation: none;
   }
