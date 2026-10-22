@@ -181,7 +181,7 @@ export const ListsView: React.FC = React.memo(() => {
   return (
     <div className="space-y-6 pb-6">
       {/* Header and Sync Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-card border border-line bg-card p-5 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 t-card p-5 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
         <div>
           <h3 className="text-sm font-bold text-ink flex items-center gap-2">
             <span>{t.domainManager.title}</span>
@@ -250,7 +250,7 @@ export const ListsView: React.FC = React.memo(() => {
       )}
 
       {/* Main Container with File Tabs + Domain List */}
-      <div className="rounded-card border border-line bg-card overflow-hidden stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
+      <div className="t-card overflow-hidden stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
         {/* File Tabs */}
         <div className="flex items-center gap-2 overflow-x-auto border-b t-divider bg-cardin/40 p-3">
           {files.map((file) => {

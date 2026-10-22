@@ -321,7 +321,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4">
       {/* DNS Manager Section */}
-      <div className="rounded-card border border-line bg-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
+      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
         <div className="flex items-center justify-between border-b border-line pb-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-blue-500/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-blue-500/5">
@@ -716,7 +716,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
       </div>
 
       {/* YouTube 4K Stream Speedtest Section */}
-      <div className="rounded-card border border-line bg-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
+      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
         <div className="flex items-center justify-between border-b border-line pb-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-red-500/20 to-red-600/5 border border-red-500/25 text-red-400 shadow-sm shadow-red-500/5">

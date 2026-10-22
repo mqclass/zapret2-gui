@@ -247,7 +247,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
   return (
     <div className="space-y-4 pb-6">
       {/* Header / status card */}
-      <div className="rounded-card border border-line bg-card p-6 shadow-sm">
+      <div className="t-card p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-3">
             <div className="flex items-center gap-3">
@@ -320,7 +320,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
       </div>
 
       {/* Connection parameters */}
-        <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-4 hover-lift stagger-item"
+        <div className="t-card p-6 space-y-4 hover-lift stagger-item"
           style={{ "--stagger-i": 0 } as React.CSSProperties}>
           <h3 className="text-sm font-semibold text-ink">{t.telegram.connectionTitle}</h3>
           <p className="text-xs text-ink4 leading-relaxed">{t.telegram.connectionHint}</p>
@@ -411,7 +411,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
         </div>
 
           {/* Settings */}
-          <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-4 hover-lift stagger-item"
+          <div className="t-card p-6 space-y-4 hover-lift stagger-item"
             style={{ "--stagger-i": 1 } as React.CSSProperties}>
             <h3 className="text-sm font-semibold text-ink">{t.telegram.settingsTitle}</h3>
             <div className="space-y-1.5">
@@ -539,7 +539,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
           </div>
 
           {/* Logs */}
-          <div className="rounded-card border border-line bg-card p-6 shadow-sm space-y-3 hover-lift stagger-item"
+          <div className="t-card p-6 space-y-3 hover-lift stagger-item"
             style={{ "--stagger-i": 2 } as React.CSSProperties}>
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-ink">{t.telegram.logsTitle}</h3>

@@ -565,8 +565,10 @@
 
 
   /* ══ Staggered list entry ════════════════════════════ */
+  /* fill-mode backwards (not both): the final keyframe must not pin the
+     transform forever, or hover-lift's translateY would never apply. */
   .stagger-item {
-    animation: stagger-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: stagger-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
     animation-delay: calc(var(--stagger-i, 0) * 25ms);
   }
 

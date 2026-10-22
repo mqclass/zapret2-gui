@@ -92,7 +92,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     return (
       <div className="space-y-4 pb-4 max-w-4xl">
         {/* System & Engine Section */}
-        <div className="rounded-card border border-line bg-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
+        <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
           <div className="border-b border-line pb-3">
             <h3 className="t-section-title">
               <Shield className="h-4 w-4 text-accent" />
@@ -385,7 +385,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Language Selection Card */}
-        <div className="rounded-card border border-line bg-card p-5 space-y-3 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
+        <div className="t-card p-5 space-y-3 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
           <div className="border-b border-line pb-3">
             <h3 className="t-section-title">
               <Globe className="h-4 w-4 text-accent" />
@@ -419,7 +419,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         <TransportsSection />
 
         {/* Per-app split tunneling */}
-        <div className="rounded-card border border-line bg-card p-5 space-y-3 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>
+        <div className="t-card p-5 space-y-3 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-panel bg-accent-wash border border-accent-line text-accent">
@@ -465,7 +465,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         </div>
 
         {/* Application Architecture & Versions */}
-        <div className="rounded-card border border-line bg-card p-4 stagger-item" style={{ "--stagger-i": 4 } as React.CSSProperties}>
+        <div className="t-card p-4 stagger-item" style={{ "--stagger-i": 4 } as React.CSSProperties}>
           <div className="flex items-center justify-between text-xs text-ink4">
             <div className="flex items-center gap-2">
               <ZapretLogo className="h-4 w-4" />

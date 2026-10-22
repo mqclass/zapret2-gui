@@ -138,21 +138,18 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
 
       return (
         <div
-          className="flex flex-col justify-between rounded-panel border border-line bg-card p-3.5 transition-all hover:border-linestrong/80 hover-lift stagger-item"
+          className="t-card flex flex-col justify-between p-3.5 hover-lift hover:border-linestrong/80 stagger-item"
           style={{ "--stagger-i": idx } as React.CSSProperties}
         >
           <div>
-            <div className="flex items-start justify-between gap-2 mb-2.5">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-control ${iconBg}`}>
-                  {icon}
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-ink truncate">{title}</div>
-                  <div className="text-[10px] text-ink4 truncate">{subtitle}</div>
-                </div>
+            <div className="flex items-start gap-2 mb-2.5">
+              <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-control ${iconBg}`}>
+                {icon}
               </div>
-              <div className="shrink-0">{getStatusBadge(m.status)}</div>
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-ink leading-snug line-clamp-2">{title}</div>
+                <div className="text-[10px] text-ink4 truncate">{subtitle}</div>
+              </div>
             </div>
 
             {/* Metrics Breakdown Grid */}
@@ -187,8 +184,11 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
             </div>
           </div>
 
-          <div className="mt-2 text-[10px] text-ink4 truncate" title={m.message}>
-            {m.message}
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-[10px] text-ink4 truncate" title={m.message}>
+              {m.message}
+            </span>
+            <span className="shrink-0">{getStatusBadge(m.status)}</span>
           </div>
         </div>
       );

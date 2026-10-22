@@ -99,7 +99,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
     return (
       <div className="space-y-4">
         {/* Goal picker: plain-language entry point for ordinary users */}
-        <div className="rounded-card border border-line bg-card p-5">
+        <div className="t-card p-5">
           <div className="mb-3">
             <h2 className="text-sm font-semibold text-ink">{t.strategies.goalTitle}</h2>
             <p className="text-xs text-ink4 mt-0.5">{t.strategies.goalSubtitle}</p>
@@ -182,7 +182,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
             })}
           </div>
         </div>
-      <div className="rounded-panel border border-raise bg-card/40 p-4">
+      <div className="t-card p-4">
         {/* Header with Title and Modals Triggers */}
         <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3">
           <div className="flex items-center gap-2">
