@@ -25,8 +25,8 @@ use tokio::time::interval;
 
 use crate::engine::logger::FileLogger;
 use crate::engine::probes::DiagnosticsService;
-use crate::win32::job_object::JobObject;
-use crate::win32::process::{
+use crate::platform::job_object::JobObject;
+use crate::platform::process::{
     cleanup_windivert_driver, discover_strategies, kill_stray_winws2_processes, resolve_binaries,
     spawn_process, spawn_winws2, stop_winws2_gracefully, ProcessError, SupervisedProcess,
     ZapretBinaries,
@@ -296,7 +296,7 @@ impl Supervisor {
         // would start half-broken (WinDivert fails without admin rights) and
         // the UI would never show the admin prompt. The error string keeps the
         // ADMIN_REQUIRED prefix so the frontend opens the admin gate modal.
-        if !crate::win32::privileges::is_elevated().unwrap_or(false) {
+        if !crate::platform::privileges::is_elevated().unwrap_or(false) {
             self.log(
                 "error",
                 "Запуск движка требует прав администратора — пропуск запуска",
@@ -355,7 +355,7 @@ impl Supervisor {
         let target_strat = if let Some(ref id) = strategy_id {
             strategies.iter().find(|s| &s.id == id).cloned()
         } else {
-            let last_id = crate::win32::settings::load_settings().last_strategy_id;
+            let last_id = crate::platform::settings::load_settings().last_strategy_id;
             last_id
                 .and_then(|lid| strategies.iter().find(|s| s.id == lid).cloned())
                 .or_else(|| strategies.iter().find(|s| s.id == "flowseal-alt").cloned())
@@ -368,8 +368,8 @@ impl Supervisor {
             .unwrap_or_else(|| "flowseal-alt".into());
 
         // Remember last used strategy in settings (serialized vs. concurrent
-        // mutations — see win32::settings::update_settings, L-4).
-        let _ = crate::win32::settings::update_settings(|s| {
+        // mutations — see platform::settings::update_settings, L-4).
+        let _ = crate::platform::settings::update_settings(|s| {
             s.last_strategy_id = Some(active_id.clone());
         });
 
@@ -397,7 +397,7 @@ impl Supervisor {
         // 2. Fast pre-launch setup: enable TCP timestamps asynchronously without blocking
         if use_winws1 {
             tokio::spawn(async {
-                let _ = tokio::process::Command::new(crate::win32::system32("netsh.exe"))
+                let _ = tokio::process::Command::new(crate::platform::system32("netsh.exe"))
                     .args(["interface", "tcp", "set", "global", "timestamps=enabled"])
                     .creation_flags(0x08000000)
                     .output()
@@ -659,9 +659,9 @@ impl Supervisor {
     }
 
     fn build_flowseal_args(preset_id: &str, bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
-        let settings = crate::win32::settings::load_settings();
-        let is_game = settings.split_tunnel_mode == crate::win32::settings::SplitTunnelMode::GameMode;
-        let is_strict = settings.split_tunnel_mode == crate::win32::settings::SplitTunnelMode::Strict;
+        let settings = crate::platform::settings::load_settings();
+        let is_game = settings.split_tunnel_mode == crate::platform::settings::SplitTunnelMode::GameMode;
+        let is_strict = settings.split_tunnel_mode == crate::platform::settings::SplitTunnelMode::Strict;
 
         let game_tcp = Self::sanitize_port_spec(&settings.game_filter_tcp);
         let game_udp = Self::sanitize_port_spec(&settings.game_filter_udp);

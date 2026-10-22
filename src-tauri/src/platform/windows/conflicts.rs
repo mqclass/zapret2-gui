@@ -25,7 +25,7 @@ use windows::Win32::System::Services::{
 use windows::Win32::System::Threading::{
     OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
-use crate::win32::process::process_image_matches;
+use crate::platform::process::process_image_matches;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -205,11 +205,11 @@ pub fn resolve_all_conflicts_excluding(active_pid: Option<u32>) -> Result<usize,
         if is_service_running(svc_name) {
             let stopped = stop_service_native(svc_name);
             if !stopped {
-                let _ = Command::new(crate::win32::system32("net.exe"))
+                let _ = Command::new(crate::platform::system32("net.exe"))
                     .args(["stop", svc_name, "/y"])
                     .creation_flags(CREATE_NO_WINDOW)
                     .output();
-                let _ = Command::new(crate::win32::system32("sc.exe"))
+                let _ = Command::new(crate::platform::system32("sc.exe"))
                     .args(["stop", svc_name])
                     .creation_flags(CREATE_NO_WINDOW)
                     .output();
@@ -273,11 +273,11 @@ pub fn resolve_all_conflicts_excluding(active_pid: Option<u32>) -> Result<usize,
     // 3. Reset WinDivert driver service state natively and via silent commands
     stop_service_native("WinDivert");
     stop_service_native("WinDivert14");
-    let _ = Command::new(crate::win32::system32("sc.exe"))
+    let _ = Command::new(crate::platform::system32("sc.exe"))
         .args(["stop", "WinDivert"])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
-    let _ = Command::new(crate::win32::system32("sc.exe"))
+    let _ = Command::new(crate::platform::system32("sc.exe"))
         .args(["stop", "WinDivert14"])
         .creation_flags(CREATE_NO_WINDOW)
         .output();

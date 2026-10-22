@@ -11,7 +11,7 @@
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use serde::{Deserialize, Serialize};
-use crate::win32::settings::{load_settings, update_settings};
+use crate::platform::settings::{load_settings, update_settings};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -109,7 +109,7 @@ pub fn get_adapter_and_dns() -> (String, Vec<String>) {
         [string]::Format('{0}::{1}', $alias, $dnsStr)
     "#;
 
-    let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
+    let output = Command::new(crate::platform::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output();
@@ -152,7 +152,7 @@ pub fn get_active_dns_servers(adapter: &str) -> Vec<String> {
         escape_ps(adapter)
     );
 
-    let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
+    let output = Command::new(crate::platform::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .output();
@@ -180,7 +180,7 @@ fn escape_ps(value: &str) -> String {
 /// Runs a PowerShell script silently, returning an error when PowerShell itself
 /// fails to launch or the script exits with a non-zero status.
 fn run_powershell(script: &str) -> Result<(), String> {
-    let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
+    let output = Command::new(crate::platform::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output()
@@ -281,7 +281,7 @@ pub fn check_split_dns_status() -> (bool, Vec<String>) {
         }
     "#;
 
-    let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
+    let output = Command::new(crate::platform::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output();
@@ -346,7 +346,7 @@ pub fn apply_split_dns_nrpt(primary: &str, secondary: &str) -> Result<(), String
         ns_list, ns_servers
     );
 
-    let output = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
+    let output = Command::new(crate::platform::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .output()
@@ -449,7 +449,7 @@ pub fn clear_split_dns_nrpt() -> Result<(), String> {
         }
     "#;
 
-    let _ = Command::new(crate::win32::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
+    let _ = Command::new(crate::platform::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
         .output();
@@ -464,8 +464,8 @@ pub fn get_dns_status() -> Result<DnsStatus, String> {
     let (split_active, split_servers) = check_split_dns_status();
 
     let scope_str = match settings.dns_scope {
-        crate::win32::settings::DnsScope::Split => "split",
-        crate::win32::settings::DnsScope::Full => "full",
+        crate::platform::settings::DnsScope::Split => "split",
+        crate::platform::settings::DnsScope::Full => "full",
     };
 
     Ok(DnsStatus {
@@ -526,7 +526,7 @@ pub fn add_custom_dns(name: &str, primary: &str, secondary: &str) -> Result<DnsS
             .map(|d| d.as_millis())
             .unwrap_or(0)
     );
-    let entry = crate::win32::settings::CustomDnsEntry {
+    let entry = crate::platform::settings::CustomDnsEntry {
         id: id.clone(),
         name: name.to_string(),
         primary: primary.to_string(),
@@ -574,8 +574,8 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
     let providers = get_available_providers();
 
     let effective_scope = match scope {
-        Some("split") => crate::win32::settings::DnsScope::Split,
-        Some("full") => crate::win32::settings::DnsScope::Full,
+        Some("split") => crate::platform::settings::DnsScope::Split,
+        Some("full") => crate::platform::settings::DnsScope::Full,
         _ => settings.dns_scope,
     };
 
@@ -583,7 +583,7 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
         if provider_id == "system" || provider_id == "dhcp" {
             // Reset Split-DNS NRPT rule
             clear_split_dns_nrpt()?;
-            if effective_scope == crate::win32::settings::DnsScope::Full {
+            if effective_scope == crate::platform::settings::DnsScope::Full {
                 // Reset adapter to automatic DHCP assignment only in Full mode
                 reset_adapter_dns(&adapter_esc)?;
             }
@@ -604,11 +604,11 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
                 return Err(format!("Invalid DNS address in settings: {}", target.secondary));
             };
             match effective_scope {
-                crate::win32::settings::DnsScope::Split => {
+                crate::platform::settings::DnsScope::Split => {
                     // In Split mode: NRPT cleanly overlays on top of the adapter without destroying user's static/custom DNS
                     apply_split_dns_nrpt(primary, secondary)
                 }
-                crate::win32::settings::DnsScope::Full => {
+                crate::platform::settings::DnsScope::Full => {
                     // In Full mode: clear any Split NRPT rules and set adapter DNS
                     clear_split_dns_nrpt()?;
                     set_adapter_dns(&adapter_esc, primary, secondary)
@@ -627,7 +627,7 @@ pub fn set_system_dns(provider_id: &str, scope: Option<&str>) -> Result<DnsStatu
     }
 
     // Flush Windows DNS resolver cache immediately and silently
-    let _ = Command::new(crate::win32::system32("ipconfig.exe"))
+    let _ = Command::new(crate::platform::system32("ipconfig.exe"))
         .creation_flags(CREATE_NO_WINDOW)
         .arg("/flushdns")
         .output();

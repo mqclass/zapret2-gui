@@ -41,7 +41,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::engine::managed::ManagedSidecar;
 use crate::engine::supervisor::SupervisorState;
-use crate::win32::settings::{load_settings, save_settings};
+use crate::platform::settings::{load_settings, save_settings};
 
 /// GitHub API endpoint for the latest zapret2-gui release.
 const GITHUB_API_LATEST: &str = "https://api.github.com/repos/mqclass/zapret2-gui/releases/latest";

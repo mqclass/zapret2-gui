@@ -9,8 +9,8 @@
 
 #[path = "../engine/mod.rs"]
 mod engine;
-#[path = "../win32/mod.rs"]
-mod win32;
+#[path = "../platform/mod.rs"]
+mod platform;
 #[path = "../svc_client.rs"]
 mod svc_client;
 #[path = "../svc_ipc.rs"]
@@ -62,7 +62,7 @@ async fn main() {
     // Done BEFORE the single-instance claim: a non-elevated process cannot
     // create a mutex in the Global\ namespace, which would misleadingly
     // report "already running".
-    if let Err(e) = win32::privileges::ensure_elevated() {
+    if let Err(e) = platform::privileges::ensure_elevated() {
         eprintln!("zapret2-svc requires administrator rights: {e}");
         std::process::exit(12);
     }
@@ -90,7 +90,7 @@ async fn main() {
     // Restore the bridge when it was left enabled (best-effort).
     let tgproxy_auto = tgproxy.clone();
     tokio::spawn(async move {
-        let enabled = win32::settings::load_settings().tgproxy_enabled;
+        let enabled = platform::settings::load_settings().tgproxy_enabled;
         if enabled {
             if let Err(e) = tgproxy_auto.start().await {
                 eprintln!("svc: failed to auto-start Telegram bridge: {e}");

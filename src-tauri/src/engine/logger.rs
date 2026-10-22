@@ -97,7 +97,7 @@ impl FileLogger {
     fn harden_log_dir_acl(dir: &Path) {
         let username = std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string());
         let dir_str = dir.to_string_lossy().to_string();
-        let _ = std::process::Command::new(crate::win32::system32("icacls.exe"))
+        let _ = std::process::Command::new(crate::platform::system32("icacls.exe"))
             .args([
                 dir_str.as_str(),
                 "/inheritance:r",
@@ -213,7 +213,7 @@ impl FileLogger {
         let dir = &self.log_dir;
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new(crate::win32::system32("explorer.exe"))
+            std::process::Command::new(crate::platform::system32("explorer.exe"))
                 .arg(dir)
                 .spawn()
                 .map_err(|e| format!("Failed to open Explorer: {}", e))?;

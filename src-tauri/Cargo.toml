@@ -39,7 +39,7 @@ clap = { version = "4", features = ["derive"] }
 # Funnel the bridge library's tracing diagnostics into our log buffer.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["registry"] }
-[dependencies.windows]
+[target.'cfg(windows)'.dependencies.windows]
 version = "0.58"
 features = [
     "Win32_Foundation",
