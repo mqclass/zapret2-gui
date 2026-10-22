@@ -93,10 +93,10 @@ export const ConfigGuideModal: React.FC<ConfigGuideModalProps> = ({
           </div>
 
           {/* Card: zapret2 РФ Ultimate */}
-          <div className="rounded-panel border border-cyan-500/40 bg-cyan-950/20 p-4">
+          <div className="rounded-panel border border-violet-500/40 bg-violet-950/20 p-4">
             <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="h-4 w-4 text-cyan-400" />
-              <h4 className="font-semibold text-cyan-300 text-sm">
+              <Sparkles className="h-4 w-4 text-violet-400" />
+              <h4 className="font-semibold text-violet-300 text-sm">
                 {t.modal.guideUltimateTitle}
               </h4>
             </div>
@@ -104,7 +104,7 @@ export const ConfigGuideModal: React.FC<ConfigGuideModalProps> = ({
               {t.modal.guideUltimateText}
             </p>
             <div className="mt-2.5 flex flex-wrap gap-1.5 font-mono text-[10px]">
-              <span className="rounded-chip bg-cyan-500/20 px-2 py-0.5 text-cyan-300 border border-cyan-500/30">
+              <span className="rounded-chip bg-violet-500/20 px-2 py-0.5 text-violet-300 border border-violet-500/30">
                 winws2.exe v2
               </span>
               <span className="rounded-chip bg-raise px-2 py-0.5 text-ink3 border border-linestrong">
@@ -120,10 +120,10 @@ export const ConfigGuideModal: React.FC<ConfigGuideModalProps> = ({
           </div>
 
           {/* Card 3: zapret2 Lua */}
-          <div className="rounded-panel border border-sky-500/30 bg-sky-950/20 p-4">
+          <div className="rounded-panel border border-fuchsia-500/30 bg-fuchsia-950/20 p-4">
             <div className="flex items-center gap-2 mb-2">
-              <Settings className="h-4 w-4 text-sky-400" />
-              <h4 className="font-semibold text-sky-300 text-sm">
+              <Settings className="h-4 w-4 text-fuchsia-400" />
+              <h4 className="font-semibold text-fuchsia-300 text-sm">
                 {t.modal.guideZapret2Title}
               </h4>
             </div>
@@ -131,7 +131,7 @@ export const ConfigGuideModal: React.FC<ConfigGuideModalProps> = ({
               {t.modal.guideZapret2Text}
             </p>
             <div className="mt-2.5 flex flex-wrap gap-1.5 font-mono text-[10px]">
-              <span className="rounded-chip bg-sky-500/20 px-2 py-0.5 text-sky-300 border border-sky-500/30">
+              <span className="rounded-chip bg-fuchsia-500/20 px-2 py-0.5 text-fuchsia-300 border border-fuchsia-500/30">
                 winws2.exe v2
               </span>
               <span className="rounded-chip bg-raise px-2 py-0.5 text-ink3 border border-linestrong">

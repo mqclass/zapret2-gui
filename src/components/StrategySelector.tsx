@@ -321,7 +321,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                             isActive
                               ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
                               : isSelected
-                              ? "bg-cyan-500/15 border-cyan-500/30 text-cyan-400"
+                              ? "bg-violet-500/15 border-violet-500/30 text-violet-400"
                               : isCustom
                               ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
                               : "bg-raise border-line text-ink4"
@@ -335,7 +335,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                               {strat.name}
                             </span>
                             {isUltimate && (
-                              <span className="flex items-center gap-0.5 rounded-chip bg-cyan-500/20 border border-cyan-500/40 px-1.5 py-0.5 text-[9px] font-bold text-cyan-300 shrink-0">
+                              <span className="flex items-center gap-0.5 rounded-chip bg-violet-500/20 border border-violet-500/40 px-1.5 py-0.5 text-[9px] font-bold text-violet-300 shrink-0">
                                 <Sparkles className="h-2.5 w-2.5" />
                                 <span>{t.strategies.flagshipBadge}</span>
                               </span>
@@ -355,7 +355,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                               className={`rounded-chip px-1.5 py-0.5 text-[9px] font-mono font-medium shrink-0 ${
                                 isFlowseal
                                   ? "bg-indigo-500/15 border border-indigo-500/30 text-indigo-300"
-                                  : "bg-sky-500/15 border border-sky-500/30 text-sky-300"
+                                  : "bg-fuchsia-500/15 border border-fuchsia-500/30 text-fuchsia-300"
                               }`}
                             >
                               {isFlowseal ? t.strategies.engineFlowseal : t.strategies.engineZapret2}
@@ -379,7 +379,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                           </span>
                         )}
                         {!isActive && isSelected && (
-                          <div className="flex h-4 w-4 items-center justify-center rounded-full bg-cyan-500 text-ink">
+                          <div className="flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-ink">
                             <Check className="h-2.5 w-2.5" />
                           </div>
                         )}
@@ -397,7 +397,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                             type="button"
                             onClick={(e) => handleEditCustom(strat, e)}
                             disabled={isTransitioning}
-                            className="p-1.5 rounded-control text-ink4 hover:text-cyan-300 hover:bg-raise transition-colors cursor-pointer"
+                            className="p-1.5 rounded-control text-ink4 hover:text-violet-300 hover:bg-raise transition-colors cursor-pointer"
                             title={t.strategies.editCustom}
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -477,7 +477,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                           disabled={isTransitioning}
                           className={`flex items-center gap-1.5 rounded-panel px-3 py-1.5 text-xs font-bold transition-all active:scale-95 cursor-pointer disabled:opacity-50 ${
                             isSelected
-                              ? "bg-accent-fill hover:bg-accent text-ink shadow-md shadow-blue-600/25"
+                              ? "bg-accent-fill hover:bg-accent text-ink shadow-md shadow-violet-600/25"
                               : "bg-raise hover:bg-hovert text-ink2 border border-line"
                           }`}
                           title={t.strategies.cardStart}

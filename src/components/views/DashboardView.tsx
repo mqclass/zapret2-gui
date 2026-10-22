@@ -368,11 +368,11 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             className="group cursor-pointer t-card p-4 hover-lift"
           >
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-cyan-400">
+              <div className="flex items-center gap-2 text-fuchsia-400">
                 <Globe2 className="h-4 w-4" />
                 <span className="text-xs font-semibold">{t.dashboard.hubDns}</span>
               </div>
-              <ChevronRight className="h-4 w-4 text-ink5 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition-all" />
+              <ChevronRight className="h-4 w-4 text-ink5 group-hover:text-fuchsia-400 group-hover:translate-x-0.5 transition-all" />
             </div>
             <p className="text-[11px] text-ink4 leading-relaxed">
               {t.dashboard.hubDnsDesc}

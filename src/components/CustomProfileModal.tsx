@@ -235,7 +235,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
               <label
                 className={`flex items-start gap-3 rounded-panel border p-3 cursor-pointer transition-all ${
                   engine === "winws2"
-                    ? "border-sky-500/70 bg-sky-500/10 text-ink"
+                    ? "border-violet-500/70 bg-violet-500/10 text-ink"
                     : "border-raise bg-cardin/60 text-ink4 hover:border-linestrong"
                 }`}
               >
@@ -245,10 +245,10 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                   value="winws2"
                   checked={engine === "winws2"}
                   onChange={() => setEngine("winws2")}
-                  className="mt-0.5 text-sky-500"
+                  className="mt-0.5 text-violet-500"
                 />
                 <div>
-                  <div className="text-xs font-semibold text-sky-300">
+                  <div className="text-xs font-semibold text-violet-300">
                     winws2.exe (zapret2 / v2)
                   </div>
                   <div className="text-[11px] text-ink4 mt-0.5 leading-snug">
@@ -350,27 +350,27 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
               {showCheatsheet && (
                 <div className="mt-2.5 pt-2.5 border-t border-raise/80 space-y-2 text-[11px] text-ink3 leading-relaxed">
                   <div>
-                    <span className="font-mono text-cyan-300 font-semibold">--filter-tcp=80,443 / --filter-udp=443,50000-50100</span>
+                    <span className="font-mono text-violet-300 font-semibold">--filter-tcp=80,443 / --filter-udp=443,50000-50100</span>
                     <p className="text-ink4">{t.modal.cheat1}</p>
                   </div>
                   <div>
-                    <span className="font-mono text-cyan-300 font-semibold">--hostlist="lists/list-general.txt"</span>
+                    <span className="font-mono text-violet-300 font-semibold">--hostlist="lists/list-general.txt"</span>
                     <p className="text-ink4">{t.modal.cheat2}</p>
                   </div>
                   <div>
-                    <span className="font-mono text-cyan-300 font-semibold">--dpi-desync=fake,multisplit</span>
+                    <span className="font-mono text-violet-300 font-semibold">--dpi-desync=fake,multisplit</span>
                     <p className="text-ink4"><span className="text-ink font-medium">fake</span> {t.modal.cheat3a} <span className="text-ink font-medium">multisplit</span> {t.modal.cheat3b}</p>
                   </div>
                   <div>
-                    <span className="font-mono text-cyan-300 font-semibold">--dpi-desync-split-seqovl=681</span>
+                    <span className="font-mono text-violet-300 font-semibold">--dpi-desync-split-seqovl=681</span>
                     <p className="text-ink4">{t.modal.cheat4}</p>
                   </div>
                   <div>
-                    <span className="font-mono text-cyan-300 font-semibold">--dpi-desync-fooling=ts</span>
+                    <span className="font-mono text-violet-300 font-semibold">--dpi-desync-fooling=ts</span>
                     <p className="text-ink4">{t.modal.cheat5}</p>
                   </div>
                   <div>
-                    <span className="font-mono text-cyan-300 font-semibold">--new</span>
+                    <span className="font-mono text-violet-300 font-semibold">--new</span>
                     <p className="text-ink4">{t.modal.cheat6}</p>
                   </div>
                 </div>

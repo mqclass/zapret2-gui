@@ -131,32 +131,12 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
         onMouseDown={handleDragMouseDown}
         className="relative z-50 shrink-0 flex items-center justify-between gap-3 select-none h-14 pl-5 pr-2 border-b t-divider rounded-t-[var(--r-card)]"
       >
-        <div className="flex items-center gap-4">
-          <div className="traffic-lights">
-            <span role="button" tabIndex={0} className="traffic-light tl-close"
-              onClick={handleClose}
-              onKeyDown={(e) => e.key === "Enter" && handleClose()}
-              title={t.header.closeTitle}>
-              <span className="glyph">×</span>
-            </span>
-            <span role="button" tabIndex={0} className="traffic-light tl-min"
-              onClick={handleMinimize}
-              onKeyDown={(e) => e.key === "Enter" && handleMinimize()}
-              title={t.header.minimizeTitle}>
-              <span className="glyph">−</span>
-            </span>
-            <span role="button" tabIndex={0} className="traffic-light tl-max"
-              onClick={handleToggleMaximize}
-              onKeyDown={(e) => e.key === "Enter" && handleToggleMaximize()}
-              title={t.header.maximizeTitle}>
-              <span className="glyph">+</span>
-            </span>
-          </div>
-          <div data-tauri-drag-region onDoubleClick={handleToggleMaximize}>
-            <h2 data-tauri-drag-region className="text-sm font-semibold tracking-tight text-ink leading-tight">
+        <div className="flex items-center gap-4 min-w-0">
+          <div data-tauri-drag-region onDoubleClick={handleToggleMaximize} className="min-w-0">
+            <h2 data-tauri-drag-region title={meta.title} className="text-sm font-semibold tracking-tight text-ink leading-tight truncate">
               {meta.title}
             </h2>
-            <p data-tauri-drag-region className="text-[11px] text-ink4 font-normal">
+            <p data-tauri-drag-region title={meta.subtitle} className="text-[11px] text-ink4 font-normal truncate">
               {meta.subtitle}
             </p>
           </div>
@@ -262,6 +242,35 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+          <div className="ml-1 flex items-center gap-0.5 border-l border-line pl-2">
+            <button
+              type="button"
+              onClick={handleMinimize}
+              title={t.header.minimizeTitle}
+              aria-label={t.header.minimizeTitle}
+              className="flex h-8 w-9 items-center justify-center rounded-control text-ink3 hover:bg-hovert hover:text-ink transition-colors cursor-pointer"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleMaximize}
+              title={t.header.maximizeTitle}
+              aria-label={t.header.maximizeTitle}
+              className="flex h-8 w-9 items-center justify-center rounded-control text-ink3 hover:bg-hovert hover:text-ink transition-colors cursor-pointer"
+            >
+              <Square className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={handleClose}
+              title={t.header.closeTitle}
+              aria-label={t.header.closeTitle}
+              className="flex h-8 w-9 items-center justify-center rounded-control text-ink3 hover:bg-rose-500 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </header>

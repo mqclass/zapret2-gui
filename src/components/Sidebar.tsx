@@ -109,7 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
           className="p-4 border-b t-divider cursor-default"
         >
           <div data-tauri-drag-region className="flex items-center gap-3">
-            <div className="relative flex h-9 w-9 items-center justify-center rounded-panel bg-raise border border-line">
+            <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-raise border border-line">
               <ZapretLogo className="h-5 w-5" glow={isRunning} />
               {/* Status dot */}
               <span

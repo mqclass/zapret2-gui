@@ -974,9 +974,9 @@ const AppContent: React.FC = () => {
       {/* Admin gate: shown when the app runs without Administrator privileges */}
       {showAdminGate && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-[#141821] p-6 shadow-2xl">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-card p-6 shadow-2xl">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10">
                 <ShieldAlert className="h-5 w-5 text-amber-400" />
               </div>
               <h2 className="text-base font-bold text-white">{t.adminGate.title}</h2>

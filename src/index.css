@@ -17,33 +17,33 @@
 
 :root,
 [data-theme="macos"] {
-  /* ── macOS glassmorphism ─────────────────────────────── */
-  --c-app: 5 8 17;
-  --c-sidebar: 20 28 48;
-  --c-card: 26 36 60;
-  --c-cardin: 15 21 37;
-  --c-raise: 32 43 70;
-  --c-hovert: 40 53 84;
-  --c-overlay: rgba(4, 6, 13, 0.68);
+  /* ── Violet-black glass ──────────────────────────────── */
+  --c-app: 9 7 15;
+  --c-sidebar: 17 13 28;
+  --c-card: 23 18 38;
+  --c-cardin: 13 10 22;
+  --c-raise: 30 24 48;
+  --c-hovert: 39 31 62;
+  --c-overlay: rgba(5, 3, 10, 0.7);
 
   --c-line: 255 255 255;
   --c-linestrong: 255 255 255;
 
   --c-ink: 246 248 253;
   --c-ink2: 221 228 240;
-  --c-ink3: 185 195 214;
-  --c-ink4: 142 152 176;
-  --c-ink5: 94 103 126;
+  --c-ink3: 192 186 216;
+  --c-ink4: 150 142 180;
+  --c-ink5: 104 96 130;
 
-  --c-accent: 90 163 255;
-  --c-accent-soft: 174 208 255;
-  --c-accent-fill: 10 132 255;
-  --c-accent-fill-hover: 51 149 255;
+  --c-accent: 167 139 250;
+  --c-accent-soft: 196 181 253;
+  --c-accent-fill: 139 92 246;
+  --c-accent-fill-hover: 167 139 250;
   --c-accent-contrast: 255 255 255;
-  --c-accent-wash: rgba(10, 132, 255, 0.16);
-  --c-accent-line: rgba(120, 180, 255, 0.35);
-  /* Duotone partner for gradients (violet) */
-  --c-accent2: 139 124 255;
+  --c-accent-wash: rgba(139, 92, 246, 0.18);
+  --c-accent-line: rgba(167, 139, 250, 0.38);
+  /* Duotone partner for gradients (fuchsia) */
+  --c-accent2: 232 121 249;
 
   --c-danger-fill: 255 69 58;
   --c-danger-fill-hover: 255 110 100;
@@ -67,15 +67,15 @@
   /* Frosted glass surfaces — Cupertino vibrancy */
   --glass-blur: blur(28px) saturate(190%);
   --glass-blur-sm: blur(18px) saturate(160%);
-  --glass-sidebar-bg: rgba(30, 43, 72, 0.58);
-  --glass-card-bg: rgba(25, 35, 58, 0.5);
-  --glass-bar-bg: rgba(19, 27, 46, 0.55);
+  --glass-sidebar-bg: rgba(26, 20, 44, 0.58);
+  --glass-card-bg: rgba(22, 17, 38, 0.5);
+  --glass-bar-bg: rgba(16, 12, 28, 0.55);
   --glass-inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.09);
 
   --shadow-card: 0 18px 50px rgba(0, 0, 0, 0.45), var(--glass-inset-hi);
   --shadow-pop: 0 24px 70px rgba(0, 0, 0, 0.55), var(--glass-inset-hi);
-  --shadow-glow: 0 0 0 1px rgba(120, 180, 255, 0.14),
-    0 0 34px rgba(10, 132, 255, 0.22);
+  --shadow-glow: 0 0 0 1px rgba(167, 139, 250, 0.16),
+    0 0 34px rgba(139, 92, 246, 0.25);
 
   --line-alpha: 0.09;
   --line-strong-alpha: 0.16;
@@ -136,9 +136,9 @@
   /* macOS aurora: slow-drifting blue/violet ambient glows */
   [data-theme="macos"] .app-bg {
     background-image:
-      radial-gradient(1000px 560px at 8% -10%, rgba(10, 132, 255, 0.22), transparent 60%),
-      radial-gradient(880px 620px at 105% 115%, rgba(124, 93, 250, 0.2), transparent 62%),
-      radial-gradient(700px 420px at 55% 45%, rgba(10, 132, 255, 0.07), transparent 65%);
+      radial-gradient(1000px 560px at 8% -10%, rgba(139, 92, 246, 0.26), transparent 60%),
+      radial-gradient(880px 620px at 105% 115%, rgba(217, 70, 239, 0.16), transparent 62%),
+      radial-gradient(700px 420px at 55% 45%, rgba(139, 92, 246, 0.08), transparent 65%);
     background-attachment: fixed;
   }
   [data-theme="macos"] .app-bg::before {
@@ -147,8 +147,8 @@
     inset: 0;
     pointer-events: none;
     background-image:
-      radial-gradient(900px 500px at 85% -5%, rgba(90, 200, 250, 0.14), transparent 60%),
-      radial-gradient(760px 540px at -5% 100%, rgba(10, 132, 255, 0.16), transparent 60%);
+      radial-gradient(900px 500px at 85% -5%, rgba(232, 121, 249, 0.13), transparent 60%),
+      radial-gradient(760px 540px at -5% 100%, rgba(139, 92, 246, 0.18), transparent 60%);
     animation: aurora-drift 26s ease-in-out infinite alternate;
   }
   /* Engine-on ambience: when the bypass runs, the backdrop warms up with an
@@ -244,8 +244,8 @@
   }
   .t-btn-primary:hover:not(:disabled) {
     background: rgb(var(--c-accent-fill-hover));
-    box-shadow: 0 0 0 1px rgba(120, 180, 255, 0.2),
-      0 0 40px rgba(10, 132, 255, 0.35);
+    box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.22),
+      0 0 40px rgba(139, 92, 246, 0.38);
   }
   .t-btn-danger {
     background: rgb(var(--c-danger-fill));
@@ -405,7 +405,7 @@
     background: linear-gradient(
       135deg,
       rgba(255, 255, 255, 0.12),
-      rgba(120, 180, 255, 0.07)
+      rgba(167, 139, 250, 0.08)
     );
     border-color: rgba(255, 255, 255, 0.12);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12),
@@ -580,41 +580,6 @@
   .hover-lift:hover {
     transform: translateY(-2px);
   }
-
-  /* ══ macOS traffic lights ════════════════════════════ */
-  [data-theme="macos"] .traffic-lights {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-  [data-theme="macos"] .traffic-light {
-    width: 12px;
-    height: 12px;
-    border-radius: 9999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 1;
-    color: rgba(0, 0, 0, 0.55);
-    cursor: pointer;
-    border: 0.5px solid rgba(0, 0, 0, 0.12);
-    transition: transform 0.15s ease;
-  }
-  [data-theme="macos"] .traffic-light:hover {
-    transform: scale(1.12);
-  }
-  [data-theme="macos"] .traffic-light .glyph {
-    opacity: 0;
-    transition: opacity 0.12s ease;
-  }
-  [data-theme="macos"] .traffic-lights:hover .glyph {
-    opacity: 1;
-  }
-  [data-theme="macos"] .tl-close { background: #ff5f56; }
-  [data-theme="macos"] .tl-min { background: #ffbd2e; }
-  [data-theme="macos"] .tl-max { background: #27c93f; }
 
   /* ══ Sparkline ══════════════════════════════════════ */
   .sparkline {

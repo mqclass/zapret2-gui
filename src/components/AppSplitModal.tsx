@@ -110,7 +110,7 @@ export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose })
         {/* Header */}
         <div className="flex items-start justify-between border-b border-raise p-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-panel bg-accent-wash border border-accent-line text-accent">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-panel bg-accent-wash border border-accent-line text-accent">
               <AppWindow className="h-5 w-5" />
             </div>
             <div>
