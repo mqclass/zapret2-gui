@@ -602,8 +602,8 @@ const AppContent: React.FC = () => {
     setStatus((prev) => ({ ...prev, state: "starting" }));
     try {
       await invoke("start_supervisor", {
-        strategy_id: selectedStrategyId || null,
-        custom_args: customArgs?.length ? customArgs : null,
+        strategyId: selectedStrategyId || null,
+        customArgs: customArgs?.length ? customArgs : null,
       });
       const stratName =
         strategies.find((s) => s.id === selectedStrategyId)?.name || selectedStrategyId || "";
@@ -637,8 +637,8 @@ const AppContent: React.FC = () => {
     setStatus((prev) => ({ ...prev, state: "starting" }));
     try {
       await invoke("start_supervisor", {
-        strategy_id: strategyId,
-        custom_args: null,
+        strategyId: strategyId,
+        customArgs: null,
       });
       const stratName = strategies.find((s) => s.id === strategyId)?.name || strategyId;
       notifyUser(

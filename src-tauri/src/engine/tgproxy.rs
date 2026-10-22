@@ -508,6 +508,18 @@ impl TgProxyManager {
     /// Never holds a lock across `.await` — the future must stay `Send` for
     /// Tauri commands.
     pub async fn stop(&self) -> Result<(), TgProxyError> {
+        self.stop_impl(true).await
+    }
+
+    /// Stops the bridge WITHOUT clearing the persisted enabled-intent.
+    /// Used when the bridge migrates into the svc: the intent stays on, the
+    /// svc copy autostarts from the same flag, and the user's toggle is not
+    /// silently flipped by an internal handover.
+    pub async fn stop_transient(&self) -> Result<(), TgProxyError> {
+        self.stop_impl(false).await
+    }
+
+    async fn stop_impl(&self, persist_intent: bool) -> Result<(), TgProxyError> {
         let _lifecycle_guard = self.lifecycle.lock().await;
         {
             let state = self.state.read();
@@ -526,8 +538,17 @@ impl TgProxyManager {
             let _ = tx.send(());
         }
         let task = self.bridge_task.lock().take();
-        if let Some(task) = task {
-            let _ = task.await;
+        if let Some(mut task) = task {
+            // A wedged bridge task must not hang stop() (and with it the svc
+            // shutdown and update install): give it a bounded grace period,
+            // then abort.
+            if tokio::time::timeout(std::time::Duration::from_secs(5), &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+                let _ = task.await;
+            }
         }
 
         *self.start_time.write() = None;
@@ -535,7 +556,9 @@ impl TgProxyManager {
         *self.state.write() = SupervisorState::Stopped;
         self.emit_state(SupervisorState::Stopped);
 
-        let _ = crate::win32::settings::update_settings(|s| s.tgproxy_enabled = false);
+        if persist_intent {
+            let _ = crate::win32::settings::update_settings(|s| s.tgproxy_enabled = false);
+        }
         self.supervisor.log("info", "Telegram-мост остановлен");
         Ok(())
     }

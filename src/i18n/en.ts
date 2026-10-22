@@ -655,6 +655,7 @@ export const en: Translations = {
     apply: "Apply",
     configure: "Configure",
     selectedCount: "Selected: {n}",
+    devNotice: "This feature is still in development: your app selection is saved, but traffic is not split yet. These settings do not affect the bypass for now.",
   },
   dnsSplit: {
     title: "Split-DNS by domains",

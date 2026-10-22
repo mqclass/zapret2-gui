@@ -158,9 +158,16 @@ if ($NeedsFlowseal) {
 
     $FoundLists = Get-ChildItem -Path $FsDir -Recurse -Directory -Filter "lists" | Select-Object -First 1
     if ($FoundLists) {
+        # The repository's lists are curated (extra domains, fixes) and are the
+        # source of truth: only fill in files that are missing locally, never
+        # overwrite tracked lists with the upstream Flowseal snapshot.
         Get-ChildItem -Path $FoundLists.FullName | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination $ListsDir -Force
-            Copy-Item -Path $_.FullName -Destination $BinListsDir -Force
+            foreach ($DestDir in @($ListsDir, $BinListsDir)) {
+                $Target = Join-Path $DestDir $_.Name
+                if (-not (Test-Path $Target)) {
+                    Copy-Item -Path $_.FullName -Destination $DestDir
+                }
+            }
         }
     }
 

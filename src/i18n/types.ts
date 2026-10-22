@@ -641,6 +641,7 @@ export interface Translations {
     apply: string;
     configure: string;
     selectedCount: string;
+    devNotice: string;
   };
   dnsSplit: {
     title: string;

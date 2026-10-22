@@ -10,6 +10,7 @@ import {
   ShieldOff,
   Shield,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import { useI18n } from "../i18n";
 
@@ -124,6 +125,14 @@ export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose })
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+
+        {/* Honest status: config persists, traffic filtering is not wired yet */}
+        <div className="border-b border-raise px-5 pt-4">
+          <div className="flex items-start gap-2 rounded-panel border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[11px] leading-relaxed text-amber-300">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+            <span>{t.appSplit.devNotice}</span>
+          </div>
         </div>
 
         {/* Mode selector */}

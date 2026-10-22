@@ -96,6 +96,10 @@ async fn main() {
                             let client = std::sync::Arc::new(client);
                             *backend.write() =
                                 crate::svc_client::SupervisorBackend::Remote(client.clone());
+                            // The bridge follows into the svc; stop any
+                            // in-process copy first so two never coexist.
+                            let old_tgproxy = tgproxy_backend.read().clone();
+                            old_tgproxy.stop_local_for_migration().await;
                             *tgproxy_backend.write() =
                                 crate::svc_client::TgproxyBackend::Remote(client);
                             tauri::async_runtime::spawn(
@@ -148,9 +152,16 @@ async fn main() {
 
                     // Migrate to the detached svc when its binary is present.
                     // Bind the clone first: parking_lot guard is not Send.
+                    // A locally running bridge is stopped first (transiently):
+                    // the svc autostarts its own copy and must find the port
+                    // free; the local copy is re-checked after the swap too,
+                    // in case the 3s bridge autostart fired mid-attach.
                     let backend_snapshot = backend_auto.read().clone();
                     if crate::svc_client::backend_needs_attach(&backend_snapshot).await
                     {
+                        let old_tgproxy = tgproxy_auto.read().clone();
+                        let bridge_was_running =
+                            old_tgproxy.stop_local_for_migration().await;
                         if let Ok(client) = crate::svc_client::ensure_svc_attached(
                             std::time::Duration::from_secs(10),
                         )
@@ -161,10 +172,13 @@ async fn main() {
                             // The bridge follows the engine into the svc.
                             *tgproxy_auto.write() =
                                 crate::svc_client::TgproxyBackend::Remote(client);
+                            old_tgproxy.stop_local_for_migration().await;
                             let h = app_auto.clone();
                             tokio::spawn(async move {
                                 crate::svc_client::SvcClient::forward_events(h).await;
                             });
+                        } else if bridge_was_running {
+                            old_tgproxy.restart_local().await;
                         }
                     }
                     let b = backend_auto.read().clone();
@@ -228,6 +242,9 @@ async fn main() {
                                 let backend_snapshot = backend.read().clone();
                                 if crate::svc_client::backend_needs_attach(&backend_snapshot).await
                                 {
+                                    let old_tgproxy = tgproxy_backend.read().clone();
+                                    let bridge_was_running =
+                                        old_tgproxy.stop_local_for_migration().await;
                                     if let Ok(client) =
                                         crate::svc_client::ensure_svc_attached(
                                             std::time::Duration::from_secs(10),
@@ -239,9 +256,12 @@ async fn main() {
                                         // The bridge follows the engine into the svc.
                                         *tgproxy_backend.write() =
                                             crate::svc_client::TgproxyBackend::Remote(client);
+                                        old_tgproxy.stop_local_for_migration().await;
                                         tokio::spawn(
                                             crate::svc_client::SvcClient::forward_events(h),
                                         );
+                                    } else if bridge_was_running {
+                                        old_tgproxy.restart_local().await;
                                     }
                                 }
                                 let b = backend.read().clone();

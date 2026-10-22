@@ -71,7 +71,7 @@ export const TransportsSection: React.FC = React.memo(() => {
       setSelectingId(id);
       setError(null);
       try {
-        await invoke("set_active_transport", { transport_id: id });
+        await invoke("set_active_transport", { transportId: id });
         setActiveId(id === "direct" ? null : id);
         const view = transports?.find((v) => v.id === id);
         const name = view ? transportName(t, view) : id;

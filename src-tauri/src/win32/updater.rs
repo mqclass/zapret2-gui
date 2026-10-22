@@ -713,11 +713,6 @@ pub fn install_update(
 ) -> Result<(), String> {
     check_engines_stopped(engine_state, sidecars)?;
 
-    // Stop a running svc before the file swap: its exe cannot be replaced
-    // while the process is alive, and an old svc would otherwise keep
-    // serving the new GUI from the pipe (version skew).
-    crate::svc_client::shutdown_svc_blocking();
-
     let staged = STAGED_UPDATE
         .write()
         .take()
@@ -797,6 +792,13 @@ pub fn install_update(
     // Narrow the TOCTOU window on the engine state: re-check immediately
     // before the first rename of the swap.
     check_engines_stopped(engine_state, sidecars)?;
+
+    // Stop a running svc before the file swap: its exe cannot be replaced
+    // while the process is alive, and an old svc would otherwise keep
+    // serving the new GUI from the pipe (version skew). This happens only
+    // after every validation above has passed, so a refused install never
+    // kills a healthy svc (and the bypass it serves) for nothing.
+    crate::svc_client::shutdown_svc_blocking();
 
     let backup_name = match install_dir.file_name() {
         Some(n) => format!("{}.bak", n.to_string_lossy()),

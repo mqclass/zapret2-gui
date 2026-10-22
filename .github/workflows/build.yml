@@ -63,7 +63,7 @@ jobs:
           Copy-Item -Path ./lists -Destination "$pkgDir/lists" -Recurse -Force
           if (Test-Path "strategies") { Copy-Item -Path ./strategies -Destination "$pkgDir/strategies" -Recurse -Force }
           if (Test-Path "configs") { Copy-Item -Path ./configs -Destination "$pkgDir/configs" -Recurse -Force }
-          if (Test-Path "docs") { Copy-Item -Path ./docs -Destination "$pkgDir/docs" -Recurse -Force }
+          if (Test-Path "docs") { Copy-Item -Path ./docs -Destination "$pkgDir/docs" -Recurse -Force; Get-ChildItem "$pkgDir/docs" -Filter "BUGS_TO_FIX*" | Remove-Item -Force; Get-ChildItem "$pkgDir/docs" -Filter "BUG_HUNTER*" | Remove-Item -Force; Remove-Item "$pkgDir/docs/UI_REDESIGN_GUIDE.md" -Force -ErrorAction SilentlyContinue }
           
           # Root helper binaries
           if (Test-Path "bin/WinDivert.dll") { Copy-Item "bin/WinDivert.dll" "$pkgDir/" -Force }

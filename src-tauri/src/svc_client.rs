@@ -23,6 +23,11 @@ use crate::svc_ipc::{ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION, S
 /// through a mutex: one in-flight request at a time.
 pub struct SvcClient {
     io: Mutex<BufReader<tokio::net::windows::named_pipe::NamedPipeClient>>,
+    /// Set when a roundtrip times out: the connection may still deliver the
+    /// late response, which would be misread as the answer to the NEXT
+    /// request. A desynchronized client refuses further roundtrips instead
+    /// of corrupting the protocol; recovery is a fresh attach.
+    desynced: AtomicBool,
     /// Last successfully fetched status + when. Returned on transient pipe
     /// failures so the UI doesn't fabricate an "Error" state (which prompts
     /// users to hammer the start button). Expires after 30s so a dead svc
@@ -35,6 +40,7 @@ impl SvcClient {
         let client = ClientOptions::new().open(SVC_PIPE_NAME)?;
         Ok(Self {
             io: Mutex::new(BufReader::new(client)),
+            desynced: AtomicBool::new(false),
             last_good: Mutex::new(None),
         })
     }
@@ -61,8 +67,52 @@ impl SvcClient {
         }
     }
 
+    /// One request/response exchange with the svc.
+    ///
+    /// The exchange itself is bounded by a 30s timeout (see roundtrip_io):
+    /// without it a single wedged svc operation would hold the io mutex
+    /// forever and block every command and status poll queued behind it.
+    /// Waiting for the mutex is NOT part of the timeout, so a caller queued
+    /// behind a slow-but-healthy operation is never failed (or worse, marks
+    /// the connection desynchronized) for an exchange it never made.
     async fn roundtrip(&self, msg: &ClientMessage) -> io::Result<ServerMessage> {
+        if self.desynced.load(Ordering::SeqCst) {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "svc connection desynchronized after a timeout; re-attach required",
+            ));
+        }
+        self.roundtrip_io(msg).await
+    }
+
+    async fn roundtrip_io(&self, msg: &ClientMessage) -> io::Result<ServerMessage> {
         let mut io = self.io.lock().await;
+        // The timer starts only now that the lock is held and the exchange
+        // is really ours: on expiry we HAVE written a request whose reply
+        // may still arrive late and be misread as the next response, so the
+        // connection is genuinely desynchronized and gets poisoned.
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            self.exchange(&mut io, msg),
+        )
+        .await
+        {
+            Ok(res) => res,
+            Err(_) => {
+                self.desynced.store(true, Ordering::SeqCst);
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "svc did not answer within 30s",
+                ))
+            }
+        }
+    }
+
+    async fn exchange(
+        &self,
+        io: &mut BufReader<tokio::net::windows::named_pipe::NamedPipeClient>,
+        msg: &ClientMessage,
+    ) -> io::Result<ServerMessage> {
         let mut line = serde_json::to_string(msg)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         line.push('\n');
@@ -424,6 +474,35 @@ pub enum TgproxyBackend {
 }
 
 impl TgproxyBackend {
+    /// Ahead of a migration into the svc: if the bridge currently runs
+    /// in-process, stop it transiently (persisted enabled-intent untouched).
+    /// Two bridges must never coexist: the svc autostarts its own copy from
+    /// the persisted flag the moment it spawns, and if the local listener
+    /// still holds the port, the svc copy is pushed to a fallback port and
+    /// the local one becomes invisible and unmanageable. Returns true when
+    /// a running bridge was stopped, so the caller can restart it locally
+    /// if the migration does not happen after all.
+    pub async fn stop_local_for_migration(&self) -> bool {
+        if let Self::Local(m) = self {
+            let running = !matches!(
+                m.get_status().state,
+                crate::engine::SupervisorState::Stopped | crate::engine::SupervisorState::Error
+            );
+            if running {
+                let _ = m.stop_transient().await;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Restarts the in-process bridge after a migration that fell through.
+    pub async fn restart_local(&self) {
+        if let Self::Local(m) = self {
+            let _ = m.clone().start().await;
+        }
+    }
+
     pub async fn get_status(&self) -> TgProxyStatus {
         match self {
             Self::Local(m) => m.get_status(),

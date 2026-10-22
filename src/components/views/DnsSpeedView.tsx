@@ -42,7 +42,6 @@ export const DnsSpeedView: React.FC = React.memo(() => {
 
   // Speedtest State
   const [isSpeedRunning, setIsSpeedRunning] = useState<boolean>(false);
-  const [speedProgress, setSpeedProgress] = useState<number>(0);
   const [speedResult, setSpeedResult] = useState<SpeedtestResult | null>(null);
   const [speedError, setSpeedError] = useState<string | null>(null);
 
@@ -188,7 +187,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
     const targetScope = scopeToUse || dnsScope;
     try {
       const updated = await invoke<DnsStatus>("set_system_dns", {
-        provider_id: providerId,
+        providerId: providerId,
         scope: targetScope,
       });
       setDnsStatus(updated);
@@ -260,26 +259,16 @@ export const DnsSpeedView: React.FC = React.memo(() => {
 
   const handleStartSpeedtest = async () => {
     setIsSpeedRunning(true);
-    setSpeedProgress(15);
     setSpeedError(null);
     setSpeedResult(null);
 
-    const interval = setInterval(() => {
-      setSpeedProgress((prev) => {
-        if (prev >= 90) return prev;
-        return prev + Math.floor(Math.random() * 15) + 5;
-      });
-    }, 350);
-
     try {
       const res = await invoke<SpeedtestResult>("benchmark_youtube_speed");
-      setSpeedProgress(100);
       setSpeedResult(res);
     } catch (err: any) {
       console.error("YouTube speedtest failed:", err);
       setSpeedError(typeof err === "string" ? err : JSON.stringify(err));
     } finally {
-      clearInterval(interval);
       setIsSpeedRunning(false);
     }
   };
@@ -751,12 +740,9 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                 <span className="text-xs font-medium text-ink3">
                   {t.speedtest.measuringNote}
                 </span>
-                {/* Progress bar */}
+                {/* Indeterminate progress: the measurement has no honest % */}
                 <div className="w-56 h-1.5 bg-hovert rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-red-500 transition-all duration-300 rounded-full"
-                    style={{ width: `${speedProgress}%` }}
-                  />
+                  <div className="h-full w-full bg-red-500/70 animate-pulse rounded-full" />
                 </div>
               </div>
             ) : speedResult ? (

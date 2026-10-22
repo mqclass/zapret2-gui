@@ -288,12 +288,40 @@ fn strip_section(content: &str) -> (String, String) {
     (content[..begin].to_string(), after.to_string())
 }
 
+/// Decodes hosts bytes without loss. Hosts files on Russian Windows are
+/// often UTF-8 or cp1251 (Notepad's "ANSI"); a lossy UTF-8 decode would
+/// mangle the user's Cyrillic comments on the first smart-hosts write, so
+/// fall back to a full cp1251 decode when strict UTF-8 fails.
+fn decode_hosts_bytes(bytes: &[u8]) -> String {
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+    bytes.iter().map(|&b| cp1251_char(b)).collect()
+}
+
+fn cp1251_char(b: u8) -> char {
+    match b {
+        0x00..=0x7F => b as char,
+        // А..я occupy 0xC0..=0xFF contiguously in cp1251.
+        0xC0..=0xFF => char::from_u32(0x0410 + (b as u32 - 0xC0)).unwrap_or('\u{FFFD}'),
+        _ => CP1251_HIGH[(b - 0x80) as usize],
+    }
+}
+
+/// cp1251 mapping for bytes 0x80..=0xBF (punctuation and extra letters).
+const CP1251_HIGH: [char; 64] = [
+    'Ђ', 'Ѓ', '‚', 'ѓ', '„', '…', '†', '‡', '€', '‰', 'Љ', '‹', 'Њ', 'Ќ', 'Ћ', 'Џ',
+    'ђ', '‘', '’', '“', '”', '•', '–', '—', '\u{FFFD}', '™', 'љ', '›', 'њ', 'ќ', 'ћ', 'џ',
+    '\u{00A0}', 'Ў', 'ў', 'Ј', '¤', 'Ґ', '¦', '§', 'Ё', '©', 'Є', '«', '¬', '\u{00AD}', '®', 'Ї',
+    '°', '±', 'І', 'і', 'ґ', 'µ', '¶', '·', 'ё', '№', 'є', '»', 'ј', 'Ѕ', 'ѕ', 'ї',
+];
+
 /// Reads the current hosts file; missing file is treated as empty.
-/// Non-UTF8 bytes (e.g. cp1251 comments) are replaced, not fatal.
+/// Non-UTF8 content (e.g. cp1251 comments) is decoded, never mangled.
 fn read_hosts_file() -> Result<String, String> {
     let path = system_hosts_path();
     match std::fs::read(&path) {
-        Ok(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
+        Ok(bytes) => Ok(decode_hosts_bytes(&bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
         Err(e) => Err(format!("Не удалось прочитать hosts: {}", e)),
     }
@@ -316,12 +344,15 @@ fn write_hosts_file(content: &str) -> Result<(), String> {
 }
 
 /// Creates a backup of the pristine hosts file once (before our first write).
-fn ensure_backup(original: &str) -> Result<(), String> {
+/// The backup stores the original BYTES: whatever encoding the file was in,
+/// the recovery copy must be byte-identical, not a decoded/re-encoded text.
+fn ensure_backup() -> Result<(), String> {
     let bp = backup_path();
     if bp.exists() {
         return Ok(());
     }
-    std::fs::write(&bp, original).map_err(|e| format!("Не удалось создать бэкап hosts: {}", e))?;
+    let bytes = std::fs::read(system_hosts_path()).unwrap_or_default();
+    std::fs::write(&bp, bytes).map_err(|e| format!("Не удалось создать бэкап hosts: {}", e))?;
     Ok(())
 }
 
@@ -384,7 +415,7 @@ pub async fn refresh_smart_hosts() -> Result<SmartHostsStatus, String> {
 /// Writes merged entries into the system hosts file (admin required).
 fn apply_entries(entries: &[HostEntry]) -> Result<(), String> {
     let original = read_hosts_file()?;
-    ensure_backup(&original)?;
+    ensure_backup()?;
     let (before, after) = strip_section(&original);
     let now = unix_now();
     let mut new_content = before;

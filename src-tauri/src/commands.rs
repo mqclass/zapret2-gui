@@ -160,6 +160,12 @@ pub async fn start_supervisor(
     let backend = state.backend.read().clone();
     if crate::svc_client::backend_needs_attach(&backend).await
     {
+        // If the Telegram bridge runs in-process, stop it BEFORE the svc is
+        // spawned: the svc autostarts its own bridge from the persisted flag
+        // and must find the listen port free, and the local copy must not be
+        // left running unmanaged after the pointer moves to Remote.
+        let tgproxy = state.tgproxy.read().clone();
+        let bridge_was_running = tgproxy.stop_local_for_migration().await;
         match crate::svc_client::ensure_svc_attached(std::time::Duration::from_secs(10)).await
         {
             Ok(client) => {
@@ -168,6 +174,9 @@ pub async fn start_supervisor(
                 // The Telegram bridge follows the engine into the svc.
                 *state.tgproxy.write() =
                     crate::svc_client::TgproxyBackend::Remote(client);
+                // Re-check the local copy: it may have been (re)started
+                // while the attach was in flight.
+                tgproxy.stop_local_for_migration().await;
                 let app_clone = app.clone();
                 tokio::spawn(async move {
                     crate::svc_client::SvcClient::forward_events(app_clone).await;
@@ -175,6 +184,9 @@ pub async fn start_supervisor(
             }
             Err(e) => {
                 eprintln!("svc attach failed, falling back to in-process engine: {e}");
+                if bridge_was_running {
+                    tgproxy.restart_local().await;
+                }
             }
         }
     }
@@ -279,10 +291,13 @@ pub async fn parse_args_string(raw: String) -> Result<Vec<String>, String> {
 /// supervisor and WinDivert first.
 #[tauri::command]
 pub async fn exit_app(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    let tgproxy = state.tgproxy.read().clone();
-    let _ = tgproxy.stop().await;
-    // A remote svc outlives the GUI by design (the bypass stays up); only
-    // stop the engine when it runs in this process.
+    // A remote svc outlives the GUI by design (the bypass AND the bridge
+    // stay up, and their persisted intent must survive); only stop what
+    // runs in this process.
+    if !state.tgproxy.read().is_remote() {
+        let tgproxy = state.tgproxy.read().clone();
+        let _ = tgproxy.stop().await;
+    }
     if !state.backend.read().clone().is_remote() {
         let backend = state.backend.read().clone();
         let _ = backend.stop().await;
@@ -555,23 +570,47 @@ pub async fn set_tgproxy_lan(state: State<'_, AppState>, enabled: bool) -> Resul
 /// (a GUI crash must not kill either). Idempotent.
 pub async fn ensure_tgproxy_backend(state: &State<'_, AppState>) {
     use crate::svc_client::{backend_needs_attach, ensure_svc_attached, TgproxyBackend};
+    // Gate on migration actually being possible: with a Local engine and no
+    // svc to move to, the bridge must be left exactly as it is (this runs on
+    // every bridge start press; flapping a healthy local bridge would drop
+    // live Telegram connections for nothing).
+    let backend = state.backend.read().clone();
+    let needs_attach = backend_needs_attach(&backend).await;
+    if !backend.is_remote() && !needs_attach {
+        return;
+    }
+    // If the bridge runs in-process, stop it before any attach attempt: the
+    // svc autostarts its own bridge from the persisted flag on spawn and
+    // must find the listen port free. Restarted below if no migration
+    // happens after all.
+    let tgproxy = state.tgproxy.read().clone();
+    let bridge_was_running = tgproxy.stop_local_for_migration().await;
     // First, apply the standard svc-migration policy to the engine itself:
     // a local backend with a svc binary on disk moves into the svc.
-    {
-        let backend = state.backend.read().clone();
-        if backend_needs_attach(&backend).await {
-            if let Ok(client) = ensure_svc_attached(std::time::Duration::from_secs(10)).await {
-                *state.backend.write() = crate::svc_client::SupervisorBackend::Remote(client);
-            }
+    if needs_attach {
+        if let Ok(client) = ensure_svc_attached(std::time::Duration::from_secs(10)).await {
+            *state.backend.write() = crate::svc_client::SupervisorBackend::Remote(client);
         }
     }
-    // Then the bridge follows the engine.
-    let client = match &*state.backend.read() {
-        crate::svc_client::SupervisorBackend::Remote(c) => c.clone(),
-        crate::svc_client::SupervisorBackend::Local(_) => return,
+    // Then the bridge follows the engine. The parking_lot guard must drop
+    // before any .await (it is not Send), so extract the client first.
+    let remote_client = match &*state.backend.read() {
+        crate::svc_client::SupervisorBackend::Remote(c) => Some(c.clone()),
+        crate::svc_client::SupervisorBackend::Local(_) => None,
+    };
+    let client = match remote_client {
+        Some(c) => c,
+        None => {
+            if bridge_was_running {
+                tgproxy.restart_local().await;
+            }
+            return;
+        }
     };
     if !state.tgproxy.read().is_remote() {
         *state.tgproxy.write() = TgproxyBackend::Remote(client);
+        // A local copy may have been (re)started while the attach ran.
+        tgproxy.stop_local_for_migration().await;
     }
 }
 
