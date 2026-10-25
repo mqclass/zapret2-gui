@@ -303,7 +303,7 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
               </div>
               <div className="min-w-0">
                 <div className="text-xs font-semibold text-ink leading-snug line-clamp-2">{title}</div>
-                <div className="text-[10px] text-ink4 truncate">{subtitle}</div>
+                <div className="text-[10px] text-ink4 leading-snug line-clamp-2">{subtitle}</div>
               </div>
             </div>
 

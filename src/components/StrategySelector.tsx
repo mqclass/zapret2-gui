@@ -331,7 +331,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-xs font-bold truncate text-ink">
+                            <span className="text-xs font-bold truncate text-ink" title={strat.name}>
                               {strat.name}
                             </span>
                             {isUltimate && (
@@ -413,7 +413,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                           </button>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-ink4 font-mono truncate max-w-[105px] bg-raise border t-divider px-1.5 py-0.5 rounded-chip">
+                        <span className="text-[10px] text-ink4 font-mono truncate min-w-0 bg-raise border t-divider px-1.5 py-0.5 rounded-chip" title={strat.id}>
                           {strat.id}
                         </span>
                       )}

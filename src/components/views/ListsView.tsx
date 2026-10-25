@@ -293,15 +293,15 @@ export const ListsView: React.FC = React.memo(() => {
               placeholder={t.domainManager.addDomainPlaceholder}
               value={newDomain}
               onChange={(e) => setNewDomain(e.target.value)}
-              className="flex-1 rounded-panel border border-line bg-cardin px-3 py-2 text-xs text-ink placeholder-ink5 focus:border-accent-line focus:outline-none"
+              className="flex-1 min-w-0 rounded-panel border border-line bg-cardin px-3 py-2 text-xs text-ink placeholder-ink5 focus:border-accent-line focus:outline-none"
             />
             <button
               type="submit"
               disabled={!newDomain.trim()}
-              className="flex items-center gap-1.5 rounded-panel bg-accent-fill hover:bg-accent text-ink px-4 py-2 text-xs font-semibold shadow-md shadow-accent/20 transition-all cursor-pointer disabled:opacity-40"
+              className="flex shrink-0 items-center gap-1.5 rounded-panel bg-accent-fill hover:bg-accent text-ink px-4 py-2 text-xs font-semibold shadow-md shadow-accent/20 transition-all cursor-pointer disabled:opacity-40"
             >
               <Plus className="h-3.5 w-3.5" />
-              <span>{t.domainManager.addBtn}</span>
+              <span className="whitespace-nowrap">{t.domainManager.addBtn}</span>
             </button>
           </form>
         </div>
