@@ -30,14 +30,19 @@ export interface DiagnosticsReport {
   timestamp: number;
 }
 
-export interface StrategyBenchmarkResult {
+export interface StrategyProbeResult {
   strategy_id: string;
   strategy_name: string;
-  working: boolean;
-  average_ping_ms: number | null;
   youtube_status: ProbeStatus;
+  youtube_ms: number | null;
   discord_status: ProbeStatus;
-  summary: string;
+  discord_ms: number | null;
+  voice_status: ProbeStatus;
+  voice_ms: number | null;
+  score: number;
+  average_ping_ms: number | null;
+  engine_running: boolean;
+  error: string | null;
 }
 
 export interface SupervisorStatus {

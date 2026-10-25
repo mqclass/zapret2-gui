@@ -369,108 +369,144 @@ pub async fn ping_custom_target(
     Ok(state.diagnostics.probe_custom(&target).await)
 }
 
-/// Estimates per-strategy effectiveness from live probe latency (no engine restarts).
+/// Probes one strategy for real: starts the engine on it, waits until it
+/// reports Running, then probes YouTube, Discord and Discord voice through
+/// it. The engine is left running on this strategy: the caller (the
+/// auto-tune loop) moves to the next candidate or restores the original
+/// state afterwards.
 ///
-/// NOTE: this is a heuristic estimator, not a real benchmark — it deliberately does not
-/// restart winws with each strategy, which would drop the user's active TCP connections,
-/// Discord voice channels and streaming downloads. Named accordingly.
+/// A strategy that is not installed returns an error result WITHOUT
+/// starting the engine: starting an unknown id would silently fall back
+/// to flowseal-alt and probe the wrong strategy under this id's name.
+/// A start failure likewise returns an error result instead of failing
+/// the whole loop, so one broken strategy cannot hide the others.
 #[tauri::command]
-pub async fn estimate_strategies(
+pub async fn probe_strategy(
+    strategy_id: String,
     state: State<'_, AppState>,
-) -> Result<Vec<crate::engine::probes::StrategyBenchmarkResult>, String> {
+) -> Result<crate::engine::probes::StrategyProbeResult, String> {
     let strategies = discover_strategies().unwrap_or_default();
-    // Reuse the shared diagnostics service instead of spawning a throwaway one.
+    let strategy_name = match strategies.iter().find(|s| s.id == strategy_id) {
+        Some(s) => s.name.clone(),
+        None => {
+            return Ok(probe_error_result(
+                &strategy_id,
+                &strategy_id,
+                &format!("Стратегия {} не найдена", strategy_id),
+            ));
+        }
+    };
+
+    let backend = state.backend.read().clone();
+    if let Err(e) = backend.start(Some(strategy_id.clone()), None).await {
+        return Ok(probe_error_result(&strategy_id, &strategy_name, &e));
+    }
+
+    // Wait until the engine reports Running (up to ~6s), then let the
+    // WinDivert filter and conntrack settle before measuring: probing a
+    // half-initialized engine would report false Blocked.
+    let mut running = false;
+    for _ in 0..12 {
+        let status = backend.get_status().await;
+        if status.state == crate::engine::supervisor::SupervisorState::Running {
+            running = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    if running {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+
     let diag = state.diagnostics.clone();
+    let (yt, disc, voice) = tokio::join!(
+        diag.probe_youtube(),
+        diag.probe_discord(),
+        diag.probe_discord_voice()
+    );
 
-    // Probe real live network latency across YouTube and Discord
-    let yt_metric = diag.probe_youtube().await;
-    let disc_metric = diag.probe_discord().await;
-    let voice_metric = diag.probe_discord_voice().await;
-
-    let measured_pings: Vec<u64> = [yt_metric.latency_ms, disc_metric.latency_ms, voice_metric.latency_ms]
+    let score = score_of(yt.status) + score_of(disc.status) + score_of(voice.status);
+    let latencies: Vec<u64> = [yt.latency_ms, disc.latency_ms, voice.latency_ms]
         .into_iter()
         .flatten()
         .collect();
-
-    let base_ping = if !measured_pings.is_empty() {
-        measured_pings.iter().sum::<u64>() / (measured_pings.len() as u64)
+    let average_ping_ms = if latencies.is_empty() {
+        None
     } else {
-        48
+        Some(latencies.iter().sum::<u64>() / (latencies.len() as u64))
     };
 
-    let top_ids = [
-        "flowseal-alt",
-        "flowseal-alt11",
-        "flowseal-fake-tls-auto",
-        "zapret2-ru-ultimate",
-        "flowseal-general",
-    ];
+    // The engine counts as measured only if it was up when probing started
+    // AND still up when probing ended: a recovery revival between the two
+    // (or a death mid-probe) leaves a mixed result, which must carry an
+    // error instead of posing as a clean measurement.
+    let final_running = backend.get_status().await.state
+        == crate::engine::supervisor::SupervisorState::Running;
+    let engine_running = running && final_running;
+    let error = if engine_running {
+        None
+    } else if !running {
+        Some("Движок не перешёл в состояние Running".to_string())
+    } else {
+        Some("Движок остановился во время проверки".to_string())
+    };
 
-    let mut results = Vec::new();
+    Ok(crate::engine::probes::StrategyProbeResult {
+        strategy_id,
+        strategy_name,
+        youtube_status: yt.status,
+        youtube_ms: yt.latency_ms,
+        discord_status: disc.status,
+        discord_ms: disc.latency_ms,
+        voice_status: voice.status,
+        voice_ms: voice.latency_ms,
+        score,
+        average_ping_ms,
+        engine_running,
+        error,
+    })
+}
 
-    // BH-011 Architecture note: Latency estimations are calculated from live network latency
-    // probes (base_ping) and DPI engine overhead profiles without restarting winws, which avoids
-    // dropping user's active TCP connections, Discord voice channels, and streaming downloads.
-    for id in top_ids {
-        if let Some(strat) = strategies.iter().find(|s| s.id == id) {
-            let (working, avg_ping, yt_status, disc_status, summary) = match id {
-                "flowseal-alt" => (
-                    true,
-                    Some(base_ping),
-                    yt_metric.status,
-                    disc_metric.status,
-                    "Рекомендован для РФ: обход ТСПУ через fakedsplit и stun.bin (Ростелеком, МТС, Дом.ру, Билайн)".to_string(),
-                ),
-                "flowseal-alt11" => (
-                    true,
-                    Some(base_ping.saturating_add(6)),
-                    yt_metric.status,
-                    disc_metric.status,
-                    "Усиленный 4K 60FPS: 11 повторов fake-пакетов для тяжелых потоков видео YouTube".to_string(),
-                ),
-                "flowseal-fake-tls-auto" => (
-                    true,
-                    Some(base_ping.saturating_sub(4).max(12)),
-                    yt_metric.status,
-                    voice_metric.status,
-                    "Игровой режим: минимальная задержка и стабильный Discord голос".to_string(),
-                ),
-                "zapret2-ru-ultimate" => (
-                    true,
-                    Some(base_ping.saturating_add(2)),
-                    yt_metric.status,
-                    disc_metric.status,
-                    "Флагманское ядро winws2 v2 с Lua-скриптами и conntrack".to_string(),
-                ),
-                "flowseal-general" => (
-                    false,
-                    None,
-                    crate::engine::probes::ProbeStatus::Blocked,
-                    crate::engine::probes::ProbeStatus::Blocked,
-                    "Базовый multisplit без fake: на жестком ТСПУ в РФ блокируется".to_string(),
-                ),
-                _ => (
-                    false,
-                    None,
-                    crate::engine::probes::ProbeStatus::Degraded,
-                    crate::engine::probes::ProbeStatus::Degraded,
-                    "Пользовательский сценарий".to_string(),
-                ),
-            };
+/// Restores the persisted last-used strategy without starting the engine.
+/// Used by the auto-tune loop when it restores a previously stopped engine:
+/// probing otherwise leaves last_strategy_id pointing at the last probed
+/// strategy, which would hijack the next tray/autostart start.
+#[tauri::command]
+pub async fn set_last_strategy(strategy_id: Option<String>) -> Result<(), String> {
+    crate::win32::settings::update_settings(|s| {
+        s.last_strategy_id = strategy_id;
+    })?;
+    Ok(())
+}
 
-            results.push(crate::engine::probes::StrategyBenchmarkResult {
-                strategy_id: id.to_string(),
-                strategy_name: strat.name.clone(),
-                working,
-                average_ping_ms: avg_ping,
-                youtube_status: yt_status,
-                discord_status: disc_status,
-                summary,
-            });
-        }
+fn score_of(status: crate::engine::probes::ProbeStatus) -> u32 {
+    match status {
+        crate::engine::probes::ProbeStatus::Operational => 2,
+        crate::engine::probes::ProbeStatus::Degraded => 1,
+        _ => 0,
     }
+}
 
-    Ok(results)
+fn probe_error_result(
+    strategy_id: &str,
+    strategy_name: &str,
+    error: &str,
+) -> crate::engine::probes::StrategyProbeResult {
+    use crate::engine::probes::ProbeStatus;
+    crate::engine::probes::StrategyProbeResult {
+        strategy_id: strategy_id.to_string(),
+        strategy_name: strategy_name.to_string(),
+        youtube_status: ProbeStatus::Blocked,
+        youtube_ms: None,
+        discord_status: ProbeStatus::Blocked,
+        discord_ms: None,
+        voice_status: ProbeStatus::Blocked,
+        voice_ms: None,
+        score: 0,
+        average_ping_ms: None,
+        engine_running: false,
+        error: Some(error.to_string()),
+    }
 }
 
 /// Retrieves current application settings (Split-Tunneling, Game Filter, DNS).

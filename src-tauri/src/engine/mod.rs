@@ -10,7 +10,7 @@ pub mod transport;
 pub use events::{EventSink, NullSink, SinkSlot, TauriSink};
 pub use logger::FileLogger;
 pub use managed::ManagedSidecar;
-pub use probes::{DiagnosticsReport, DiagnosticsService, ProbeMetric, ProbeStatus, StrategyBenchmarkResult};
+pub use probes::{DiagnosticsReport, DiagnosticsService, ProbeMetric, ProbeStatus, StrategyProbeResult};
 pub use speedtest::{run_youtube_speedtest, SpeedtestResult};
 pub use supervisor::{LogEntry, Supervisor, SupervisorState, SupervisorStatus};
 pub use tgproxy::{TgProxyManager, TgProxyStatus};

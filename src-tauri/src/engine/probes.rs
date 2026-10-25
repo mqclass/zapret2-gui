@@ -56,16 +56,30 @@ pub struct DiagnosticsReport {
     pub timestamp: u64,
 }
 
-/// Strategy benchmark benchmark evaluation for automated tuning.
+/// Real per-strategy probe result: the engine was actually started on this
+/// strategy and live endpoints were probed through it. Unlike the old
+/// estimator, nothing here is derived from another strategy's numbers:
+/// each service status and latency was measured under this strategy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StrategyBenchmarkResult {
+pub struct StrategyProbeResult {
     pub strategy_id: String,
     pub strategy_name: String,
-    pub working: bool,
-    pub average_ping_ms: Option<u64>,
     pub youtube_status: ProbeStatus,
+    pub youtube_ms: Option<u64>,
     pub discord_status: ProbeStatus,
-    pub summary: String,
+    pub discord_ms: Option<u64>,
+    pub voice_status: ProbeStatus,
+    pub voice_ms: Option<u64>,
+    /// Operational counts 2, Degraded 1, Blocked/Checking 0, summed over the
+    /// three services (0-6). Higher is better; average latency breaks ties.
+    pub score: u32,
+    pub average_ping_ms: Option<u64>,
+    /// False when the engine never reached Running for this strategy: the
+    /// service statuses then mean "unreachable", not "blocked by DPI".
+    pub engine_running: bool,
+    /// Set when the strategy could not be probed at all (unknown id, engine
+    /// failed to start). The caller must show it instead of the statuses.
+    pub error: Option<String>,
 }
 
 impl Default for DiagnosticsReport {

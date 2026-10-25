@@ -197,6 +197,13 @@ export interface Translations {
     autoTuneDesc: string;
     autoTuneRecommended: string;
     autoTuneApply: string;
+    autoTuneTesting: string;
+    autoTuneCancel: string;
+    autoTuneWinner: string;
+    autoTuneEngineFailed: string;
+    autoTuneNoWinner: string;
+    autoTuneApplyBest: string;
+    autoTuneBusy: string;
   };
   logs: {
     title: string;

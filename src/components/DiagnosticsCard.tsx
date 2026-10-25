@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   Youtube,
   MessageSquare,
@@ -20,9 +20,19 @@ import {
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { DiagnosticsReport, ProbeMetric, ProbeStatus, StrategyBenchmarkResult } from "../types";
+import { DiagnosticsReport, ProbeMetric, ProbeStatus, StrategyProbeResult, SupervisorStatusResponse } from "../types";
 import { useI18n } from "../i18n";
 import { formatErrorMessage } from "../utils/error";
+
+// Candidates probed in order. Custom user profiles are out of scope for
+// the first slice: these five cover the shipped engines.
+const AUTO_TUNE_CANDIDATES = [
+  "flowseal-alt",
+  "flowseal-alt11",
+  "flowseal-fake-tls-auto",
+  "zapret2-ru-ultimate",
+  "flowseal-general",
+];
 
 interface DiagnosticsCardProps {
   report: DiagnosticsReport;
@@ -40,10 +50,15 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
     const [isPingingCustom, setIsPingingCustom] = useState(false);
     const [customMetric, setCustomMetric] = useState<ProbeMetric | null>(null);
 
-    // Auto-Tune Benchmark State
+    // Auto-Tune State: real per-strategy probing. The engine restarts on
+    // each candidate, so connections drop during the run and the original
+    // state is restored at the end (even on cancel or error).
     const [isAutoTuning, setIsAutoTuning] = useState(false);
-    const [benchmarkResults, setBenchmarkResults] = useState<StrategyBenchmarkResult[] | null>(null);
+    const [autoTuneProgress, setAutoTuneProgress] = useState<{ index: number; total: number; id: string } | null>(null);
+    const [probeResults, setProbeResults] = useState<StrategyProbeResult[] | null>(null);
     const [isAutoTuneModalOpen, setIsAutoTuneModalOpen] = useState(false);
+    const autoTuneCancelRef = useRef(false);
+    const autoTuneRunningRef = useRef(false);
 
     // Visible error for user-initiated actions (previously only console.error)
     const [actionError, setActionError] = useState<string | null>(null);
@@ -67,19 +82,159 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
     }, [customTarget]);
 
     const handleAutoTune = useCallback(async () => {
-      setIsAutoTuning(true);
+      // Ref guard, set synchronously: the state guard alone is stale until
+      // re-render, so a double click before then would start two loops
+      // whose probes interleave and get attributed to the wrong strategy.
+      if (autoTuneRunningRef.current) return;
+      autoTuneRunningRef.current = true;
+      autoTuneCancelRef.current = false;
       setActionError(null);
+
+      // Pre-check: read the starting state for the restore step. Starting /
+      // Stopping are waited out (up to ~5s); anything else aborts, since a
+      // probe started mid-transition would measure the wrong engine.
+      // No elevation refusal here: with a running engine probing works
+      // (elevated GUI or attached svc), and without elevation the first
+      // probe fails fast with ADMIN_REQUIRED, which aborts the loop below.
+      let wasRunning = false;
+      let originalId: string | null = null;
       try {
-        const results = await invoke<StrategyBenchmarkResult[]>("estimate_strategies");
-        setBenchmarkResults(results);
-        setIsAutoTuneModalOpen(true);
+        let st = await invoke<SupervisorStatusResponse>("get_supervisor_status");
+        for (
+          let i = 0;
+          i < 10 && (st.supervisor.state === "starting" || st.supervisor.state === "stopping");
+          i++
+        ) {
+          await new Promise((r) => setTimeout(r, 500));
+          st = await invoke<SupervisorStatusResponse>("get_supervisor_status");
+        }
+        if (st.supervisor.state === "starting" || st.supervisor.state === "stopping") {
+          setActionError(t.diagnostics.autoTuneBusy);
+          autoTuneRunningRef.current = false;
+          return;
+        }
+        wasRunning = st.supervisor.state === "running";
+        originalId = st.supervisor.active_strategy ?? null;
       } catch (err) {
-        console.error("Estimate error:", err);
+        console.error("Auto-tune pre-check error:", err);
         setActionError(formatErrorMessage(err));
-      } finally {
-        setIsAutoTuning(false);
+        autoTuneRunningRef.current = false;
+        return;
       }
+
+      setIsAutoTuning(true);
+      setProbeResults([]);
+      setIsAutoTuneModalOpen(true);
+      const results: StrategyProbeResult[] = [];
+      let probedAny = false;
+      let lastStartedId: string | null = null;
+      try {
+        for (let i = 0; i < AUTO_TUNE_CANDIDATES.length; i++) {
+          if (autoTuneCancelRef.current) break;
+          const id = AUTO_TUNE_CANDIDATES[i];
+          setAutoTuneProgress({ index: i + 1, total: AUTO_TUNE_CANDIDATES.length, id });
+          probedAny = true;
+          lastStartedId = id;
+          try {
+            const res = await invoke<StrategyProbeResult>("probe_strategy", { strategyId: id });
+            results.push(res);
+            setProbeResults([...results]);
+            if (res.error && res.error.includes("ADMIN_REQUIRED")) {
+              setActionError(t.adminGate.message);
+              break;
+            }
+          } catch (err) {
+            console.error("Probe error:", err);
+            results.push({
+              strategy_id: id,
+              strategy_name: id,
+              youtube_status: "blocked",
+              youtube_ms: null,
+              discord_status: "blocked",
+              discord_ms: null,
+              voice_status: "blocked",
+              voice_ms: null,
+              score: 0,
+              average_ping_ms: null,
+              engine_running: false,
+              error: formatErrorMessage(err),
+            });
+            setProbeResults([...results]);
+          }
+        }
+      } finally {
+        // Restore only what the loop itself left behind. The user may have
+        // intervened while a probe was in flight (started or stopped the
+        // engine by hand): re-read the state and never override their choice.
+        if (probedAny) {
+          try {
+            const current = await invoke<SupervisorStatusResponse>("get_supervisor_status");
+            const curState = current.supervisor.state;
+            const curStrategy = current.supervisor.active_strategy ?? null;
+            if (wasRunning && originalId) {
+              if (
+                curState === "running" &&
+                curStrategy === lastStartedId &&
+                lastStartedId !== originalId
+              ) {
+                onSelectAndStartStrategy?.(originalId);
+              }
+              // Already on the original, or the user stopped/switched: leave it.
+            } else if (!wasRunning) {
+              if (curState === "running" && curStrategy === lastStartedId) {
+                try {
+                  await invoke("stop_supervisor");
+                } catch (err) {
+                  console.error("Auto-tune restore stop error:", err);
+                }
+                try {
+                  await invoke("set_last_strategy", { strategyId: originalId });
+                } catch (err) {
+                  console.error("Auto-tune restore settings error:", err);
+                }
+              } else if (curState === "stopped" || curState === "stopping") {
+                // Engine already down (by the user or by itself): only the
+                // persisted last strategy still points at a probed one.
+                try {
+                  await invoke("set_last_strategy", { strategyId: originalId });
+                } catch (err) {
+                  console.error("Auto-tune restore settings error:", err);
+                }
+              }
+              // Running on another strategy or starting: the user took over.
+            }
+            // Running with no recorded strategy: leave the engine as-is
+            // rather than guessing a strategy to restore.
+          } catch (err) {
+            console.error("Auto-tune restore error:", err);
+            setActionError(formatErrorMessage(err));
+          }
+        }
+        setIsAutoTuning(false);
+        setAutoTuneProgress(null);
+        autoTuneRunningRef.current = false;
+      }
+    }, [onSelectAndStartStrategy, t]);
+
+    const handleCancelAutoTune = useCallback(() => {
+      autoTuneCancelRef.current = true;
+      setIsAutoTuneModalOpen(false);
     }, []);
+
+    const sortedProbeResults = probeResults
+      ? [...probeResults].sort(
+          (a, b) =>
+            b.score - a.score ||
+            (a.average_ping_ms ?? Number.MAX_SAFE_INTEGER) -
+              (b.average_ping_ms ?? Number.MAX_SAFE_INTEGER)
+        )
+      : [];
+    const autoTuneWinner =
+      sortedProbeResults.length > 0 &&
+      sortedProbeResults[0].score > 0 &&
+      sortedProbeResults[0].engine_running
+        ? sortedProbeResults[0]
+        : null;
 
     const getStatusBadge = (status: ProbeStatus) => {
       switch (status) {
@@ -370,7 +525,7 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
         </div>
 
         {/* Auto-Tune Results Modal */}
-        {isAutoTuneModalOpen && benchmarkResults && (
+        {isAutoTuneModalOpen && (isAutoTuning || probeResults) && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 modal-backdrop-enter">
             <div className="w-full max-w-lg rounded-card border border-line bg-card p-5 shadow-2xl modal-panel-enter">
               <div className="flex items-center justify-between pb-3 border-b border-raise">
@@ -380,65 +535,132 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
                 </div>
                 <button
                   type="button"
-                  onClick={() => setIsAutoTuneModalOpen(false)}
+                  onClick={isAutoTuning ? handleCancelAutoTune : () => setIsAutoTuneModalOpen(false)}
                   className="rounded-control p-1 text-ink4 hover:text-ink hover:bg-raise transition-colors cursor-pointer"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
-              <div className="mt-3 text-xs text-ink3">
-                {t.diagnostics.autoTuneDesc}
-              </div>
-
-              <div className="mt-3 space-y-2 max-h-72 overflow-y-auto pr-1">
-                {benchmarkResults.map((res) => (
-                  <div
-                    key={res.strategy_id}
-                    className={`rounded-panel border p-3 text-xs transition-all ${
-                      res.working
-                        ? "border-emerald-500/40 bg-emerald-950/20 hover:border-emerald-500"
-                        : "border-raise bg-cardin/40 opacity-70"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="font-semibold text-ink">{res.strategy_name}</span>
-                      <div className="flex items-center gap-2">
-                        {res.average_ping_ms && (
-                          <span className="font-mono text-[11px] text-accent">
-                            ~{res.average_ping_ms} ms
-                          </span>
-                        )}
-                        {getStatusBadge(res.youtube_status)}
-                      </div>
-                    </div>
-                    <p className="text-[11px] text-ink4">{res.summary}</p>
-                    {res.working && onSelectAndStartStrategy && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectAndStartStrategy(res.strategy_id);
-                          setIsAutoTuneModalOpen(false);
-                        }}
-                        className="mt-2.5 flex items-center gap-1 rounded-control bg-emerald-600/30 border border-emerald-500/50 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-600/50 cursor-pointer transition-colors"
-                      >
-                        <Zap className="h-3 w-3" />
-                        <span>{t.diagnostics.autoTuneApply}</span>
-                      </button>
-                    )}
+              {isAutoTuning && autoTuneProgress ? (
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center gap-2 text-xs text-ink2">
+                    <Loader2 className="h-4 w-4 animate-spin text-accent" />
+                    <span>
+                      {t.diagnostics.autoTuneTesting} {autoTuneProgress.index}/{autoTuneProgress.total}:{" "}
+                      {autoTuneProgress.id}
+                    </span>
                   </div>
-                ))}
-              </div>
+                  <button
+                    type="button"
+                    onClick={handleCancelAutoTune}
+                    className="rounded-control border border-linestrong bg-raise px-4 py-1.5 text-xs font-semibold text-ink2 hover:bg-linestrong cursor-pointer"
+                  >
+                    {t.diagnostics.autoTuneCancel}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="mt-3 text-xs text-ink3">{t.diagnostics.autoTuneDesc}</div>
 
-              <div className="mt-4 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setIsAutoTuneModalOpen(false)}
-                  className="rounded-control border border-linestrong bg-raise px-4 py-1.5 text-xs font-semibold text-ink2 hover:bg-linestrong cursor-pointer"
-                >
-                  {t.speedtest.closeBtn}
-                </button>
-              </div>
+                  {autoTuneWinner && onSelectAndStartStrategy && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectAndStartStrategy(autoTuneWinner.strategy_id);
+                        setIsAutoTuneModalOpen(false);
+                      }}
+                      className="mt-3 flex items-center gap-1 rounded-control bg-emerald-600/30 border border-emerald-500/50 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-600/50 cursor-pointer transition-colors"
+                    >
+                      <Zap className="h-3 w-3" />
+                      <span>
+                        {t.diagnostics.autoTuneApplyBest}: {autoTuneWinner.strategy_name}
+                      </span>
+                    </button>
+                  )}
+
+                  <div className="mt-3 space-y-2 max-h-72 overflow-y-auto pr-1">
+                    {sortedProbeResults.length === 0 && (
+                      <p className="text-xs text-ink4">{t.diagnostics.autoTuneNoWinner}</p>
+                    )}
+                    {sortedProbeResults.map((res) => {
+                      const isWinner = autoTuneWinner?.strategy_id === res.strategy_id;
+                      return (
+                        <div
+                          key={res.strategy_id}
+                          className={`rounded-panel border p-3 text-xs transition-all ${
+                            isWinner
+                              ? "border-emerald-500/60 bg-emerald-950/30"
+                              : res.score > 0
+                                ? "border-raise bg-cardin/40"
+                                : "border-raise bg-cardin/40 opacity-70"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="font-semibold text-ink">
+                              {res.strategy_name}
+                              {isWinner && (
+                                <span className="ml-2 rounded-full bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                                  {t.diagnostics.autoTuneWinner}
+                                </span>
+                              )}
+                            </span>
+                            {res.average_ping_ms !== null && (
+                              <span className="font-mono text-[11px] text-accent">
+                                ~{res.average_ping_ms} ms
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                            <span className="flex items-center gap-1 text-ink4">
+                              YouTube {getStatusBadge(res.youtube_status)}
+                            </span>
+                            <span className="flex items-center gap-1 text-ink4">
+                              Discord {getStatusBadge(res.discord_status)}
+                            </span>
+                            <span className="flex items-center gap-1 text-ink4">
+                              Voice {getStatusBadge(res.voice_status)}
+                            </span>
+                          </div>
+                          {res.error && (
+                            <p className="mt-1.5 text-[11px] text-rose-400">
+                              {t.diagnostics.autoTuneEngineFailed}: {res.error}
+                            </p>
+                          )}
+                          {!res.error && !res.engine_running && (
+                            <p className="mt-1.5 text-[11px] text-rose-400">
+                              {t.diagnostics.autoTuneEngineFailed}
+                            </p>
+                          )}
+                          {res.score > 0 && res.engine_running && onSelectAndStartStrategy && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onSelectAndStartStrategy(res.strategy_id);
+                                setIsAutoTuneModalOpen(false);
+                              }}
+                              className="mt-2.5 flex items-center gap-1 rounded-control bg-emerald-600/30 border border-emerald-500/50 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-600/50 cursor-pointer transition-colors"
+                            >
+                              <Zap className="h-3 w-3" />
+                              <span>{t.diagnostics.autoTuneApply}</span>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setIsAutoTuneModalOpen(false)}
+                      className="rounded-control border border-linestrong bg-raise px-4 py-1.5 text-xs font-semibold text-ink2 hover:bg-linestrong cursor-pointer"
+                    >
+                      {t.speedtest.closeBtn}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
