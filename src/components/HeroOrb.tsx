@@ -86,16 +86,22 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
           {state === "idle" && <span className="orb-ring-idle" />}
           {/* glass disc */}
           <span className="absolute inset-0 rounded-full border border-white/[0.14] bg-white/[0.05] backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)] transition-colors duration-500 group-hover:border-white/[0.22]">
-            {/* icon — crossfades between states */}
+            {/* icon — crossfades between states. Both the exiting and the
+            entering icon are absolutely positioned over the same centered
+            box: with popLayout the exiting icon was popped out of the flex
+            flow and the pair showed up side by side (power left, shield
+            right) for the 0.18s swap, which read as the icon jumping
+            sideways on every toggle. Sync mode + identical boxes makes
+            the swap a pure in-place crossfade. */}
             <span className="absolute inset-0 flex items-center justify-center">
-              <AnimatePresence mode="popLayout" initial={false}>
+              <AnimatePresence initial={false}>
                 <motion.span
                   key={state}
                   initial={{ opacity: 0, scale: 0.55, rotate: -24 }}
                   animate={{ opacity: 1, scale: 1, rotate: 0 }}
                   exit={{ opacity: 0, scale: 0.55, rotate: 24 }}
                   transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                  className="flex items-center justify-center"
+                  className="absolute inset-0 flex items-center justify-center"
                 >
                   {icon}
                 </motion.span>
