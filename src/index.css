@@ -127,6 +127,16 @@
 }
 
 @layer components {
+  /* Hide the scrollbar but keep wheel/touch scrolling (e.g. tall modals
+     that must not show a strip at the window edge). */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   /* ══ App backdrop ══════════════════════════════════════ */
   .app-bg {
     background-color: rgb(var(--c-app));

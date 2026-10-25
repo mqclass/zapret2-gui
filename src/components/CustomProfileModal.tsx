@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { LuaStrategy } from "../types";
 import { useI18n } from "../i18n";
@@ -142,9 +143,12 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 overflow-y-auto modal-backdrop-enter">
-      <div className="relative w-full max-w-2xl rounded-card border border-raise bg-card p-6 shadow-2xl my-8 modal-panel-enter">
+  // Rendered into document.body via portal: the modal lives inside glass
+  // cards (.t-card has backdrop-filter), which would otherwise become the
+  // containing block for `fixed` and confine the backdrop to the card.
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex bg-overlay backdrop-blur-md p-4 overflow-y-auto no-scrollbar modal-backdrop-enter">
+      <div className="relative m-auto w-full max-w-2xl rounded-card border border-raise bg-card p-6 shadow-2xl modal-panel-enter">
         <div className="flex items-center justify-between pb-4 border-b border-raise">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-control bg-accent-wash text-accent border border-accent-line">
@@ -417,6 +421,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
