@@ -540,6 +540,8 @@ export const uk: Translations = {
     startBypass: "Запустити обхід",
     stopBypass: "Зупинити обхід",
     pleaseWait: "Зачекайте...",
+    windivertConflictTitle: "Драйвер обходу зайнятий іншим застосунком",
+    windivertConflictBody: "Рушій не зміг запуститися: мережевий драйвер WinDivert вже зайнятий іншим обходом або завис після нього. Застосунок уже спробував полагодитися сам один раз. Закрийте GoodbyeDPI, інший zapret або схожий інструмент, перезавантажте комп'ютер і натисніть увімкнення ще раз.",
     hubPresets: "Пресети обходу",
     hubPresetsDesc: "Готові конфігурації: Flowseal Alt, Fake TLS Auto або власний профіль.",
     hubDns: "DNS & Тест швидкості",

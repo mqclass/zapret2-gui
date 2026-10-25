@@ -12,6 +12,7 @@ import {
   Wrench,
   Mic,
   ChevronRight,
+  AlertTriangle,
 } from "lucide-react";
 import {
   SupervisorStatus,
@@ -135,6 +136,25 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             onDismiss={onDismissUpdate}
           />
         )}
+        {/* WinDivert conflict: the engine died with exit code 10 because the
+            driver is held by another bypass tool. Shown until the next
+            successful start clears it; hidden while running. */}
+        {status.last_engine_error === "windivert_conflict" &&
+          status.state !== "running" && (
+            <div className="rounded-panel border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200 backdrop-blur-md">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+                <div className="text-xs">
+                  <div className="font-semibold text-amber-100">
+                    {t.dashboard.windivertConflictTitle}
+                  </div>
+                  <div className="mt-0.5 leading-relaxed">
+                    {t.dashboard.windivertConflictBody}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         {/* Hero Control Card */}
         <motion.div
           variants={{

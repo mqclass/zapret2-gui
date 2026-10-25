@@ -49,6 +49,8 @@ export interface SupervisorStatus {
   binary_path: string | null;
   uptime_secs: number;
   total_logs_buffered: number;
+  /** Last fatal engine error code, e.g. "windivert_conflict"; null otherwise. */
+  last_engine_error: string | null;
 }
 
 export interface TgProxyStatus {

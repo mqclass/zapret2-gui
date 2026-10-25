@@ -50,6 +50,7 @@ const AppContent: React.FC = () => {
     binary_path: null,
     uptime_secs: 0,
     total_logs_buffered: 0,
+    last_engine_error: null,
   });
 
   const [diagnostics, setDiagnostics] = useState<DiagnosticsReport>({

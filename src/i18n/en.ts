@@ -540,6 +540,8 @@ export const en: Translations = {
     startBypass: "Start bypass",
     stopBypass: "Stop bypass",
     pleaseWait: "Please wait...",
+    windivertConflictTitle: "Bypass driver is busy",
+    windivertConflictBody: "The engine could not start: the WinDivert network driver is already held by another bypass tool or left in a stale state. The app already tried to recover on its own once. Close GoodbyeDPI, another zapret app or a similar tool, restart your computer and press enable again.",
     hubPresets: "Bypass presets",
     hubPresetsDesc: "Ready-made configs: Flowseal Alt, Fake TLS Auto, or your own profile.",
     hubDns: "DNS & Speed test",

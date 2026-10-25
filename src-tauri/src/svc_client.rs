@@ -391,6 +391,7 @@ impl SupervisorBackend {
                         binary_path: None,
                         uptime_secs: 0,
                         total_logs_buffered: 0,
+                        last_engine_error: None,
                     })
                 }
             },

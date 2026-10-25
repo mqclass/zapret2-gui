@@ -530,6 +530,8 @@ export interface Translations {
     startBypass: string;
     stopBypass: string;
     pleaseWait: string;
+    windivertConflictTitle: string;
+    windivertConflictBody: string;
     hubPresets: string;
     hubPresetsDesc: string;
     hubDns: string;

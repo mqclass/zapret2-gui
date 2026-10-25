@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::engine::events::{EventSink, SinkSlot};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{channel, unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender};
 use tokio::time::interval;
 
 use crate::engine::logger::FileLogger;
@@ -68,6 +68,10 @@ pub struct SupervisorStatus {
     pub binary_path: Option<String>,
     pub uptime_secs: u64,
     pub total_logs_buffered: usize,
+    /// Last fatal engine error code, e.g. "windivert_conflict"; null when the
+    /// last start attempt did not end in a recognized failure.
+    #[serde(default)]
+    pub last_engine_error: Option<String>,
 }
 
 /// The main Supervisor managing the WinDivert and winws2 lifecycle.
@@ -93,6 +97,32 @@ pub struct Supervisor {
 
     sink: SinkSlot,
     probes_started: Arc<AtomicBool>,
+
+    /// Last fatal engine error code surfaced to the UI, e.g. "windivert_conflict".
+    /// Cleared on every start attempt; set by the monitor task when the child
+    /// dies with a recognized failure signature.
+    last_engine_error: Arc<RwLock<Option<String>>>,
+    /// Set by the stderr reader when the child reports a WinDivert open-filter
+    /// failure; reset on every start attempt. Read by the monitor task.
+    windivert_open_error: Arc<AtomicBool>,
+    /// Whether the one-shot WinDivert recovery restart already ran for the
+    /// current user-initiated start. Re-armed by user starts only, after the
+    /// early-return checks in start_inner; never by the recovery restart
+    /// itself, so recovery cannot loop.
+    windivert_recovery_done: Arc<AtomicBool>,
+    /// Parameters of the last start attempt, so the recovery restart can
+    /// relaunch exactly the same strategy and custom arguments.
+    last_start_params: Arc<RwLock<(Option<String>, Option<Vec<String>>)>>,
+    /// Monotonic start/stop generation. The recovery worker captures it
+    /// before cleanup and aborts if a newer user start/stop happened meanwhile.
+    generation: Arc<RwLock<u64>>,
+    /// Channel to the one-shot WinDivert recovery worker. The monitor only
+    /// sends a restart request here (a sync send, never an await of the
+    /// restart itself): awaiting the restart from the monitor would close a
+    /// type-level cycle through the spawn Send bound and rustc rejects it.
+    recovery_tx: UnboundedSender<(u64, Option<String>, Option<Vec<String>>)>,
+    recovery_rx: Arc<Mutex<Option<UnboundedReceiver<(u64, Option<String>, Option<Vec<String>>)>>>>,
+    recovery_worker_started: Arc<AtomicBool>,
 }
 
 impl Supervisor {
@@ -104,7 +134,7 @@ impl Supervisor {
         let file_logger = Arc::new(FileLogger::new());
 
         let (log_tx, log_rx) = channel::<LogEntry>(2_000);
-
+        let (recovery_tx, recovery_rx) = unbounded_channel::<(u64, Option<String>, Option<Vec<String>>)>();
 
         let supervisor = Self {
             lifecycle: Arc::new(tokio::sync::Mutex::new(())),
@@ -122,6 +152,14 @@ impl Supervisor {
             file_logger: file_logger.clone(),
             sink: SinkSlot::new(),
             probes_started: Arc::new(AtomicBool::new(false)),
+            last_engine_error: Arc::new(RwLock::new(None)),
+            windivert_open_error: Arc::new(AtomicBool::new(false)),
+            windivert_recovery_done: Arc::new(AtomicBool::new(false)),
+            last_start_params: Arc::new(RwLock::new((None, None))),
+            generation: Arc::new(RwLock::new(0)),
+            recovery_tx,
+            recovery_rx: Arc::new(Mutex::new(Some(recovery_rx))),
+            recovery_worker_started: Arc::new(AtomicBool::new(false)),
         };
 
         // Spawn high-throughput micro-batching engine
@@ -256,6 +294,7 @@ impl Supervisor {
             .map(|t| t.elapsed().as_secs())
             .unwrap_or(0);
         let total_logs_buffered = self.ring_buffer.lock().len();
+        let last_engine_error = self.last_engine_error.read().clone();
 
         SupervisorStatus {
             state,
@@ -265,6 +304,7 @@ impl Supervisor {
             binary_path,
             uptime_secs,
             total_logs_buffered,
+            last_engine_error,
         }
     }
 
@@ -284,11 +324,81 @@ impl Supervisor {
         self.sink.emit_logs_cleared();
     }
 
-    /// Starts the DPI bypass engine with selected strategy and optional custom arguments.
+    /// User-initiated start (UI, tray, autostart). Bumps the generation and
+    /// runs the shared start sequence with recovery re-armed.
     pub async fn start(
         self: Arc<Self>,
         strategy_id: Option<String>,
         custom_args: Option<Vec<String>>,
+    ) -> Result<(), ProcessError> {
+        *self.generation.write() += 1;
+        // The recovery worker is spawned once, on the first user start. It
+        // owns the restart path so the monitor never awaits a restart itself.
+        if !self
+            .recovery_worker_started
+            .swap(true, Ordering::SeqCst)
+        {
+            if let Some(rx) = self.recovery_rx.lock().take() {
+                let worker = self.clone();
+                tokio::spawn(async move {
+                    let mut rx = rx;
+                    while let Some((generation, strategy_id, custom_args)) =
+                        rx.recv().await
+                    {
+                        if *worker.generation.read() != generation {
+                            continue;
+                        }
+                        if *worker.state.read() != SupervisorState::Stopped {
+                            continue;
+                        }
+                        worker.log(
+                            "info",
+                            "WinDivert conflict detected: cleaning up stray engines and retrying once...",
+                        );
+                        let _ = kill_stray_winws2_processes(None);
+                        cleanup_windivert_driver().await;
+                        if *worker.generation.read() != generation {
+                            continue;
+                        }
+                        if *worker.state.read() != SupervisorState::Stopped {
+                            continue;
+                        }
+                        if let Err(e) = worker
+                            .clone()
+                            .start_inner(strategy_id, custom_args, false)
+                            .await
+                        {
+                            worker.log(
+                                "error",
+                                &format!("WinDivert recovery restart failed: {}", e),
+                            );
+                            // The restart itself failed (spawn, binaries,
+                            // transport): no child exists to die and set the
+                            // error, so set it here or the UI would silently
+                            // fall back to stopped with no explanation. The
+                            // retry ran in the WinDivert-conflict context, so
+                            // this code is the honest label for it.
+                            *worker.last_engine_error.write() =
+                                Some("windivert_conflict".to_string());
+                        }
+                    }
+                });
+            }
+        }
+        self.start_inner(strategy_id, custom_args, true).await
+    }
+
+    /// Shared start sequence used by user starts and by the WinDivert
+    /// recovery restart. `reset_recovery` re-arms the one-shot recovery
+    /// allowance; it is true only for user starts and only after the
+    /// early-return checks, so a no-op start (already running the same
+    /// strategy) does not re-arm it and the recovery restart itself never
+    /// re-arms it, which would loop forever.
+    async fn start_inner(
+        self: Arc<Self>,
+        strategy_id: Option<String>,
+        custom_args: Option<Vec<String>>,
+        reset_recovery: bool,
     ) -> Result<(), ProcessError> {
         // SECURITY (M-1): fail-closed privilege gate lives INSIDE start(), not
         // only in the IPC command. The tray "Включить обход" item and the
@@ -303,6 +413,14 @@ impl Supervisor {
             );
             return Err(ProcessError::NotElevated);
         }
+
+        // Fresh attempt: forget any previous engine error and any stale
+        // WinDivert signature, and remember the params for a possible
+        // recovery restart.
+        self.windivert_open_error
+            .store(false, Ordering::SeqCst);
+        *self.last_engine_error.write() = None;
+        *self.last_start_params.write() = (strategy_id.clone(), custom_args.clone());
 
         // Hold the lifecycle lock for the whole start sequence so a concurrent
         // stop() cannot observe a half-initialized engine (see 1.1).
@@ -324,6 +442,13 @@ impl Supervisor {
             } else {
                 *state = SupervisorState::Starting;
             }
+        }
+
+        // A real start attempt (not a no-op early return above) re-arms the
+        // one-shot WinDivert recovery allowance, and only for user starts.
+        if reset_recovery {
+            self.windivert_recovery_done
+                .store(false, Ordering::SeqCst);
         }
 
         // If another child process is active, stop it cleanly before spawning the new strategy
@@ -523,10 +648,20 @@ impl Supervisor {
 
         let log_tx_stderr = self.log_tx.clone();
         let file_logger_stderr = self.file_logger.clone();
+        let windivert_open_error = self.windivert_open_error.clone();
         if let Some(stderr_stream) = stderr {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_stream).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
+                    // WinDivert open-filter failure: the driver is held by
+                    // another bypass tool or left in a stale state. The
+                    // monitor task pairs this with exit code 10.
+                    let lowered = line.to_lowercase();
+                    if lowered.contains("windivert")
+                        && lowered.contains("error opening filter")
+                    {
+                        windivert_open_error.store(true, Ordering::SeqCst);
+                    }
                     file_logger_stderr.write_entry("STDERR", &line);
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -544,6 +679,9 @@ impl Supervisor {
         // 6. Spawn monitor task for process exit (reads the child via active_child)
         let supervisor_clone = self.clone();
         tokio::spawn(async move {
+            // The guard must not live across any await below: it is not Send,
+            // so exit handling runs after the loop, outside the guard's scope.
+            let mut exited_status = None;
             loop {
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 let mut child_guard = supervisor_clone.active_child.lock();
@@ -556,26 +694,7 @@ impl Supervisor {
                             );
                             *child_guard = None;
                             drop(child_guard);
-
-                            tokio::spawn(async {
-                                cleanup_windivert_driver().await;
-                            });
-
-                            {
-                                let mut state = supervisor_clone.state.write();
-                                if *state == SupervisorState::Running || *state == SupervisorState::Stopping {
-                                    *state = SupervisorState::Stopped;
-                                }
-                                *supervisor_clone.active_pid.write() = None;
-                                *supervisor_clone.start_time.write() = None;
-                                // The engine is gone — drop stale strategy/binary or the UI
-                                // would keep advertising a configuration that no longer runs.
-                                *supervisor_clone.active_strategy.write() = None;
-                                *supervisor_clone.active_transport.write() = None;
-                                *supervisor_clone.binary_path.write() = None;
-                            }
-
-                            supervisor_clone.emit_state_change(SupervisorState::Stopped);
+                            exited_status = Some(status);
                             break;
                         }
                         Ok(None) => {}
@@ -589,6 +708,90 @@ impl Supervisor {
                     break;
                 }
             }
+
+            if let Some(status) = exited_status {
+                {
+                    let mut state = supervisor_clone.state.write();
+                    if *state == SupervisorState::Running || *state == SupervisorState::Stopping {
+                        *state = SupervisorState::Stopped;
+                    }
+                    *supervisor_clone.active_pid.write() = None;
+                    *supervisor_clone.start_time.write() = None;
+                    // The engine is gone — drop stale strategy/binary or the UI
+                    // would keep advertising a configuration that no longer runs.
+                    *supervisor_clone.active_strategy.write() = None;
+                    *supervisor_clone.active_transport.write() = None;
+                    *supervisor_clone.binary_path.write() = None;
+                }
+
+                // Capture the generation and params BEFORE the grace poll: a
+                // user stop/start during the poll must cancel recovery, and
+                // reading them after the poll would see the new generation
+                // and mistake it for the one this death belongs to.
+                let generation_before = *supervisor_clone.generation.read();
+                let (strategy_id, custom_args) =
+                    supervisor_clone.last_start_params.read().clone();
+
+                // WinDivert open-filter failure (exit code 10 plus the stderr
+                // signature) means the driver is held by another bypass tool
+                // or left stale. The stderr reader drains the pipes
+                // asynchronously, so give it a short grace period before deciding.
+                let mut windivert_conflict = false;
+                if status.code() == Some(10) {
+                    for _ in 0..10 {
+                        if supervisor_clone
+                            .windivert_open_error
+                            .load(Ordering::SeqCst)
+                        {
+                            windivert_conflict = true;
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                }
+                let superseded =
+                    *supervisor_clone.generation.read() != generation_before;
+                let mut recovery_requested = false;
+                if windivert_conflict && !superseded {
+                    if !supervisor_clone
+                        .windivert_recovery_done
+                        .swap(true, Ordering::SeqCst)
+                    {
+                        supervisor_clone.log(
+                            "info",
+                            "WinDivert conflict detected: scheduling one recovery attempt...",
+                        );
+                        let _ = supervisor_clone.recovery_tx.send((
+                            generation_before,
+                            strategy_id,
+                            custom_args,
+                        ));
+                        recovery_requested = true;
+                    } else {
+                        // Second failure with the same conflict: recovery was
+                        // already spent, so the banner text ("already tried
+                        // once") is true from the moment it appears.
+                        *supervisor_clone.last_engine_error.write() =
+                            Some("windivert_conflict".to_string());
+                        supervisor_clone.log(
+                            "error",
+                            "WinDivert filter open failed (exit code 10): the driver is held by another bypass tool or left in a stale state.",
+                        );
+                    }
+                }
+
+                // The detached driver cleanup runs on every death except when
+                // a recovery restart is scheduled: the worker cleans up itself
+                // right before relaunching, and a detached `sc stop` racing
+                // the fresh engine's driver open must not run here.
+                if !recovery_requested {
+                    tokio::spawn(async {
+                        cleanup_windivert_driver().await;
+                    });
+                }
+
+                supervisor_clone.emit_state_change(SupervisorState::Stopped);
+            }
         });
 
         Ok(())
@@ -596,6 +799,10 @@ impl Supervisor {
 
     /// Stops the bypass engine and releases WinDivert.
     pub async fn stop(&self) -> Result<(), ProcessError> {
+        // A user stop cancels any pending WinDivert recovery restart and
+        // dismisses its banner.
+        *self.generation.write() += 1;
+        *self.last_engine_error.write() = None;
         // Serialized with start(): either the start fully completed before us
         // or it will run after we finish — never interleaved (see 1.1).
         let _lifecycle_guard = self.lifecycle.lock().await;
