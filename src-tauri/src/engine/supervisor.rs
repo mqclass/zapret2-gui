@@ -325,7 +325,8 @@ impl Supervisor {
     }
 
     /// User-initiated start (UI, tray, autostart). Bumps the generation and
-    /// runs the shared start sequence with recovery re-armed.
+    /// runs the shared start sequence; a real (non-no-op) start re-arms the
+    /// one-shot recovery, a no-op start does not.
     pub async fn start(
         self: Arc<Self>,
         strategy_id: Option<String>,
@@ -345,6 +346,15 @@ impl Supervisor {
                     while let Some((generation, strategy_id, custom_args)) =
                         rx.recv().await
                     {
+                        // Hold the lifecycle lock for the whole cleanup and
+                        // restart: a user start/stop can only bump the
+                        // generation (before blocking on this lock) or run
+                        // after we release it, so it can never spawn an engine
+                        // that our stray-kill would then destroy. Without the
+                        // lock, the checks below race user starts: the kill
+                        // runs after the first check but before the second,
+                        // and would kill a freshly spawned engine.
+                        let guard = worker.lifecycle.lock().await;
                         if *worker.generation.read() != generation {
                             continue;
                         }
@@ -355,6 +365,9 @@ impl Supervisor {
                             "info",
                             "WinDivert conflict detected: cleaning up stray engines and retrying once...",
                         );
+                        // No supervised child can exist here: state is Stopped
+                        // under the lock, and every spawn stores its child
+                        // under this same lock, so exclude=None is safe.
                         let _ = kill_stray_winws2_processes(None);
                         cleanup_windivert_driver().await;
                         if *worker.generation.read() != generation {
@@ -365,7 +378,7 @@ impl Supervisor {
                         }
                         if let Err(e) = worker
                             .clone()
-                            .start_inner(strategy_id, custom_args, false)
+                            .start_locked(strategy_id, custom_args, false, &guard)
                             .await
                         {
                             worker.log(
@@ -394,15 +407,39 @@ impl Supervisor {
     /// early-return checks, so a no-op start (already running the same
     /// strategy) does not re-arm it and the recovery restart itself never
     /// re-arms it, which would loop forever.
+    ///
+    /// The lifecycle lock is held for the whole start sequence so a
+    /// concurrent stop() cannot observe a half-initialized engine (see 1.1).
+    /// It is acquired here, and the body lives in start_locked so the
+    /// recovery worker can hold the same lock across its cleanup and restart
+    /// without deadlocking on a re-acquire.
     async fn start_inner(
         self: Arc<Self>,
         strategy_id: Option<String>,
         custom_args: Option<Vec<String>>,
         reset_recovery: bool,
     ) -> Result<(), ProcessError> {
-        // SECURITY (M-1): fail-closed privilege gate lives INSIDE start(), not
-        // only in the IPC command. The tray "Включить обход" item and the
-        // --autostart path call start() directly; without this gate the engine
+        // Clone the Arc for the lock: the guard borrows from it, and `self`
+        // must still move into start_locked, so the guard cannot borrow
+        // from `self` directly.
+        let this = self.clone();
+        let guard = this.lifecycle.lock().await;
+        self.start_locked(strategy_id, custom_args, reset_recovery, &guard)
+            .await
+    }
+
+    /// Start body, run with the lifecycle lock already held (see start_inner).
+    /// Must never acquire the lifecycle lock itself.
+    async fn start_locked(
+        self: Arc<Self>,
+        strategy_id: Option<String>,
+        custom_args: Option<Vec<String>>,
+        reset_recovery: bool,
+        _guard: &tokio::sync::MutexGuard<'_, ()>,
+    ) -> Result<(), ProcessError> {
+        // SECURITY (M-1): fail-closed privilege gate lives INSIDE the start
+        // path, not only in the IPC command. The tray "Включить обход" item and
+        // the --autostart path call start() directly; without this gate the engine
         // would start half-broken (WinDivert fails without admin rights) and
         // the UI would never show the admin prompt. The error string keeps the
         // ADMIN_REQUIRED prefix so the frontend opens the admin gate modal.
@@ -421,10 +458,6 @@ impl Supervisor {
             .store(false, Ordering::SeqCst);
         *self.last_engine_error.write() = None;
         *self.last_start_params.write() = (strategy_id.clone(), custom_args.clone());
-
-        // Hold the lifecycle lock for the whole start sequence so a concurrent
-        // stop() cannot observe a half-initialized engine (see 1.1).
-        let _lifecycle_guard = self.lifecycle.lock().await;
 
         // Support seamless strategy switching or fresh start
         {
@@ -781,16 +814,22 @@ impl Supervisor {
                 }
 
                 // The detached driver cleanup runs on every death except when
-                // a recovery restart is scheduled: the worker cleans up itself
+                // a recovery restart is scheduled (the worker cleans up itself
                 // right before relaunching, and a detached `sc stop` racing
-                // the fresh engine's driver open must not run here.
-                if !recovery_requested {
+                // the fresh engine's driver open must not run here) and except
+                // when this death was superseded (a new engine may already be
+                // opening the driver).
+                if !recovery_requested && !superseded {
                     tokio::spawn(async {
                         cleanup_windivert_driver().await;
                     });
                 }
 
-                supervisor_clone.emit_state_change(SupervisorState::Stopped);
+                // A superseded death must not emit Stopped over a fresh
+                // Starting/Running: the new start emits its own events.
+                if !superseded {
+                    supervisor_clone.emit_state_change(SupervisorState::Stopped);
+                }
             }
         });
 
@@ -806,6 +845,10 @@ impl Supervisor {
         // Serialized with start(): either the start fully completed before us
         // or it will run after we finish — never interleaved (see 1.1).
         let _lifecycle_guard = self.lifecycle.lock().await;
+        // Re-clear under the lock: a recovery worker finishing its restart
+        // attempt while we waited on the lock could have set the error after
+        // our pre-lock clear; an explicit stop must always dismiss the banner.
+        *self.last_engine_error.write() = None;
 
         let pid = {
             let mut state = self.state.write();
