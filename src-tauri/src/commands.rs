@@ -348,10 +348,12 @@ pub async fn reveal_lists_folder() -> Result<(), String> {
     crate::win32::lists::open_lists_folder()
 }
 
-/// Opens the persistent logs folder in Windows Explorer.
+/// Opens the persistent logs folder in Windows Explorer. Returns the opened
+/// path so the UI can report failures visibly instead of swallowing them.
 #[tauri::command]
-pub async fn open_logs_folder(state: State<'_, AppState>) -> Result<(), String> {
-    state.backend.read().clone().open_logs_folder()
+pub async fn open_logs_folder(state: State<'_, AppState>) -> Result<String, String> {
+    let path = state.backend.read().clone().open_logs_folder()?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 /// Retrieves the absolute file path to the active log file.

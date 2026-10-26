@@ -439,13 +439,13 @@ impl SupervisorBackend {
 
     /// Opens the log folder in Explorer. In remote mode the svc writes to the
     /// same per-user location when run as the same user (the common case:
-    /// the GUI auto-elevates, so both sides resolve identically).
-    pub fn open_logs_folder(&self) -> Result<(), String> {
+    /// the GUI auto-elevates, so both sides resolve identically). Resolves
+    /// the directory directly instead of constructing a throwaway logger
+    /// (no icacls re-hardening, no extra session line in the log file).
+    pub fn open_logs_folder(&self) -> Result<std::path::PathBuf, String> {
         match self {
             Self::Local(s) => s.open_logs_folder(),
-            Self::Remote(_) => crate::engine::FileLogger::new()
-                .open_in_explorer()
-                .map_err(|e| e.to_string()),
+            Self::Remote(_) => crate::engine::FileLogger::open_log_dir_in_explorer(),
         }
     }
 

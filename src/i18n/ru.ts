@@ -218,6 +218,8 @@ export const ru: Translations = {
     empty: "Журнал пуст. Включите обход, чтобы просмотреть вывод winws2.",
     showingLatest: "Показаны последние 500 записей",
     openFolder: "Папка с логами",
+    openFolderErrorTitle: "Не удалось открыть папку с логами",
+    openFolderErrorBody: "Ошибка: {error}",
     copyAll: "Копировать все",
     copiedSuccess: "Логи успешно скопированы в буфер обмена!",
     logFilePath: "Файл логов:",

@@ -271,8 +271,9 @@ impl Supervisor {
         let _ = self.log_tx.try_send(entry);
     }
 
-    /// Opens the logs folder in Windows Explorer.
-    pub fn open_logs_folder(&self) -> Result<(), String> {
+    /// Opens the logs folder in Windows Explorer. Returns the opened path
+    /// so the UI can surface it on failure instead of failing silently.
+    pub fn open_logs_folder(&self) -> Result<std::path::PathBuf, String> {
         self.file_logger.open_in_explorer()
     }
 

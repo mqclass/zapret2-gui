@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
+import { notifyUser } from "../utils/notify";
 
 interface LogViewerProps {
   logs: LogEntry[];
@@ -88,9 +89,15 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
 
     const handleOpenFolder = async () => {
       try {
-        await invoke("open_logs_folder");
+        await invoke<string>("open_logs_folder");
       } catch (e) {
+        // Previously this failed silently (console only), so a broken
+        // button looked identical to a working one. Surface it.
         console.error("Failed to open logs folder:", e);
+        await notifyUser(
+          t.logs.openFolderErrorTitle,
+          t.logs.openFolderErrorBody.replace("{error}", String(e))
+        );
       }
     };
 

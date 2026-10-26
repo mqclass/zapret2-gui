@@ -202,6 +202,60 @@ impl FileLogger {
         self.current_file.clone()
     }
 
+    /// Resolves the log directory for read-only consumers (e.g. the "open
+    /// logs folder" button): same lookup order as resolve_log_directory,
+    /// but without re-hardening the ACL (icacls subprocess) or opening the
+    /// log file. Previously the button constructed a throwaway FileLogger
+    /// on every click, which re-ran icacls, appended a session-start line
+    /// to zapret2.log and held a second file handle; any failure in that
+    /// chain failed the click silently.
+    pub fn log_dir_path() -> PathBuf {
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            let app_logs = PathBuf::from(local_appdata).join("zapret2").join("logs");
+            if app_logs.is_dir() || fs::create_dir_all(&app_logs).is_ok() {
+                return app_logs;
+            }
+        }
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(parent) = exe_path.parent() {
+                let candidate = parent.join("logs");
+                if candidate.is_dir() || fs::create_dir_all(&candidate).is_ok() {
+                    return candidate;
+                }
+            }
+        }
+        let tmp = std::env::temp_dir().join("zapret2-logs");
+        let _ = fs::create_dir_all(&tmp);
+        tmp
+    }
+
+    /// Opens a directory in Windows Explorer, falling back to PATH lookup
+    /// if the System32 path spawn fails. Returns the opened directory.
+    pub fn open_dir_in_explorer(dir: &Path) -> Result<PathBuf, String> {
+        #[cfg(target_os = "windows")]
+        {
+            let spawn = std::process::Command::new(crate::win32::system32("explorer.exe"))
+                .arg(dir)
+                .spawn()
+                .or_else(|_| std::process::Command::new("explorer.exe").arg(dir).spawn());
+            spawn.map_err(|e| format!("Failed to open Explorer: {}", e))?;
+            Ok(dir.to_path_buf())
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = dir;
+            Ok(dir.to_path_buf())
+        }
+    }
+
+    /// Opens the resolved log directory in Explorer without constructing
+    /// a logger (no icacls, no file open). Used by the logs-folder button
+    /// in remote (svc) mode, where no GUI-side logger exists.
+    pub fn open_log_dir_in_explorer() -> Result<PathBuf, String> {
+        let dir = Self::log_dir_path();
+        Self::open_dir_in_explorer(&dir)
+    }
+
     /// Retrieves the log directory.
     #[allow(dead_code)]
     pub fn get_log_dir(&self) -> PathBuf {
@@ -209,19 +263,7 @@ impl FileLogger {
     }
 
     /// Opens the logs directory in Windows Explorer.
-    pub fn open_in_explorer(&self) -> Result<(), String> {
-        let dir = &self.log_dir;
-        #[cfg(target_os = "windows")]
-        {
-            std::process::Command::new(crate::win32::system32("explorer.exe"))
-                .arg(dir)
-                .spawn()
-                .map_err(|e| format!("Failed to open Explorer: {}", e))?;
-            Ok(())
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            Ok(())
-        }
+    pub fn open_in_explorer(&self) -> Result<PathBuf, String> {
+        Self::open_dir_in_explorer(&self.log_dir)
     }
 }

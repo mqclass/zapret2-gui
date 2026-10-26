@@ -215,6 +215,8 @@ export interface Translations {
     empty: string;
     showingLatest: string;
     openFolder: string;
+    openFolderErrorTitle: string;
+    openFolderErrorBody: string;
     copyAll: string;
     copiedSuccess: string;
     logFilePath: string;

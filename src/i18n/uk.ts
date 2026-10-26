@@ -218,6 +218,8 @@ export const uk: Translations = {
     empty: "Журнал порожній. Увімкніть обхід, щоб переглянути вивід winws2.",
     showingLatest: "Показано останні 500 записів",
     openFolder: "Папка з логами",
+    openFolderErrorTitle: "Не вдалося відкрити папку з логами",
+    openFolderErrorBody: "Помилка: {error}",
     copyAll: "Копіювати все",
     copiedSuccess: "Логи успішно скопійовано в буфер обміну!",
     logFilePath: "Файл логів:",

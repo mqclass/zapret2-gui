@@ -218,6 +218,8 @@ export const en: Translations = {
     empty: "Log buffer is empty. Enable bypass to see winws2 output.",
     showingLatest: "Showing latest 500 entries",
     openFolder: "Open Logs Folder",
+    openFolderErrorTitle: "Could not open logs folder",
+    openFolderErrorBody: "Error: {error}",
     copyAll: "Copy All Logs",
     copiedSuccess: "Logs copied to clipboard!",
     logFilePath: "Log file path:",
