@@ -451,6 +451,29 @@ impl Supervisor {
             return Err(ProcessError::NotElevated);
         }
 
+        // Fail loudly on an explicitly requested but unknown strategy id.
+        // Previously an unknown id silently fell through to flowseal-alt
+        // in the resolution below, so a typo or a stale selection started
+        // a different strategy than the user asked for, and even overwrote
+        // last_strategy_id with it. This check runs before any state
+        // mutation, so a rejected start leaves a running engine untouched.
+        // The None path (tray/autostart/first run) keeps its compatibility
+        // fallback below, with logging.
+        if let Some(ref id) = strategy_id {
+            let discovered = match crate::win32::process::discover_strategies() {
+                Ok(list) => list,
+                Err(e) => return Err(e),
+            };
+            if !discovered.iter().any(|s| &s.id == id) {
+                let msg = format!("Неизвестная стратегия: {}", id);
+                self.log(
+                    "error",
+                    &format!("{} — запуск отменён, другая стратегия не подменялась", msg),
+                );
+                return Err(ProcessError::InvalidStrategy(msg));
+            }
+        }
+
         // Fresh attempt: forget any previous engine error and any stale
         // WinDivert signature, and remember the params for a possible
         // recovery restart.
@@ -513,12 +536,44 @@ impl Supervisor {
         let target_strat = if let Some(ref id) = strategy_id {
             strategies.iter().find(|s| &s.id == id).cloned()
         } else {
+            // Compatibility: no explicit id (tray/autostart/first run). A
+            // stale stored last_strategy_id (deleted custom profile,
+            // retired preset) still falls back to the default, but loudly:
+            // this is the only substitution left, and it is logged both
+            // to stderr and to the engine log.
             let last_id = crate::win32::settings::load_settings().last_strategy_id;
-            last_id
-                .and_then(|lid| strategies.iter().find(|s| s.id == lid).cloned())
+            let from_last = last_id
+                .as_ref()
+                .and_then(|lid| strategies.iter().find(|s| s.id == *lid).cloned());
+            if let (Some(lid), None) = (&last_id, &from_last) {
+                eprintln!(
+                    "start: stored last_strategy_id '{}' is no longer known, falling back to default",
+                    lid
+                );
+                self.log(
+                    "info",
+                    &format!(
+                        "Сохранённая стратегия '{}' больше недоступна, запуск по умолчанию",
+                        lid
+                    ),
+                );
+            }
+            from_last
                 .or_else(|| strategies.iter().find(|s| s.id == "flowseal-alt").cloned())
                 .or_else(|| strategies.first().cloned())
         };
+
+        // Hardening: an explicitly requested id must never silently fall
+        // through to the default here (e.g. if the strategy vanished
+        // between the pre-check above and this second discovery). The
+        // pre-check rejects unknown ids; this closes the remaining race
+        // window before last_strategy_id is overwritten below.
+        if strategy_id.is_some() && target_strat.is_none() {
+            return Err(ProcessError::InvalidStrategy(format!(
+                "Неизвестная стратегия: {}",
+                strategy_id.as_deref().unwrap_or_default()
+            )));
+        }
 
         let active_id = target_strat
             .as_ref()
@@ -1268,7 +1323,7 @@ impl Supervisor {
                 format!("--dpi-desync-fake-tls={}", b("tls_clienthello_www_google_com.bin")),
                 format!("--dpi-desync-fake-http={}", b("tls_clienthello_max_ru.bin")),
             ],
-            _ /* flowseal-general */ => vec![
+            _ /* flowseal-general: the only id reaching here; unknown flowseal-* ids are rejected in resolve_strategy_args */ => vec![
                 wf_tcp.clone(),
                 wf_udp.clone(),
                 "--filter-udp=443".into(),
@@ -1544,8 +1599,25 @@ impl Supervisor {
 
         Self::ensure_user_lists_exist(&lists_dir);
 
-        // 1. If it's a Flowseal preset, build Flowseal arguments using resolved directories
+        // 1. If it's a Flowseal preset, build Flowseal arguments using resolved directories.
+        // Known presets are exactly the five discovered in
+        // win32::process::discover_strategies; any other flowseal-* string
+        // (e.g. a typo) used to silently get the weakest general preset
+        // via the catch-all in build_flowseal_args.
         if strat_id.starts_with("flowseal-") {
+            const KNOWN_FLOWSEAL: [&str; 5] = [
+                "flowseal-alt",
+                "flowseal-alt11",
+                "flowseal-general",
+                "flowseal-fake-tls-auto",
+                "flowseal-simple-fake",
+            ];
+            if !KNOWN_FLOWSEAL.contains(&strat_id) {
+                return Err(ProcessError::InvalidStrategy(format!(
+                    "Неизвестная стратегия Flowseal: {}",
+                    strat_id
+                )));
+            }
             return Ok(Self::build_flowseal_args(strat_id, &binaries.bin_dir, &lists_dir));
         }
 
@@ -1610,6 +1682,15 @@ impl Supervisor {
             args.push("--lua-desync=fake:blob=fake_default_http:tcp_md5".into());
             args.push("--payload=tls_client_hello,http_req".into());
             args.push("--lua-desync=multisplit:pos=2:seqovl=5:seqovl_pattern=0x1603030000".into());
+        } else {
+            // No discovered strategy matches: fail loudly instead of
+            // starting the engine with generic args for an id nobody
+            // resolved (start() already rejects unknown ids, so this is
+            // defense in depth against future callers).
+            return Err(ProcessError::InvalidStrategy(format!(
+                "Неизвестная стратегия: {}",
+                strat_id
+            )));
         }
 
         Ok(args)
