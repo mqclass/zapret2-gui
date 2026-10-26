@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { X, HelpCircle, CheckCircle2, Zap, Settings, ShieldAlert, Sparkles } from "lucide-react";
 
@@ -15,9 +16,12 @@ export const ConfigGuideModal: React.FC<ConfigGuideModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 overflow-y-auto modal-backdrop-enter">
-      <div className="relative w-full max-w-2xl rounded-card border border-raise bg-card p-6 shadow-2xl my-8 max-h-[90vh] overflow-y-auto modal-panel-enter">
+  // Portal to document.body: glass ancestors (backdrop-filter) would
+  // otherwise become the containing block for `fixed` and confine the
+  // backdrop to the card instead of the window (see CustomProfileModal).
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex bg-overlay backdrop-blur-md p-4 overflow-y-auto no-scrollbar modal-backdrop-enter">
+      <div className="relative m-auto w-full max-w-2xl rounded-card border border-raise bg-card p-6 shadow-2xl max-h-[90vh] overflow-y-auto modal-panel-enter">
         <div className="flex items-center justify-between pb-4 border-b border-raise">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-control bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -166,6 +170,7 @@ export const ConfigGuideModal: React.FC<ConfigGuideModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

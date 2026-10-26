@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDownToLine,
   X,
@@ -70,9 +71,12 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
     .replace("{date}", formatDate(info.published_at, language))
     .replace("{size}", formatBytes(info.asset_size));
 
-  return (
-    <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-card border border-line bg-card p-6 shadow-2xl">
+  // Portal to document.body: glass ancestors (backdrop-filter) would
+  // otherwise become the containing block for `fixed` and confine the
+  // backdrop to the card instead of the window (see CustomProfileModal).
+  return createPortal(
+    <div className="fixed inset-0 z-[210] flex bg-black/70 p-4 backdrop-blur-sm">
+      <div className="m-auto w-full max-w-lg rounded-card border border-line bg-card p-6 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -204,6 +208,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Youtube,
   MessageSquare,
@@ -530,10 +531,12 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
           )}
         </div>
 
-        {/* Auto-Tune Results Modal */}
-        {isAutoTuneModalOpen && (isAutoTuning || probeResults) && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 modal-backdrop-enter">
-            <div className="w-full max-w-lg rounded-card border border-line bg-card p-5 shadow-2xl modal-panel-enter">
+        {/* Auto-Tune Results Modal (portal: see CustomProfileModal — glass
+            ancestors would otherwise confine the fixed backdrop) */}
+        {isAutoTuneModalOpen && (isAutoTuning || probeResults) &&
+          createPortal(
+            <div className="fixed inset-0 z-50 flex bg-overlay backdrop-blur-md p-4 overflow-y-auto no-scrollbar modal-backdrop-enter">
+              <div className="m-auto w-full max-w-lg rounded-card border border-line bg-card p-5 shadow-2xl modal-panel-enter">
               <div className="flex items-center justify-between pb-3 border-b border-raise">
                 <div className="flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-accent" />
@@ -668,8 +671,9 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
                 </>
               )}
             </div>
-          </div>
-        )}
+            </div>,
+            document.body
+          )}
       </div>
     );
   }

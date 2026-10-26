@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import {
   X,
@@ -88,9 +89,12 @@ export const DnsSplitModal: React.FC<DnsSplitModalProps> = ({ isOpen, onClose })
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 modal-backdrop-enter">
-      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col rounded-card border border-raise bg-card shadow-2xl modal-panel-enter">
+  // Portal to document.body: glass ancestors (backdrop-filter) would
+  // otherwise become the containing block for `fixed` and confine the
+  // backdrop to the card instead of the window (see CustomProfileModal).
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex bg-overlay backdrop-blur-md p-4 modal-backdrop-enter">
+      <div className="relative m-auto flex max-h-[90vh] w-full max-w-2xl flex-col rounded-card border border-raise bg-card shadow-2xl modal-panel-enter">
         {/* Header */}
         <div className="flex items-start justify-between border-b border-raise p-5">
           <div className="flex items-center gap-3">
@@ -202,6 +206,7 @@ export const DnsSplitModal: React.FC<DnsSplitModalProps> = ({ isOpen, onClose })
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
