@@ -323,6 +323,22 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
                                     "zapret2 Автоматический Lua".into(),
                                     "Автоматический подбор desync в Lua (winws2)".into(),
                                 ),
+                                "yt4k" => (
+                                    "zapret2 YouTube 4K".into(),
+                                    "Агрессивный desync для YouTube 4K по TCP: тройные фейки и многоточечная резка. QUIC по UDP не трогает.".into(),
+                                ),
+                                "discord-light" => (
+                                    "zapret2 Discord Лёгкий".into(),
+                                    "Лёгкий desync для Discord по TCP с минимальными задержками. Голос по UDP не трогает.".into(),
+                                ),
+                                "sites-light" => (
+                                    "zapret2 Только сайты".into(),
+                                    "Минимальное вмешательство для слабых машин и мобильных раздач: одна резка без фейков.".into(),
+                                ),
+                                "tspu-max" => (
+                                    "zapret2 ТСПУ Макс".into(),
+                                    "Жёсткий desync для сурового ТСПУ ценой скорости: переупорядочивание сегментов и тройные фейки.".into(),
+                                ),
                                 _ => (
                                     format!("zapret2 Lua: {}", id),
                                     format!("Скрипт {}", filename_str),

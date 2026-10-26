@@ -25,13 +25,19 @@ import { useI18n } from "../i18n";
 import { formatErrorMessage } from "../utils/error";
 
 // Candidates probed in order. Custom user profiles are out of scope for
-// the first slice: these five cover the shipped engines.
+// the first slice: these cover the shipped engines. The three new winws2
+// lua presets (yt4k, discord-light, tspu-max) are included; sites-light
+// is deliberately left out: the weakest tier cannot win YouTube/Discord
+// probes, it is a manual pick for weak hardware.
 const AUTO_TUNE_CANDIDATES = [
   "flowseal-alt",
   "flowseal-alt11",
   "flowseal-fake-tls-auto",
   "zapret2-ru-ultimate",
   "flowseal-general",
+  "yt4k",
+  "discord-light",
+  "tspu-max",
 ];
 
 interface DiagnosticsCardProps {
