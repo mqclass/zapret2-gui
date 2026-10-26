@@ -325,11 +325,11 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
                                 ),
                                 "yt4k" => (
                                     "zapret2 YouTube 4K".into(),
-                                    "Агрессивный desync для YouTube 4K по TCP: тройные фейки и многоточечная резка. QUIC по UDP не трогает.".into(),
+                                    "Агрессивный desync для YouTube 4K: тройные фейки и многоточечная резка по TCP, плюс фейк QUIC по UDP.".into(),
                                 ),
                                 "discord-light" => (
                                     "zapret2 Discord Лёгкий".into(),
-                                    "Лёгкий desync для Discord по TCP с минимальными задержками. Голос по UDP не трогает.".into(),
+                                    "Лёгкий desync для Discord с минимальными задержками: TCP плюс голос по UDP.".into(),
                                 ),
                                 "sites-light" => (
                                     "zapret2 Только сайты".into(),

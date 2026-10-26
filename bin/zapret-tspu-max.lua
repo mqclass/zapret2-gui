@@ -7,6 +7,9 @@
 --   --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid
 --   --payload=http_req        --lua-desync=fake:blob=fake_default_http:tcp_md5
 --   --payload=tls_client_hello,http_req --lua-desync=multisplit:pos=2:seqovl=5:seqovl_pattern=0x1603030000
+--   --blob=discord_udp:@ACTIVE_DISCORD_UDP.bin --blob=quic_google:@quic_initial_www_google_com.bin
+--   --new=discord_voice --filter-udp=19294-19344,50000-65535 --payload=all --out-range=n1-n4 --lua-desync=fake:blob=discord_udp:repeats=6
+--   --new=quic --filter-udp=443 --payload=quic_initial --lua-desync=fake:blob=quic_google:repeats=11
 -- Этот файл ОБЯЗАТЕЛЬНО определяет функции fake() и multisplit(), которые
 -- вызывают фиксированные аргументы выше. Код взят из эталона
 -- strategies/zapret-antidpi.lua.
@@ -32,8 +35,14 @@
 --     150 байт от начала пакета, иначе движок молча отменяет перекрытие
 --     (см. DLOG "seqovl cancelled") - переупорядочивание при этом
 --     всё равно работает.
---   - Фейковые пакеты - только встроенные fake_default_tls/http.
---   - Только TCP: фиксированные фильтры GUI не содержат UDP-секции.
+--   - Фейковые пакеты TCP - только встроенные fake_default_tls/http;
+--     UDP-фейки GUI передаёт через --blob (см. выше).
+--   - UDP тоже трогается секциями discord_voice и quic из GUI (тот же
+--     рецепт, что у флагмана). Оговорка: цикл x3 в fake() утраивает и
+--     UDP-фейки: голос - до 72 фейков всплеском в начале потока
+--     (4 пакета по out-range=n1-n4 x 18, около 86 КБ), QUIC - 33 на
+--     Initial; у флагмана 6 и 11. Это цена агрессивности, только
+--     в начале потока.
 
 -- nfqws1 : "--dpi-desync=fake"
 -- Вариация эталона: 3 фейка с полным набором модификаторов из CLI.

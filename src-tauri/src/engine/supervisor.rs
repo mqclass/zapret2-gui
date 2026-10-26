@@ -1644,6 +1644,11 @@ impl Supervisor {
         let mut args = Vec::new();
         args.push("--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into());
         args.push("--wf-udp-out=443,19294-19344,50000-65535".into());
+        // UDP fake payloads, mirrored from the flagship's sections. Without
+        // them the UDP sections below would have no blob to send; the
+        // files live in bin/ next to the engine, same as the flagship.
+        args.push("--blob=discord_udp:@ACTIVE_DISCORD_UDP.bin".into());
+        args.push("--blob=quic_google:@quic_initial_www_google_com.bin".into());
         args.push("--filter-tcp=80,443,2053,2083,2087,2096,8443".into());
 
         let lib_lua = strategies
@@ -1682,6 +1687,28 @@ impl Supervisor {
             args.push("--lua-desync=fake:blob=fake_default_http:tcp_md5".into());
             args.push("--payload=tls_client_hello,http_req".into());
             args.push("--lua-desync=multisplit:pos=2:seqovl=5:seqovl_pattern=0x1603030000".into());
+
+            // UDP sections. Previously branch 4 captured voice/QUIC UDP via
+            // --wf-udp-out but defined no --filter-udp section, so Discord
+            // voice and YouTube QUIC passed through untouched: voice did
+            // not work on any discovered preset. These two sections mirror
+            // the flagship's discord_voice and quic_youtube sections (same
+            // blobs, same repeats); the QUIC section is intentionally
+            // ungated like branch 4's TCP section. Caveat: presets whose
+            // fake() loops (yt4k, tspu-max) triple the UDP fakes too
+            // (voice: up to 72 in a burst at flow start, out-range
+            // n1-n4 x 18, ~86 KB; QUIC: 33 per Initial, vs the
+            // flagship's 6/11), and sites-light's pass-through fake()
+            // leaves UDP unprotected by design.
+            args.push("--new=discord_voice".into());
+            args.push("--filter-udp=19294-19344,50000-65535".into());
+            args.push("--payload=all".into());
+            args.push("--out-range=n1-n4".into());
+            args.push("--lua-desync=fake:blob=discord_udp:repeats=6".into());
+            args.push("--new=quic".into());
+            args.push("--filter-udp=443".into());
+            args.push("--payload=quic_initial".into());
+            args.push("--lua-desync=fake:blob=quic_google:repeats=11".into());
         } else {
             // No discovered strategy matches: fail loudly instead of
             // starting the engine with generic args for an id nobody

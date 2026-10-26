@@ -7,6 +7,9 @@
 --   --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid
 --   --payload=http_req        --lua-desync=fake:blob=fake_default_http:tcp_md5
 --   --payload=tls_client_hello,http_req --lua-desync=multisplit:pos=2:seqovl=5:seqovl_pattern=0x1603030000
+--   --blob=discord_udp:@ACTIVE_DISCORD_UDP.bin --blob=quic_google:@quic_initial_www_google_com.bin
+--   --new=discord_voice --filter-udp=19294-19344,50000-65535 --payload=all --out-range=n1-n4 --lua-desync=fake:blob=discord_udp:repeats=6
+--   --new=quic --filter-udp=443 --payload=quic_initial --lua-desync=fake:blob=quic_google:repeats=11
 -- Этот файл ОБЯЗАТЕЛЬНО определяет функции fake() и multisplit(), которые
 -- вызывают фиксированные аргументы выше. Без этих определений движок не
 -- нашёл бы функции (в zapret-lib.lua их нет, они только в antidpi.lua).
@@ -25,7 +28,10 @@
 --     автоподбором на своей Windows-машине (в автоподбор он НЕ включён:
 --     самый слабый уровень заведомо не выиграет замеры YouTube/Discord,
 --     его место - ручной выбор для слабого железа).
---   - Только TCP: фиксированные фильтры GUI не содержат UDP-секции.
+--   - UDP-секции discord_voice и quic в аргументах GUI есть, но fake()
+--     здесь - pass-through и ничего не отправляет, поэтому голос и
+--     QUIC на этом пресете осознанно остаются без защиты. Это самый
+--     слабый уровень, его место - ручной выбор для слабого железа.
 
 -- nfqws1 : "--dpi-desync=fake"
 -- Вариация эталона: фейк отключён полностью (pass-through).

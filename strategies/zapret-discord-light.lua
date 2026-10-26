@@ -7,6 +7,9 @@
 --   --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid
 --   --payload=http_req        --lua-desync=fake:blob=fake_default_http:tcp_md5
 --   --payload=tls_client_hello,http_req --lua-desync=multisplit:pos=2:seqovl=5:seqovl_pattern=0x1603030000
+--   --blob=discord_udp:@ACTIVE_DISCORD_UDP.bin --blob=quic_google:@quic_initial_www_google_com.bin
+--   --new=discord_voice --filter-udp=19294-19344,50000-65535 --payload=all --out-range=n1-n4 --lua-desync=fake:blob=discord_udp:repeats=6
+--   --new=quic --filter-udp=443 --payload=quic_initial --lua-desync=fake:blob=quic_google:repeats=11
 -- Этот файл ОБЯЗАТЕЛЬНО определяет функции fake() и multisplit(), которые
 -- вызывают фиксированные аргументы выше. Код функций взят из эталона
 -- strategies/zapret-antidpi.lua, вариации - только переопределением
@@ -23,12 +26,12 @@
 -- ЧЕСТНЫЕ ОГРАНИЧЕНИЯ:
 --   - Против живого DPI НЕ ИЗМЕРЕН. Новый пресет, проверит пользователь
 --     автоподбором на своей Windows-машине.
---   - Голос Discord по UDP и STUN этот пресет НЕ трогает: в фиксированных
---     фильтрах GUI нет UDP-секции, а lua-файл фильтры добавить не может.
---     Для настоящего голосового UDP нужен отдельный --filter-udp раздел,
---     а это правка Rust-кода (build_arguments в supervisor.rs), которой
---     здесь нет. Не называйте этот пресет "голосовым" без этой оговорки.
---   - Фейковые пакеты - только встроенные fake_default_tls/http.
+--   - Голос Discord по UDP и STUN теперь трогает секция discord_voice
+--     из GUI (тот же рецепт, что у флагмана: фейк ACTIVE_DISCORD_UDP,
+--     repeats=6), а QUIC - секция quic. Сброс tls_mod/tcp_md5 в fake()
+--     касается только TCP-опций и на UDP никак не влияет.
+--   - Фейковые пакеты TCP - только встроенные fake_default_tls/http;
+--     UDP-фейки берутся из .bin-файлов через --blob (см. выше).
 
 -- nfqws1 : "--dpi-desync=fake"
 -- Вариация эталона: лёгкий фейк без tls_mod и без tcp_md5, один раз.
