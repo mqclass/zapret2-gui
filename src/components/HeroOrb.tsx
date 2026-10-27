@@ -45,8 +45,8 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
       state === "connected"
         ? "bg-emerald-500/25"
         : state === "connecting"
-        ? "bg-violet-500/25"
-        : "bg-violet-500/15";
+        ? "bg-accent/25"
+        : "bg-accent/15";
 
     const icon =
       state === "connecting" ? (

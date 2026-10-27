@@ -438,9 +438,9 @@ export const ru: Translations = {
     watchdogBtnDisable: "Выключить сторожа",
     watchdogIntervalLabel: "Проверять каждые",
     watchdogMinutes: "мин",
-    accentTitle: "Цвет акцента",
+    accentTitle: "Цвет приложения",
     accentDesc:
-      "Меняет только цвет акцента интерфейса: кнопки, подсветки и градиенты. Тёмное стекло остаётся как есть.",
+      "Меняет цвет всего приложения: фоны, стекло и акценты. Приложение остаётся тёмным.",
     accentCustom: "Свой цвет",
     accentViolet: "Фиолетовый",
     accentCyan: "Циан",

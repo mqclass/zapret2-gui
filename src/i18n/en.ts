@@ -438,9 +438,9 @@ export const en: Translations = {
     watchdogBtnDisable: "Disable watchdog",
     watchdogIntervalLabel: "Check every",
     watchdogMinutes: "min",
-    accentTitle: "Accent color",
+    accentTitle: "App color",
     accentDesc:
-      "Changes only the interface accent color: buttons, highlights and gradients. The dark glass stays as it is.",
+      "Recolors the whole app: backgrounds, glass and accents. The app stays dark.",
     accentCustom: "Custom color",
     accentViolet: "Violet",
     accentCyan: "Cyan",

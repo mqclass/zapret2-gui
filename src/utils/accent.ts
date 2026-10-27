@@ -1,16 +1,32 @@
 /**
- * Accent color system: runtime overrides for the --c-accent family.
+ * App color system: runtime overrides for the accent family AND the
+ * neutral glass surfaces.
  *
- * The dark glass base theme (index.css) is never touched: only the accent
- * variables are overridden on documentElement, and Tailwind tokens read
- * those variables, so every accent surface recolors at once. Passing null
- * removes the overrides and restores the built-in violet from index.css.
+ * Picking a color recolors the whole app while keeping it dark: the
+ * accent variables drive buttons, links, glows and gradients, and the
+ * surface variables (app background, glass sidebar/bar/cards, inner
+ * panels, inputs, overlay, aurora glows) are tinted toward the same
+ * color. Passing null removes every override and restores the built-in
+ * violet look from index.css byte for byte.
  *
- * Derivation rules were checked against the built-in violet so the default
- * look reproduces from the fill color alone: fill-hover equals accent,
- * wash is fill at 0.18 alpha, line is accent at 0.38, the glow is accent
- * at 0.16 plus fill at 0.25, and accent2 is the fill hue-rotated for the
- * duotone gradients.
+ * Derivation rules were checked against the built-in violet so the
+ * default look reproduces from the fill color alone: fill-hover equals
+ * accent, wash is fill at 0.18 alpha, line is accent at 0.38, the glow
+ * is accent at 0.16 plus fill at 0.25, and accent2 is the fill
+ * hue-rotated for the duotone gradients.
+ *
+ * Surface tint rule: every neutral surface is mixed toward a DARK
+ * version of the theme color (same hue, saturation capped at 0.85,
+ * lightness pinned to 0.30), never toward the raw bright fill. That is
+ * what keeps the app dark and the white text readable for bright fills
+ * (cyan, amber) and for custom extremes (white, gray, black): the mix
+ * target itself is dark, so no weight can wash a surface out. Note the
+ * saturation is only capped, never floored: achromatic picks (white,
+ * gray, black) honestly yield a neutral dark gray tint instead of
+ * inventing a red hue from the arbitrary h=0 of grays. Weights are per
+ * surface: the app backdrop shows the color most (0.50), glass panels
+ * slightly less (0.45), solid panels 0.40, the modal overlay least
+ * (0.30, it must stay near-black). Text (ink) colors are never touched.
  */
 
 export interface Rgb {
@@ -40,7 +56,7 @@ export const ACCENT_PRESETS: AccentPreset[] = [
   { id: "blue", fill: "#3B82F6", accent: "#60A5FA" },
 ];
 
-/** CSS variables of the accent family, in the order they are overridden. */
+/** CSS variables overridden by applyAccent, in the order they are set. */
 const ACCENT_VARS = [
   "--c-accent",
   "--c-accent-soft",
@@ -51,6 +67,25 @@ const ACCENT_VARS = [
   "--c-accent-line",
   "--c-accent2",
   "--shadow-glow",
+];
+
+/** Neutral surfaces tinted toward the theme color (see header). */
+const SURFACE_VARS = [
+  "--c-app",
+  "--c-sidebar",
+  "--c-card",
+  "--c-cardin",
+  "--c-raise",
+  "--c-hovert",
+  "--glass-sidebar-bg",
+  "--glass-card-bg",
+  "--glass-bar-bg",
+  "--c-overlay",
+  "--aurora-1",
+  "--aurora-2",
+  "--aurora-3",
+  "--aurora-4",
+  "--aurora-5",
 ];
 
 export function hexToRgb(hex: string): Rgb | null {
@@ -146,14 +181,77 @@ function luminance(c: Rgb): number {
   );
 }
 
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+/** Mixes two colors: w = 0 keeps a, w = 1 gives b. */
+function mix(a: Rgb, b: Rgb, w: number): Rgb {
+  return {
+    r: a.r + (b.r - a.r) * w,
+    g: a.g + (b.g - a.g) * w,
+    b: a.b + (b.b - a.b) * w,
+  };
+}
+
 /**
- * Applies an accent fill color (hex "#RRGGBB") or restores the built-in
+ * The dark mix target for surface tinting: the theme hue, saturation
+ * capped at 0.85, lightness pinned to 0.30. Mixing any neutral surface
+ * toward this can only darken-tint it, never wash it out, whatever
+ * the user picks. Saturation is deliberately NOT floored: for
+ * achromatic fills rgbToHsl reports h=0, and flooring s would invent
+ * a red tint for white/gray/black picks.
+ */
+function darkTintSource(fill: Rgb): Rgb {
+  const { h, s } = rgbToHsl(fill);
+  return hslToRgb(h, clamp(s, 0, 0.85), 0.3);
+}
+
+/** Built-in violet surfaces from index.css :root (mix bases). */
+const BASE_SURFACES: Record<string, Rgb> = {
+  "--c-app": { r: 9, g: 7, b: 15 },
+  "--c-sidebar": { r: 17, g: 13, b: 28 },
+  "--c-card": { r: 23, g: 18, b: 38 },
+  "--c-cardin": { r: 13, g: 10, b: 22 },
+  "--c-raise": { r: 30, g: 24, b: 48 },
+  "--c-hovert": { r: 39, g: 31, b: 62 },
+  "--glass-sidebar-bg": { r: 26, g: 20, b: 44 },
+  "--glass-card-bg": { r: 22, g: 17, b: 38 },
+  "--glass-bar-bg": { r: 16, g: 12, b: 28 },
+  "--c-overlay": { r: 5, g: 3, b: 10 },
+};
+
+/** Alphas preserved from index.css for the rgba surfaces. */
+const SURFACE_ALPHA: Record<string, number> = {
+  "--glass-sidebar-bg": 0.58,
+  "--glass-card-bg": 0.5,
+  "--glass-bar-bg": 0.55,
+  "--c-overlay": 0.7,
+};
+
+/** Mix weight per surface (see header for the reasoning). */
+const SURFACE_WEIGHT: Record<string, number> = {
+  "--c-app": 0.5,
+  "--glass-sidebar-bg": 0.45,
+  "--glass-card-bg": 0.45,
+  "--glass-bar-bg": 0.45,
+  "--c-overlay": 0.3,
+};
+
+const DEFAULT_SURFACE_WEIGHT = 0.4;
+
+/**
+ * Applies a theme fill color (hex "#RRGGBB") or restores the built-in
  * violet when null. Returns false for a malformed value (nothing applied).
+ * Besides the accent family it tints every neutral surface toward the
+ * same color, so the whole app changes color while staying dark.
  */
 export function applyAccent(fillHex: string | null): boolean {
   const root = document.documentElement;
   if (fillHex === null) {
-    for (const v of ACCENT_VARS) root.style.removeProperty(v);
+    for (const v of [...ACCENT_VARS, ...SURFACE_VARS]) {
+      root.style.removeProperty(v);
+    }
     return true;
   }
   const fill = hexToRgb(fillHex);
@@ -180,6 +278,26 @@ export function applyAccent(fillHex: string | null): boolean {
     "--shadow-glow",
     `0 0 0 1px ${rgba(accent, 0.16)}, 0 0 34px ${rgba(fill, 0.25)}`
   );
+  // Neutral surfaces: tint toward the dark theme color, never toward
+  // the raw bright fill. Preset and custom fills go through the same
+  // function, so a preset and its hex twin look identical.
+  const source = darkTintSource(fill);
+  for (const [name, base] of Object.entries(BASE_SURFACES)) {
+    const w = SURFACE_WEIGHT[name] ?? DEFAULT_SURFACE_WEIGHT;
+    const tinted = mix(base, source, w);
+    const alpha = SURFACE_ALPHA[name];
+    root.style.setProperty(
+      name,
+      alpha === undefined ? triplet(tinted) : rgba(tinted, alpha)
+    );
+  }
+  // Aurora glows follow the vivid accent, not the dark tint source:
+  // they are light, not surfaces, and their alphas are the built-in ones.
+  root.style.setProperty("--aurora-1", rgba(fill, 0.26));
+  root.style.setProperty("--aurora-2", rgba(accent2, 0.16));
+  root.style.setProperty("--aurora-3", rgba(fill, 0.08));
+  root.style.setProperty("--aurora-4", rgba(accent2, 0.13));
+  root.style.setProperty("--aurora-5", rgba(fill, 0.18));
   return true;
 }
 

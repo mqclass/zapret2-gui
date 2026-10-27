@@ -529,7 +529,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
                   checked={status?.lan_enabled ?? false}
                   onChange={(e) => handleLanToggle(e.target.checked)}
                   disabled={isRunning || busy !== "idle"}
-                  className="h-4 w-4 rounded accent-[#6ea8fe] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-4 w-4 rounded accent-accent cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                 />
                 <span className="text-xs text-ink4">{t.telegram.lanLabel}</span>
               </label>

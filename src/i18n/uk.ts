@@ -438,9 +438,9 @@ export const uk: Translations = {
     watchdogBtnDisable: "Вимкнути сторожа",
     watchdogIntervalLabel: "Перевіряти кожні",
     watchdogMinutes: "хв",
-    accentTitle: "Колір акценту",
+    accentTitle: "Колір застосунку",
     accentDesc:
-      "Змінює лише колір акценту інтерфейсу: кнопки, підсвітки та градієнти. Темне скло лишається як є.",
+      "Змінює колір усього застосунку: фони, скло та акценти. Застосунок лишається темним.",
     accentCustom: "Свій колір",
     accentViolet: "Фіолетовий",
     accentCyan: "Ціан",

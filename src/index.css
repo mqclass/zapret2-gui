@@ -45,6 +45,15 @@
   /* Duotone partner for gradients (fuchsia) */
   --c-accent2: 232 121 249;
 
+  /* Aurora glows: overridden per theme color by applyAccent; the
+     defaults below reproduce the built-in violet look exactly, so
+     removing the overrides restores it byte for byte. */
+  --aurora-1: rgba(139, 92, 246, 0.26);
+  --aurora-2: rgba(217, 70, 239, 0.16);
+  --aurora-3: rgba(139, 92, 246, 0.08);
+  --aurora-4: rgba(232, 121, 249, 0.13);
+  --aurora-5: rgba(139, 92, 246, 0.18);
+
   --c-danger-fill: 255 69 58;
   --c-danger-fill-hover: 255 110 100;
   --c-danger-wash: rgba(255, 69, 58, 0.12);
@@ -146,9 +155,9 @@
   /* macOS aurora: slow-drifting blue/violet ambient glows */
   [data-theme="macos"] .app-bg {
     background-image:
-      radial-gradient(1000px 560px at 8% -10%, rgba(139, 92, 246, 0.26), transparent 60%),
-      radial-gradient(880px 620px at 105% 115%, rgba(217, 70, 239, 0.16), transparent 62%),
-      radial-gradient(700px 420px at 55% 45%, rgba(139, 92, 246, 0.08), transparent 65%);
+      radial-gradient(1000px 560px at 8% -10%, var(--aurora-1), transparent 60%),
+      radial-gradient(880px 620px at 105% 115%, var(--aurora-2), transparent 62%),
+      radial-gradient(700px 420px at 55% 45%, var(--aurora-3), transparent 65%);
     background-attachment: fixed;
   }
   [data-theme="macos"] .app-bg::before {
@@ -157,8 +166,8 @@
     inset: 0;
     pointer-events: none;
     background-image:
-      radial-gradient(900px 500px at 85% -5%, rgba(232, 121, 249, 0.13), transparent 60%),
-      radial-gradient(760px 540px at -5% 100%, rgba(139, 92, 246, 0.18), transparent 60%);
+      radial-gradient(900px 500px at 85% -5%, var(--aurora-4), transparent 60%),
+      radial-gradient(760px 540px at -5% 100%, var(--aurora-5), transparent 60%);
     animation: aurora-drift 26s ease-in-out infinite alternate;
   }
   /* Engine-on ambience: when the bypass runs, the backdrop warms up with an
@@ -254,8 +263,8 @@
   }
   .t-btn-primary:hover:not(:disabled) {
     background: rgb(var(--c-accent-fill-hover));
-    box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.22),
-      0 0 40px rgba(139, 92, 246, 0.38);
+    box-shadow: 0 0 0 1px rgb(var(--c-accent) / 0.22),
+      0 0 40px rgb(var(--c-accent-fill) / 0.38);
   }
   .t-btn-danger {
     background: rgb(var(--c-danger-fill));
@@ -415,7 +424,7 @@
     background: linear-gradient(
       135deg,
       rgba(255, 255, 255, 0.12),
-      rgba(167, 139, 250, 0.08)
+      rgb(var(--c-accent) / 0.08)
     );
     border-color: rgba(255, 255, 255, 0.12);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12),
