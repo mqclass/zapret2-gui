@@ -67,6 +67,7 @@ export function useWatchdog(options: UseWatchdogOptions): void {
   tRef.current = t;
   const failuresRef = useRef(0);
   const escalatingRef = useRef(false);
+  const tickInFlightRef = useRef(false);
   const lastStrategyRef = useRef<string | null>(options.activeStrategyId);
 
   // A strategy change (manual or watchdog-driven) resets the streak.
@@ -97,6 +98,21 @@ export function useWatchdog(options: UseWatchdogOptions): void {
   }, [options.enabled, options.intervalMinutes]);
 
   async function tick(): Promise<void> {
+    // A tick is async and the interval does not await it: a slow
+    // refresh_probes (slow network) could otherwise overlap the next
+    // tick, and two overlapping ticks would each count the same
+    // degradation, escalating after one real interval instead of two
+    // consecutive ticks. The in-flight guard drops the overlap.
+    if (tickInFlightRef.current) return;
+    tickInFlightRef.current = true;
+    try {
+      await tickOnce();
+    } finally {
+      tickInFlightRef.current = false;
+    }
+  }
+
+  async function tickOnce(): Promise<void> {
     const o = optsRef.current;
     if (!o.enabled || escalatingRef.current) return;
     if (o.engineState !== "running") return;

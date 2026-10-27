@@ -336,3 +336,62 @@ export function mirrorAccentToStorage(color: string | null): void {
     // applies on load; only the early frame is lost.
   }
 }
+
+/**
+ * Unconfirmed custom-color draft, separate from the mirror above.
+ *
+ * The custom picker previews instantly but saves debounced (450 ms). If
+ * the app window closes inside that window, the webview dies with the
+ * timer and the draft would be lost: React unmount cleanup cannot be
+ * relied on at process exit. So every drag step also writes the draft
+ * here, and App reconciles it once on the next launch (applies it and
+ * saves it to the backend, one shot). The key is cleared on flush,
+ * on cancel, and on preset pick, so a stale draft can never override
+ * a newer confirmed color: it only ever holds a value the backend
+ * has not confirmed yet, and re-saving that same value is harmless
+ * even if the app died after the backend write but before the clear.
+ */
+const ACCENT_DRAFT_KEY = "zapret2.accent_draft";
+
+export function readDraftAccent(): string | null {
+  try {
+    const v = localStorage.getItem(ACCENT_DRAFT_KEY);
+    return v && hexToRgb(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeDraftAccent(color: string): void {
+  try {
+    localStorage.setItem(ACCENT_DRAFT_KEY, color);
+  } catch {
+    // Draft recovery is best-effort; the debounced save still runs.
+  }
+}
+
+export function clearDraftAccent(): void {
+  try {
+    localStorage.removeItem(ACCENT_DRAFT_KEY);
+  } catch {
+    // Best-effort; a leftover draft is re-validated on next launch.
+  }
+}
+
+/**
+ * Clears the draft only if it still holds `value`. A queued save must
+ * not wipe a newer draft: drag A, flush in flight, drag B, then A's
+ * resolve must leave B alone, or B is lost if the app dies before
+ * B's own flush. Cancel (preset pick) is the one place that clears
+ * unconditionally, because the preset is the newer intent there.
+ */
+export function clearDraftAccentIf(value: string): void {
+  try {
+    const v = localStorage.getItem(ACCENT_DRAFT_KEY);
+    if (v && v.toLowerCase() === value.toLowerCase()) {
+      localStorage.removeItem(ACCENT_DRAFT_KEY);
+    }
+  } catch {
+    // Best-effort.
+  }
+}

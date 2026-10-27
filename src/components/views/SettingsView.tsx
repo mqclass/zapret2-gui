@@ -28,7 +28,10 @@ import { AppSplitModal } from "../AppSplitModal";
 import {
   ACCENT_PRESETS,
   applyAccent,
+  clearDraftAccent,
+  clearDraftAccentIf,
   currentAccentFill,
+  writeDraftAccent,
 } from "../../utils/accent";
 
 /** External links opened via the opener plugin (L-2). The capability allowlist
@@ -126,20 +129,26 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
       const current = currentAccentFill(accentColorRef.current);
       if (pending.value.toLowerCase() === current.toLowerCase()) {
         setCustomDraft(null);
+        clearDraftAccentIf(pending.value);
         return;
       }
       const result = onAccentChangeRef.current(pending.value);
       if (result && typeof result.then === "function") {
         result.then(
-          () => setCustomDraft(null),
+          () => {
+            setCustomDraft(null);
+            clearDraftAccentIf(pending.value);
+          },
           () => {
             // Save failed: backend value unchanged, revert the preview.
             setCustomDraft(null);
+            clearDraftAccentIf(pending.value);
             applyAccent(accentColorRef.current);
           }
         );
       } else {
         setCustomDraft(null);
+        clearDraftAccentIf(pending.value);
       }
     }, []);
     const flushCustomAccentSaveRef = React.useRef(flushCustomAccentSave);
@@ -158,6 +167,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         pendingAccentSaveRef.current = null;
       }
       setCustomDraft(null);
+      clearDraftAccent();
     }, []);
     const languages: { code: Language; label: string; full: string }[] = [
       { code: "ru", label: "RU", full: "Русский" },
@@ -580,9 +590,15 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                   key={preset.id}
                   onClick={() => {
                     cancelCustomAccentSave();
-                    void onAccentChange(
+                    const res = onAccentChange(
                       preset.id === "violet" ? null : preset.fill
                     );
+                    // A failed preset save is already surfaced by App
+                    // (error alert); swallowing here keeps the fire-and-
+                    // forget click from becoming an unhandled rejection.
+                    if (res && typeof res.then === "function") {
+                      res.catch(() => {});
+                    }
                   }}
                   title={label}
                   className={`flex flex-col items-center gap-1.5 p-3 rounded-panel border text-xs font-medium transition-all cursor-pointer ${
@@ -611,6 +627,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 const v = e.target.value;
                 setCustomDraft(v);
                 applyAccent(v);
+                // Survives closing the app mid-debounce: App reconciles
+                // this draft once on the next launch (see accent.ts).
+                writeDraftAccent(v);
                 const pending = pendingAccentSaveRef.current;
                 if (pending) window.clearTimeout(pending.timer);
                 pendingAccentSaveRef.current = {

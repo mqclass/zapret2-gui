@@ -271,9 +271,15 @@ export async function runHeadlessAutoTune(
               }
             }
             // Running on another strategy or starting: the user took over.
+          } else {
+            // Running, but no original strategy was recorded (the engine
+            // started with no active strategy): there is nothing safe to
+            // restore to, so leave it as-is — but say so in the log
+            // instead of silently no-op'ing the restore step.
+            console.warn(
+              "Watchdog restore: no original strategy recorded, leaving engine as-is"
+            );
           }
-          // Running with no recorded strategy: leave the engine as-is
-          // rather than guessing a strategy to restore.
         } catch (err) {
           console.error("Watchdog restore error:", err);
         }

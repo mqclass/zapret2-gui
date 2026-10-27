@@ -57,6 +57,19 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
   useEffect(() => {
     setRotationDismissed(false);
   }, [status?.secret_rotated, status?.rotation_count]);
+  // Same session-local dismissal for the stale-secret banner: the
+  // backend flag clears on a good handshake, and a fresh pattern trip
+  // re-arms the banner. The flag alone cannot signal a fresh episode
+  // (good handshake + retrip inside one 5 s poll looks like true ->
+  // true), so the monotonic stale_trip_count is the re-arm signal,
+  // exactly like rotation_count for the rotation banner.
+  const [staleDismissed, setStaleDismissed] = useState(false);
+  useEffect(() => {
+    if (!status?.stale_secret_detected) setStaleDismissed(false);
+  }, [status?.stale_secret_detected]);
+  useEffect(() => {
+    if (status?.stale_trip_count !== undefined) setStaleDismissed(false);
+  }, [status?.stale_trip_count]);
 
   const refresh = useCallback(async () => {
     try {
@@ -335,7 +348,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
           bridge itself is fine, and the self-check result stays untouched.
           The secret itself is never printed here; copying the link reuses
           the existing clipboard mechanism from the connection card. */}
-      {isRunning && (status?.stale_secret_detected ?? false) && (
+      {isRunning && (status?.stale_secret_detected ?? false) && !staleDismissed && (
         <div className="flex items-start gap-3 rounded-card border border-danger-line bg-danger-wash p-4 text-xs text-ink2 leading-relaxed">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <div className="space-y-2 flex-1 min-w-0">
@@ -357,9 +370,20 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
               )}
             </div>
           </div>
+          <button
+            onClick={() => setStaleDismissed(true)}
+            className="t-btn t-btn-ghost !px-2 !py-1 shrink-0"
+            title={t.telegram.dismiss}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
-      {!(isRunning && (status?.stale_secret_detected ?? false)) &&
+      {/* Rotation banner: only while the bridge runs. A stopped bridge
+          must not warn about a rotation the user cannot act on yet, and
+          the red stale banner takes priority when both flags are live. */}
+      {isRunning &&
+        !(status?.stale_secret_detected ?? false) &&
         (status?.secret_rotated ?? false) &&
         !rotationDismissed && (
           <div className="flex items-start gap-3 rounded-card border border-warnline bg-warnwash p-4 text-xs text-ink2 leading-relaxed">

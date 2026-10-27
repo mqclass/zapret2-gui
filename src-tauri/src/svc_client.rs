@@ -524,6 +524,7 @@ impl TgproxyBackend {
                 secret_rotated: false,
                 bad_handshake_count: 0,
                 rotation_count: 0,
+                stale_trip_count: 0,
             }),
         }
     }

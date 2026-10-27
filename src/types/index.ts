@@ -82,6 +82,9 @@ export interface TgProxyStatus {
   bad_handshake_count: number;
   /** Monotonic rotation generation for this process. */
   rotation_count: number;
+  /** Monotonic stale-episode generation; survives bridge restarts
+      within the process, never reset by a good handshake. */
+  stale_trip_count?: number;
 }
 
 export interface ZapretBinaries {

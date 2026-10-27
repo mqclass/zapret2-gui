@@ -74,6 +74,9 @@ pub struct TgProxyStatus {
     /// Monotonic rotation generation for this process (see BridgeHealth).
     #[serde(default)]
     pub rotation_count: u64,
+    /// Monotonic stale-episode generation for this process (see BridgeHealth).
+    #[serde(default)]
+    pub stale_trip_count: u64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -122,6 +125,15 @@ fn validate_mode(raw: &str) -> Result<&'static str, TgProxyError> {
 /// old secret retries persistently (the 27.10 case produced dozens within
 /// seconds), so 5 trips within seconds while staying far above probe
 /// noise. The window slides: bursts older than 60 s stop counting.
+///
+/// Known limit, by design: a client that tries fewer than 5 times in
+/// 60 s never trips the banner. That is the price of not crying wolf
+/// on probes and typos. The residual gap is narrow: such a slow client
+/// is invisible to the app (the connection check uses the current
+/// secret, so it passes, and per-attempt bad lines are suppressed at
+/// any rate), and only the user's Telegram client itself shows the
+/// failure. Lowering the threshold would trade false banners for
+/// slow-client coverage, which is worse than the gap.
 const STALE_BAD_HANDSHAKE_THRESHOLD: usize = 5;
 const STALE_BAD_HANDSHAKE_WINDOW: Duration = Duration::from_secs(60);
 
@@ -145,6 +157,13 @@ struct BridgeHealth {
     /// rotation banner when this changes, even if `rotated` never left
     /// true (dismiss → second DPAPI loss → second rotation).
     rotation_count: RwLock<u64>,
+    /// Monotonic stale-episode generation for this process. Incremented
+    /// exactly when a fresh stale pattern trips (false -> true), never
+    /// reset by reset_run() or a good handshake: the frontend re-arms a
+    /// dismissed stale banner when this changes, even if the poll missed
+    /// the false gap between two episodes (good handshake + retrip
+    /// inside one 5 s poll would otherwise look like true -> true).
+    stale_trip_count: RwLock<u64>,
 }
 
 impl BridgeHealth {
@@ -154,6 +173,7 @@ impl BridgeHealth {
             stale: RwLock::new(false),
             rotated: RwLock::new(false),
             rotation_count: RwLock::new(0),
+            stale_trip_count: RwLock::new(0),
         }
     }
 
@@ -167,6 +187,7 @@ impl BridgeHealth {
         let mut stale = self.stale.write();
         if count >= STALE_BAD_HANDSHAKE_THRESHOLD && !*stale {
             *stale = true;
+            *self.stale_trip_count.write() += 1;
             return (true, count);
         }
         (false, count)
@@ -194,7 +215,7 @@ impl BridgeHealth {
         *self.stale.write() = false;
     }
 
-    fn snapshot(&self) -> (bool, bool, usize, u64) {
+    fn snapshot(&self) -> (bool, bool, usize, u64, u64) {
         let mut times = self.bad_times.lock();
         let now = Instant::now();
         times.retain(|t| now.duration_since(*t) <= STALE_BAD_HANDSHAKE_WINDOW);
@@ -203,6 +224,7 @@ impl BridgeHealth {
             *self.rotated.read(),
             times.len(),
             *self.rotation_count.read(),
+            *self.stale_trip_count.read(),
         )
     }
 }
@@ -267,9 +289,17 @@ where
         // TCP speaker on the loopback port trips it), which is exactly why
         // a single one is never enough — only the thresholded pattern
         // raises the UI banner, and only transitions are logged.
-        if visitor
-            .message
-            .contains("bad handshake (wrong secret or reserved prefix)")
+        // Match on the two reason markers, not the full vendor sentence:
+        // the label prefix and the parenthetical punctuation are the
+        // parts most likely to move on a vendor bump. The pair is
+        // narrower than either marker alone, and a stray match still
+        // needs 5 hits in 60 s to raise anything (and only a state
+        // transition is logged), so the blast radius stays small. If
+        // the vendor rewords the reasons themselves, detection silently
+        // stops matching: re-check this predicate on every vendor bump.
+        let text = visitor.message.as_str();
+        if text.contains("bad handshake")
+            && (text.contains("wrong secret") || text.contains("reserved prefix"))
         {
             let (became_stale, count) = self.health.record_bad_handshake();
             if became_stale {
@@ -509,7 +539,7 @@ impl TgProxyManager {
             }
         };
         let host = Self::bind_host(lan_enabled);
-        let (stale_secret_detected, secret_rotated, bad_handshake_count, rotation_count) =
+        let (stale_secret_detected, secret_rotated, bad_handshake_count, rotation_count, stale_trip_count) =
             self.health.snapshot();
         TgProxyStatus {
             state: *self.state.read(),
@@ -530,6 +560,7 @@ impl TgProxyManager {
             secret_rotated,
             bad_handshake_count,
             rotation_count,
+            stale_trip_count,
         }
     }
 

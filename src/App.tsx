@@ -35,7 +35,14 @@ import { AlertCircle, CheckCircle2, ShieldAlert, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
 import { formatErrorMessage } from "./utils/error";
 import { notifyUser, setNotificationsEnabled } from "./utils/notify";
-import { applyAccent, mirrorAccentToStorage } from "./utils/accent";
+import {
+  applyAccent,
+  clearDraftAccent,
+  clearDraftAccentIf,
+  currentAccentFill,
+  mirrorAccentToStorage,
+  readDraftAccent,
+} from "./utils/accent";
 import { useWatchdog } from "./utils/useWatchdog";
 import { save } from "@tauri-apps/plugin-dialog";
 
@@ -190,17 +197,33 @@ const AppContent: React.FC = () => {
     }
   }, []);
 
+  // Accent saves are chained in click order: a preset click followed
+  // by a custom drag (or vice versa) must reach the backend in the
+  // order the user acted, and the UI must apply responses in that
+  // same order. Without the chain, two concurrent set_accent_color
+  // invokes could resolve out of order and leave the UI showing a
+  // color the backend never saved (or vice versa). The chain itself
+  // never swallows errors, so callers that revert on failure (the
+  // custom picker's flush) still see the rejection.
+  const accentSaveChainRef = useRef<Promise<void>>(Promise.resolve());
+
   const handleAccentChange = useCallback(async (color: string | null) => {
-    try {
-      const res = await invoke<string | null>("set_accent_color", { color });
-      setAccentColor(res);
-      applyAccent(res);
-      // Mirror for the pre-render application on the next launch.
-      mirrorAccentToStorage(res);
-    } catch (err: any) {
-      console.error("Failed to set accent color:", err);
-      setErrorAlert(formatErrorMessage(err));
-    }
+    const run = accentSaveChainRef.current.then(async () => {
+      try {
+        const res = await invoke<string | null>("set_accent_color", { color });
+        setAccentColor(res);
+        applyAccent(res);
+        // Mirror for the pre-render application on the next launch.
+        mirrorAccentToStorage(res);
+      } catch (err: any) {
+        console.error("Failed to set accent color:", err);
+        setErrorAlert(formatErrorMessage(err));
+        throw err;
+      }
+    });
+    // Keep the chain alive for later saves even when this one fails.
+    accentSaveChainRef.current = run.catch(() => {});
+    return run;
   }, []);
 
   // ---- Self-update ----------------------------------------------------
@@ -529,6 +552,31 @@ const AppContent: React.FC = () => {
           applyAccent(accent);
           // Backend value confirms (or corrects) the early-boot mirror.
           mirrorAccentToStorage(accent);
+          // One-shot recovery of a custom color drafted but never
+          // flushed (app closed inside the debounce): the draft key
+          // only ever holds a value the backend has not confirmed, so
+          // saving it now converges UI and backend instead of silently
+          // dropping the pick. The key is cleared either way so a
+          // failing backend cannot re-nag on every launch.
+          const draft = readDraftAccent();
+          if (draft) {
+            if (
+              draft.toLowerCase() ===
+              currentAccentFill(accent).toLowerCase()
+            ) {
+              clearDraftAccentIf(draft);
+            } else {
+              setAccentColor(draft);
+              applyAccent(draft);
+              void handleAccentChange(draft).then(
+                () => clearDraftAccentIf(draft),
+                () => clearDraftAccentIf(draft)
+              );
+            }
+          } else {
+            // No valid draft: clears a malformed leftover, if any.
+            clearDraftAccent();
+          }
         }
       })
       .catch((err) => console.error("Failed to fetch app settings:", err));
