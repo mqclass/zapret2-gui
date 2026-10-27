@@ -140,6 +140,12 @@ export interface AppSettings {
   notifications_enabled?: boolean;
   auto_update_enabled?: boolean;
   last_update_check?: number | null;
+  /** Watchdog: background strategy re-checks with auto-escalation. */
+  watchdog_enabled?: boolean;
+  /** Watchdog check interval in minutes. */
+  watchdog_interval_minutes?: number;
+  /** UI accent color override ("#RRGGBB"); null/undefined = built-in violet. */
+  accent_color?: string | null;
   /** Active camouflage transport id (`null`/`undefined` = direct launch). */
   active_transport_id?: string | null;}
 

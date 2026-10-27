@@ -25,6 +25,11 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { UpdateInfo } from "../../types";
 import { TransportsSection } from "../TransportsSection";
 import { AppSplitModal } from "../AppSplitModal";
+import {
+  ACCENT_PRESETS,
+  applyAccent,
+  currentAccentFill,
+} from "../../utils/accent";
 
 /** External links opened via the opener plugin (L-2). The capability allowlist
  *  restricts this to https://github.com/* — no webview navigation is enabled. */
@@ -48,6 +53,13 @@ interface SettingsViewProps {
   notificationsOn: boolean;
   onToggleNotifications: () => void;
   isTogglingNotifications: boolean;
+  watchdogOn: boolean;
+  onToggleWatchdog: () => void;
+  isTogglingWatchdog: boolean;
+  watchdogInterval: number;
+  onWatchdogInterval: (minutes: number) => void;
+  accentColor: string | null;
+  onAccentChange: (color: string | null) => Promise<void> | void;
   onExportDiagnostics: () => void;
   isExportingDiag: boolean;
   autoUpdateOn: boolean;
@@ -72,6 +84,13 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     notificationsOn,
     onToggleNotifications,
     isTogglingNotifications,
+    watchdogOn,
+    onToggleWatchdog,
+    isTogglingWatchdog,
+    watchdogInterval,
+    onWatchdogInterval,
+    accentColor,
+    onAccentChange,
     onExportDiagnostics,
     isExportingDiag,
     autoUpdateOn,
@@ -83,6 +102,63 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
   }) => {
     const { language, setLanguage, t } = useI18n();
     const [isAppSplitOpen, setIsAppSplitOpen] = React.useState(false);
+
+    // Custom color picker: preview instantly, save debounced. The native
+    // picker fires onChange on every drag step, and each save rewrites
+    // the whole settings file, so drag events must not reach the backend
+    // directly. The draft stays local until flushed (450ms debounce,
+    // blur, or unmount); a failed save drops the draft so the picker
+    // falls back to the real saved color instead of showing an unsaved one.
+    const [customDraft, setCustomDraft] = React.useState<string | null>(null);
+    const pendingAccentSaveRef = React.useRef<{
+      value: string;
+      timer: number;
+    } | null>(null);
+    const accentColorRef = React.useRef(accentColor);
+    accentColorRef.current = accentColor;
+    const onAccentChangeRef = React.useRef(onAccentChange);
+    onAccentChangeRef.current = onAccentChange;
+    const flushCustomAccentSave = React.useCallback(() => {
+      const pending = pendingAccentSaveRef.current;
+      if (!pending) return;
+      pendingAccentSaveRef.current = null;
+      window.clearTimeout(pending.timer);
+      const current = currentAccentFill(accentColorRef.current);
+      if (pending.value.toLowerCase() === current.toLowerCase()) {
+        setCustomDraft(null);
+        return;
+      }
+      const result = onAccentChangeRef.current(pending.value);
+      if (result && typeof result.then === "function") {
+        result.then(
+          () => setCustomDraft(null),
+          () => {
+            // Save failed: backend value unchanged, revert the preview.
+            setCustomDraft(null);
+            applyAccent(accentColorRef.current);
+          }
+        );
+      } else {
+        setCustomDraft(null);
+      }
+    }, []);
+    const flushCustomAccentSaveRef = React.useRef(flushCustomAccentSave);
+    flushCustomAccentSaveRef.current = flushCustomAccentSave;
+    // A pending color must not be lost when leaving the tab mid-debounce.
+    React.useEffect(
+      () => () => {
+        flushCustomAccentSaveRef.current();
+      },
+      []
+    );
+    const cancelCustomAccentSave = React.useCallback(() => {
+      const pending = pendingAccentSaveRef.current;
+      if (pending) {
+        window.clearTimeout(pending.timer);
+        pendingAccentSaveRef.current = null;
+      }
+      setCustomDraft(null);
+    }, []);
     const languages: { code: Language; label: string; full: string }[] = [
       { code: "ru", label: "RU", full: "Русский" },
       { code: "en", label: "EN", full: "English" },
@@ -270,6 +346,62 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               </button>
             </div>
 
+            {/* Strategy Watchdog Card */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-accent" />
+                  <span className="text-xs font-semibold text-ink">{t.settingsTab.watchdogTitle}</span>
+                  <span
+                    className={`rounded-chip px-1.5 py-0.5 text-[10px] font-medium ${
+                      watchdogOn
+                        ? "bg-accent-wash text-accent-soft border border-accent-line"
+                        : "bg-hovert text-ink4"
+                    }`}
+                  >
+                    {watchdogOn ? t.settingsTab.watchdogOn : t.settingsTab.watchdogOff}
+                  </span>
+                </div>
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
+                  {t.settingsTab.watchdogDesc}
+                </p>
+                <label className="flex items-center gap-2 pt-1 text-[11px] text-ink4">
+                  <span>{t.settingsTab.watchdogIntervalLabel}</span>
+                  <select
+                    value={watchdogInterval}
+                    onChange={(e) => onWatchdogInterval(Number(e.target.value))}
+                    className="rounded-control border border-line bg-cardin px-2 py-1 text-xs text-ink2 focus:border-accent-line focus:outline-none cursor-pointer"
+                  >
+                    {[...new Set([5, 15, 30, 60, watchdogInterval])]
+                      .sort((a, b) => a - b)
+                      .map((n) => (
+                        <option key={n} value={n}>
+                          {n} {t.settingsTab.watchdogMinutes}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              </div>
+
+              <button
+                type="button"
+                onClick={onToggleWatchdog}
+                disabled={isTogglingWatchdog}
+                className="flex items-center justify-center gap-2 rounded-control px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 border border-line bg-hovert hover:bg-raise text-ink2"
+              >
+                {isTogglingWatchdog ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent" />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5 text-accent" />
+                )}
+                <span>
+                  {watchdogOn
+                    ? t.settingsTab.watchdogBtnDisable
+                    : t.settingsTab.watchdogBtnEnable}
+                </span>
+              </button>
+            </div>
+
             {/* Application Updates Subsection */}
             <div className="flex items-center gap-2 pt-2">
               <ArrowDownToLine className="h-4 w-4 text-accent" />
@@ -413,6 +545,90 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               );
             })}
           </div>
+        </div>
+
+        {/* Accent Color Card */}
+        <div className="t-card p-5 space-y-3 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
+          <div className="border-b border-line pb-3">
+            <h3 className="t-section-title">
+              <Palette className="h-4 w-4 text-accent" />
+              <span>{t.settingsTab.accentTitle}</span>
+            </h3>
+          </div>
+          <p className="text-[11px] text-ink4 leading-relaxed">{t.settingsTab.accentDesc}</p>
+
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
+            {ACCENT_PRESETS.map((preset) => {
+              const currentFill = currentAccentFill(accentColor);
+              const isSelected =
+                currentFill.toLowerCase() === preset.fill.toLowerCase();
+              const label =
+                preset.id === "violet"
+                  ? t.settingsTab.accentViolet
+                  : preset.id === "cyan"
+                    ? t.settingsTab.accentCyan
+                    : preset.id === "emerald"
+                      ? t.settingsTab.accentEmerald
+                      : preset.id === "amber"
+                        ? t.settingsTab.accentAmber
+                        : preset.id === "pink"
+                          ? t.settingsTab.accentPink
+                          : t.settingsTab.accentBlue;
+              return (
+                <button
+                  type="button"
+                  key={preset.id}
+                  onClick={() => {
+                    cancelCustomAccentSave();
+                    void onAccentChange(
+                      preset.id === "violet" ? null : preset.fill
+                    );
+                  }}
+                  title={label}
+                  className={`flex flex-col items-center gap-1.5 p-3 rounded-panel border text-xs font-medium transition-all cursor-pointer ${
+                    isSelected
+                      ? "border-linestrong bg-hovert text-ink shadow-sm"
+                      : "border-line bg-cardin text-ink4 hover:text-ink2 hover:bg-raise"
+                  }`}
+                >
+                  <span
+                    className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20"
+                    style={{ backgroundColor: preset.fill }}
+                  >
+                    {isSelected && <Check className="h-4 w-4 text-white drop-shadow" />}
+                  </span>
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <label className="flex items-center gap-2.5 rounded-panel border border-line bg-cardin px-3 py-2.5 text-xs text-ink4 cursor-pointer">
+            <input
+              type="color"
+              value={customDraft ?? currentAccentFill(accentColor)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCustomDraft(v);
+                applyAccent(v);
+                const pending = pendingAccentSaveRef.current;
+                if (pending) window.clearTimeout(pending.timer);
+                pendingAccentSaveRef.current = {
+                  value: v,
+                  timer: window.setTimeout(
+                    () => flushCustomAccentSave(),
+                    450
+                  ),
+                };
+              }}
+              onBlur={() => flushCustomAccentSave()}
+              className="h-7 w-10 shrink-0 cursor-pointer rounded-control border border-line bg-transparent p-0.5"
+            />
+            <span className="font-medium">{t.settingsTab.accentCustom}</span>
+            <span className="font-mono text-[11px] text-ink5">
+              {customDraft ?? currentAccentFill(accentColor)}
+            </span>
+          </label>
         </div>
 
         {/* Camouflage Transports (experimental framework) */}

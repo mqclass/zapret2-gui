@@ -150,10 +150,26 @@ pub struct AppSettings {
     /// Entries written by the last successful refresh (UI display).
     #[serde(default)]
     pub smart_hosts_entry_count: usize,
+    /// Watchdog: background re-checks of the current strategy and automatic
+    /// escalation to a better one on confirmed degradation.
+    #[serde(default = "default_true")]
+    pub watchdog_enabled: bool,
+    /// Watchdog check interval in minutes.
+    #[serde(default = "default_watchdog_interval")]
+    pub watchdog_interval_minutes: u64,
+    /// UI accent color override as a hex string ("#RRGGBB"). None means the
+    /// built-in violet accent from index.css. Only the accent family is
+    /// overridden; the dark glass base theme is never changed.
+    #[serde(default)]
+    pub accent_color: Option<String>,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_watchdog_interval() -> u64 {
+    15
 }
 
 fn default_tgproxy_port() -> u16 {
@@ -197,6 +213,9 @@ impl Default for AppSettings {
             smart_hosts_include_adblock: false,
             smart_hosts_last_update: None,
             smart_hosts_entry_count: 0,
+            watchdog_enabled: true,
+            watchdog_interval_minutes: 15,
+            accent_color: None,
         }
     }
 }

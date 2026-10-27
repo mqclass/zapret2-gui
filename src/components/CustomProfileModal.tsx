@@ -239,7 +239,7 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
               <label
                 className={`flex items-start gap-3 rounded-panel border p-3 cursor-pointer transition-all ${
                   engine === "winws2"
-                    ? "border-violet-500/70 bg-violet-500/10 text-ink"
+                    ? "border-accent-line bg-accent-wash text-ink"
                     : "border-raise bg-cardin/60 text-ink4 hover:border-linestrong"
                 }`}
               >
@@ -249,10 +249,10 @@ export const CustomProfileModal: React.FC<CustomProfileModalProps> = ({
                   value="winws2"
                   checked={engine === "winws2"}
                   onChange={() => setEngine("winws2")}
-                  className="mt-0.5 text-violet-500"
+                  className="mt-0.5 accent-accent"
                 />
                 <div>
-                  <div className="text-xs font-semibold text-violet-300">
+                  <div className="text-xs font-semibold text-accent-soft">
                     winws2.exe (zapret2 / v2)
                   </div>
                   <div className="text-[11px] text-ink4 mt-0.5 leading-snug">

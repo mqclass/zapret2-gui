@@ -534,6 +534,49 @@ pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
     Ok(enable)
 }
 
+/// Toggles the watchdog: background re-checks of the current strategy with
+/// automatic escalation on confirmed degradation.
+#[tauri::command]
+pub async fn set_watchdog_enabled(enable: bool) -> Result<bool, String> {
+    crate::win32::settings::update_settings(|s| s.watchdog_enabled = enable)
+        .map_err(|e| e.to_string())?;
+    Ok(enable)
+}
+
+/// Sets the watchdog check interval in minutes. The caller validates the
+/// range; the backend clamps to 5..=120 so a bad value cannot spin the
+/// probe loop or stall escalation for hours.
+#[tauri::command]
+pub async fn set_watchdog_interval(minutes: u64) -> Result<u64, String> {
+    let clamped = minutes.clamp(5, 120);
+    crate::win32::settings::update_settings(|s| s.watchdog_interval_minutes = clamped)
+        .map_err(|e| e.to_string())?;
+    Ok(clamped)
+}
+
+/// Sets the UI accent color override ("#RRGGBB"). None restores the
+/// built-in violet accent. Only the accent family is affected; the dark
+/// glass base theme is untouched.
+#[tauri::command]
+pub async fn set_accent_color(color: Option<String>) -> Result<Option<String>, String> {
+    // Accept only a well-formed hex color (or None for the default), so a
+    // malformed IPC value cannot poison the settings file.
+    let checked = match color {
+        Some(ref c) => {
+            let hex = c.strip_prefix('#').unwrap_or(c);
+            let ok = hex.len() == 6 && hex.chars().all(|ch| ch.is_ascii_hexdigit());
+            if !ok {
+                return Err("accent color must be a #RRGGBB hex string".to_string());
+            }
+            Some(format!("#{}", hex.to_uppercase()))
+        }
+        None => None,
+    };
+    crate::win32::settings::update_settings(|s| s.accent_color = checked.clone())
+        .map_err(|e| e.to_string())?;
+    Ok(checked)
+}
+
 /// Returns the Telegram bridge status snapshot (local or via svc pipe).
 #[tauri::command]
 pub async fn get_tgproxy_status(state: State<'_, AppState>) -> Result<TgProxyStatus, String> {

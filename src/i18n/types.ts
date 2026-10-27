@@ -424,6 +424,23 @@ export interface Translations {
     notificationsOff: string;
     notificationsBtnEnable: string;
     notificationsBtnDisable: string;
+    watchdogTitle: string;
+    watchdogDesc: string;
+    watchdogOn: string;
+    watchdogOff: string;
+    watchdogBtnEnable: string;
+    watchdogBtnDisable: string;
+    watchdogIntervalLabel: string;
+    watchdogMinutes: string;
+    accentTitle: string;
+    accentDesc: string;
+    accentCustom: string;
+    accentViolet: string;
+    accentCyan: string;
+    accentEmerald: string;
+    accentAmber: string;
+    accentPink: string;
+    accentBlue: string;
     exportDiagTitle: string;
     exportDiagDesc: string;
     exportDiagBtn: string;
@@ -487,6 +504,11 @@ export interface Translations {
     engineErrorTitle: string;
     listsUpdatedTitle: string;
     listsUpdatedBody: string;
+    watchdogSwitchedTitle: string;
+    watchdogSwitchedBody: string;
+    watchdogSwitchedBodyNoFrom: string;
+    watchdogRestoreFailedTitle: string;
+    watchdogRestoreFailedBody: string;
   };
   adminGate: {
     title: string;

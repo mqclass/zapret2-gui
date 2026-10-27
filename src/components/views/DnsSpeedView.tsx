@@ -313,7 +313,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
       <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
         <div className="flex items-center justify-between border-b border-line pb-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-violet-500/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-violet-500/5">
+            <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-accent-fill/5">
               <Globe2 className="h-4 w-4 shrink-0" />
             </div>
             <div>
@@ -589,7 +589,7 @@ export const DnsSpeedView: React.FC = React.memo(() => {
         <div className="rounded-panel border border-line bg-cardin p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-violet-500/20 to-accent-fill/5 border border-accent-line text-violet-400 shadow-sm shadow-violet-500/5">
+              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-accent-fill/5">
                 <FileText className="h-4 w-4 shrink-0" />
               </div>
               <div>

@@ -35,6 +35,8 @@ import { AlertCircle, CheckCircle2, ShieldAlert, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
 import { formatErrorMessage } from "./utils/error";
 import { notifyUser, setNotificationsEnabled } from "./utils/notify";
+import { applyAccent, mirrorAccentToStorage } from "./utils/accent";
+import { useWatchdog } from "./utils/useWatchdog";
 import { save } from "@tauri-apps/plugin-dialog";
 
 const AppContent: React.FC = () => {
@@ -86,6 +88,12 @@ const AppContent: React.FC = () => {
   const [isTogglingAutostart, setIsTogglingAutostart] = useState<boolean>(false);
   const [notificationsOn, setNotificationsOn] = useState<boolean>(true);
   const [isTogglingNotifications, setIsTogglingNotifications] = useState<boolean>(false);
+  // Strategy watchdog (defaults match the backend serde defaults).
+  const [watchdogOn, setWatchdogOn] = useState<boolean>(true);
+  const [isTogglingWatchdog, setIsTogglingWatchdog] = useState<boolean>(false);
+  const [watchdogInterval, setWatchdogInterval] = useState<number>(15);
+  // Accent override ("#RRGGBB"); null means the built-in violet.
+  const [accentColor, setAccentColor] = useState<string | null>(null);
   const [isExportingDiag, setIsExportingDiag] = useState<boolean>(false);
   const [splitTunnelMode, setSplitTunnelMode] = useState<SplitTunnelMode>("full");
   // Admin gate: shown when the app runs without Administrator privileges.
@@ -156,6 +164,44 @@ const AppContent: React.FC = () => {
       setIsTogglingNotifications(false);
     }
   }, [notificationsOn]);
+
+  const handleToggleWatchdog = useCallback(async () => {
+    setIsTogglingWatchdog(true);
+    try {
+      const res = await invoke<boolean>("set_watchdog_enabled", {
+        enable: !watchdogOn,
+      });
+      setWatchdogOn(res);
+    } catch (err: any) {
+      console.error("Failed to toggle watchdog:", err);
+      setErrorAlert(formatErrorMessage(err));
+    } finally {
+      setIsTogglingWatchdog(false);
+    }
+  }, [watchdogOn]);
+
+  const handleWatchdogInterval = useCallback(async (minutes: number) => {
+    try {
+      const res = await invoke<number>("set_watchdog_interval", { minutes });
+      setWatchdogInterval(res);
+    } catch (err: any) {
+      console.error("Failed to set watchdog interval:", err);
+      setErrorAlert(formatErrorMessage(err));
+    }
+  }, []);
+
+  const handleAccentChange = useCallback(async (color: string | null) => {
+    try {
+      const res = await invoke<string | null>("set_accent_color", { color });
+      setAccentColor(res);
+      applyAccent(res);
+      // Mirror for the pre-render application on the next launch.
+      mirrorAccentToStorage(res);
+    } catch (err: any) {
+      console.error("Failed to set accent color:", err);
+      setErrorAlert(formatErrorMessage(err));
+    }
+  }, []);
 
   // ---- Self-update ----------------------------------------------------
 
@@ -476,6 +522,13 @@ const AppContent: React.FC = () => {
           const notifEnabled = cfg.notifications_enabled ?? true;
           setNotificationsOn(notifEnabled);
           setNotificationsEnabled(notifEnabled);
+          setWatchdogOn(cfg.watchdog_enabled ?? true);
+          setWatchdogInterval(cfg.watchdog_interval_minutes ?? 15);
+          const accent = cfg.accent_color ?? null;
+          setAccentColor(accent);
+          applyAccent(accent);
+          // Backend value confirms (or corrects) the early-boot mirror.
+          mirrorAccentToStorage(accent);
         }
       })
       .catch((err) => console.error("Failed to fetch app settings:", err));
@@ -629,7 +682,7 @@ const AppContent: React.FC = () => {
     }
   }, [selectedStrategyId, handleRefreshProbes, strategies, t]);
 
-  const handleStartStrategy = useCallback(async (strategyId: string) => {
+  const handleStartStrategy = useCallback(async (strategyId: string, opts?: { silent?: boolean }) => {
     if (engineTransitionRef.current) return;
     engineTransitionRef.current = true;
     setSelectedStrategyId(strategyId);
@@ -642,10 +695,15 @@ const AppContent: React.FC = () => {
         customArgs: null,
       });
       const stratName = strategies.find((s) => s.id === strategyId)?.name || strategyId;
-      notifyUser(
-        t.notify.engineStartedTitle,
-        `${t.notify.engineStartedBody}: ${stratName}`
-      );
+      // The watchdog speaks for itself with its own toast after
+      // verifying the switch: a second engine-started toast from the
+      // cycle, the restore, or the apply would double-notify.
+      if (!opts?.silent) {
+        notifyUser(
+          t.notify.engineStartedTitle,
+          `${t.notify.engineStartedBody}: ${stratName}`
+        );
+      }
       setTimeout(() => {
         handleRefreshProbes();
       }, 1000);
@@ -662,6 +720,17 @@ const AppContent: React.FC = () => {
       engineTransitionRef.current = false;
     }
   }, [handleRefreshProbes, strategies, t]);
+
+  // Strategy watchdog: background light checks + auto-escalation on
+  // confirmed degradation. Hook only, no UI of its own.
+  useWatchdog({
+    enabled: watchdogOn,
+    intervalMinutes: watchdogInterval,
+    engineState: status.state,
+    activeStrategyId: status.active_strategy,
+    strategies,
+    onApplyStrategy: handleStartStrategy,
+  });
 
   const handleStop = useCallback(async () => {
     if (engineTransitionRef.current) return;
@@ -957,6 +1026,13 @@ const AppContent: React.FC = () => {
               notificationsOn={notificationsOn}
               onToggleNotifications={handleToggleNotifications}
               isTogglingNotifications={isTogglingNotifications}
+              watchdogOn={watchdogOn}
+              onToggleWatchdog={handleToggleWatchdog}
+              isTogglingWatchdog={isTogglingWatchdog}
+              watchdogInterval={watchdogInterval}
+              onWatchdogInterval={handleWatchdogInterval}
+              accentColor={accentColor}
+              onAccentChange={handleAccentChange}
               onExportDiagnostics={handleExportDiagnostics}
               isExportingDiag={isExportingDiag}
               autoUpdateOn={autoUpdateOn}

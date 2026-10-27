@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   Youtube,
@@ -24,13 +24,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { DiagnosticsReport, ProbeMetric, ProbeStatus, StrategyProbeResult, SupervisorStatusResponse } from "../types";
 import { useI18n } from "../i18n";
 import { formatErrorMessage } from "../utils/error";
+import {
+  isProbeCycleRunning,
+  setAutoTuneModalOpenFlag,
+  setProbeCycleRunning,
+} from "../utils/watchdog";
 
 // Candidates probed in order. Custom user profiles are out of scope for
 // the first slice: these cover the shipped engines. The three new winws2
 // lua presets (yt4k, discord-light, tspu-max) are included; sites-light
 // is deliberately left out: the weakest tier cannot win YouTube/Discord
 // probes, it is a manual pick for weak hardware.
-const AUTO_TUNE_CANDIDATES = [
+// Exported: the watchdog's escalation cycle reuses this exact list
+// instead of maintaining a second one.
+export const AUTO_TUNE_CANDIDATES = [
   "flowseal-alt",
   "flowseal-alt11",
   "flowseal-fake-tls-auto",
@@ -70,6 +77,15 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
     // Visible error for user-initiated actions (previously only console.error)
     const [actionError, setActionError] = useState<string | null>(null);
 
+    // Publish the modal state for the watchdog: it never ticks while the
+    // manual modal is open, and never starts a cycle under it. The
+    // cleanup matters: the card unmounts when the user leaves the tab,
+    // and a leaked "open" flag would silence the watchdog indefinitely.
+    useEffect(() => {
+      setAutoTuneModalOpenFlag(isAutoTuneModalOpen);
+      return () => setAutoTuneModalOpenFlag(false);
+    }, [isAutoTuneModalOpen]);
+
     const handlePingCustom = useCallback(async (e: React.FormEvent) => {
       e.preventDefault();
       const trimmed = customTarget.trim();
@@ -93,6 +109,15 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
       // re-render, so a double click before then would start two loops
       // whose probes interleave and get attributed to the wrong strategy.
       if (autoTuneRunningRef.current) return;
+      // The watchdog escalation cycle owns the same probe lock: a probe
+      // restarts the engine, so two loops must never interleave. Claimed
+      // synchronously here, cleared in the pre-check aborts and the loop
+      // finally below.
+      if (isProbeCycleRunning()) {
+        setActionError(t.diagnostics.autoTuneBusy);
+        return;
+      }
+      setProbeCycleRunning(true);
       autoTuneRunningRef.current = true;
       autoTuneCancelRef.current = false;
       setActionError(null);
@@ -118,6 +143,7 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
         if (st.supervisor.state === "starting" || st.supervisor.state === "stopping") {
           setActionError(t.diagnostics.autoTuneBusy);
           autoTuneRunningRef.current = false;
+          setProbeCycleRunning(false);
           return;
         }
         wasRunning = st.supervisor.state === "running";
@@ -126,6 +152,7 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
         console.error("Auto-tune pre-check error:", err);
         setActionError(formatErrorMessage(err));
         autoTuneRunningRef.current = false;
+        setProbeCycleRunning(false);
         return;
       }
 
@@ -220,6 +247,7 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
         setIsAutoTuning(false);
         setAutoTuneProgress(null);
         autoTuneRunningRef.current = false;
+        setProbeCycleRunning(false);
       }
     }, [onSelectAndStartStrategy, t]);
 
