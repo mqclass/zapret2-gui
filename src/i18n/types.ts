@@ -633,6 +633,12 @@ export interface Translations {
     notifyStoppedTitle: string;
     notifyStoppedBody: string;
     notifyErrorTitle: string;
+    staleTitle: string;
+    staleBody: string;
+    rotatedTitle: string;
+    rotatedBody: string;
+    copyCurrentLink: string;
+    dismiss: string;
 
   },
   transports: {

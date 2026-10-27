@@ -74,6 +74,14 @@ export interface TgProxyStatus {
   lan_enabled: boolean;
   /** This machine's LAN IPv4 for the phone QR; null when LAN is off. */
   lan_ip: string | null;
+  /** Stale-secret pattern live: >=5 bad handshakes in 60 s. */
+  stale_secret_detected: boolean;
+  /** This bridge start replaced a stored-but-unusable secret. */
+  secret_rotated: boolean;
+  /** Bad handshakes inside the current 60 s window. */
+  bad_handshake_count: number;
+  /** Monotonic rotation generation for this process. */
+  rotation_count: number;
 }
 
 export interface ZapretBinaries {

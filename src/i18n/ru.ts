@@ -647,6 +647,14 @@ export const ru: Translations = {
     notifyStoppedTitle: "Telegram-прокси",
     notifyStoppedBody: "Локальный MTProto-мост остановлен",
     notifyErrorTitle: "Telegram-прокси: ошибка",
+    staleTitle: "Клиент со старой ссылкой",
+    staleBody:
+      "Мост работает, но Telegram пытается подключиться со старым секретом. Удалите старый прокси в настройках Telegram и добавьте актуальный по ссылке ниже.",
+    rotatedTitle: "Секрет моста изменился",
+    rotatedBody:
+      "При запуске оказалось, что сохранённый секрет потерян, и мост создал новый. Старые ссылки в Telegram больше не работают: удалите старый прокси и добавьте актуальный.",
+    copyCurrentLink: "Скопировать актуальную ссылку",
+    dismiss: "Скрыть",
   },
   transports: {
     title: "Транспорты (эксперимент)",

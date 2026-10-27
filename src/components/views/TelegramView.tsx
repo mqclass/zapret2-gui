@@ -15,6 +15,7 @@ import {
   ExternalLink,
   KeyRound,
   Activity,
+  X,
 } from "lucide-react";
 import { TgProxyStatus, LogEntry, SupervisorState } from "../../types";
 import { useI18n } from "../../i18n";
@@ -47,6 +48,15 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const copyTimer = useRef<number | null>(null);
+  // Dismissal of the rotation banner is session-local: the backend flag
+  // clears on a good handshake or an explicit secret change, and a fresh
+  // rotation re-arms the banner. The flag alone cannot signal a fresh
+  // rotation (dismiss -> second DPAPI loss -> rotation writes true into
+  // true), so the monotonic rotation_count is the re-arm signal.
+  const [rotationDismissed, setRotationDismissed] = useState(false);
+  useEffect(() => {
+    setRotationDismissed(false);
+  }, [status?.secret_rotated, status?.rotation_count]);
 
   const refresh = useCallback(async () => {
     try {
@@ -318,6 +328,70 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
           </div>
         </div>
       </div>
+
+      {/* Stale-secret banner: persistent while the backend state is live,
+          never a toast. It states the bridge health and the client problem
+          as two separate facts: the running pill above still says the
+          bridge itself is fine, and the self-check result stays untouched.
+          The secret itself is never printed here; copying the link reuses
+          the existing clipboard mechanism from the connection card. */}
+      {isRunning && (status?.stale_secret_detected ?? false) && (
+        <div className="flex items-start gap-3 rounded-card border border-danger-line bg-danger-wash p-4 text-xs text-ink2 leading-relaxed">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <div className="space-y-2 flex-1 min-w-0">
+            <p>
+              <span className="font-semibold">{t.telegram.staleTitle}. </span>
+              {t.telegram.staleBody}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => status?.tg_link && handleCopy("tg_link", status.tg_link)}
+                disabled={!status?.tg_link}
+                className="t-btn t-btn-ghost"
+              >
+                <Copy className="h-4 w-4" />
+                {t.telegram.copyCurrentLink}
+              </button>
+              {copiedKey === "tg_link" && (
+                <span className="text-xs text-accent">{t.telegram.copied}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {!(isRunning && (status?.stale_secret_detected ?? false)) &&
+        (status?.secret_rotated ?? false) &&
+        !rotationDismissed && (
+          <div className="flex items-start gap-3 rounded-card border border-warnline bg-warnwash p-4 text-xs text-ink2 leading-relaxed">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div className="space-y-2 flex-1 min-w-0">
+              <p>
+                <span className="font-semibold">{t.telegram.rotatedTitle}. </span>
+                {t.telegram.rotatedBody}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => status?.tg_link && handleCopy("tg_link", status.tg_link)}
+                  disabled={!status?.tg_link}
+                  className="t-btn t-btn-ghost"
+                >
+                  <Copy className="h-4 w-4" />
+                  {t.telegram.copyCurrentLink}
+                </button>
+                {copiedKey === "tg_link" && (
+                  <span className="text-xs text-accent">{t.telegram.copied}</span>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => setRotationDismissed(true)}
+              className="t-btn t-btn-ghost !px-2 !py-1 shrink-0"
+              title={t.telegram.dismiss}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
       {/* Connection parameters */}
         <div className="t-card p-6 space-y-4 hover-lift stagger-item"

@@ -520,6 +520,10 @@ impl TgproxyBackend {
                 mode: "auto".to_string(),
                 lan_enabled: false,
                 lan_ip: None,
+                stale_secret_detected: false,
+                secret_rotated: false,
+                bad_handshake_count: 0,
+                rotation_count: 0,
             }),
         }
     }

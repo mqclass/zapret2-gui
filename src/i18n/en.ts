@@ -647,6 +647,14 @@ export const en: Translations = {
     notifyStoppedTitle: "Telegram proxy",
     notifyStoppedBody: "Local MTProto bridge stopped",
     notifyErrorTitle: "Telegram proxy: error",
+    staleTitle: "Client using an old link",
+    staleBody:
+      "The bridge itself is fine, but Telegram is trying to connect with an old secret. Remove the old proxy in Telegram settings and add the current one from the link below.",
+    rotatedTitle: "Bridge secret changed",
+    rotatedBody:
+      "On startup the saved secret turned out to be lost, so the bridge created a new one. Old links in Telegram no longer work: remove the old proxy and add the current one.",
+    copyCurrentLink: "Copy the current link",
+    dismiss: "Dismiss",
   },
   transports: {
     title: "Transports (experimental)",

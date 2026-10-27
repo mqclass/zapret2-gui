@@ -17,8 +17,9 @@
 //! `regenerate_tgproxy_secret`); the "download binary" step is gone because
 //! there is nothing to download anymore.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use parking_lot::{Mutex, RwLock};
 use rand::rngs::OsRng;
@@ -54,6 +55,25 @@ pub struct TgProxyStatus {
     /// This machine's LAN IPv4 address (for the phone QR code); None when
     /// LAN mode is off or the address could not be determined.
     pub lan_ip: Option<String>,
+    /// Stale-secret pattern live right now: at least
+    /// [`STALE_BAD_HANDSHAKE_THRESHOLD`] bad handshakes inside
+    /// [`STALE_BAD_HANDSHAKE_WINDOW`]. Most likely a Telegram client still
+    /// configured with an old tg:// link. Cleared by a good handshake or a
+    /// bridge restart. Serde defaults keep older svc replies decodable.
+    #[serde(default)]
+    pub stale_secret_detected: bool,
+    /// The bridge start() found a stored-but-unusable secret and generated
+    /// a fresh one, so old tg:// links stopped working. This is NOT set on
+    /// a first run (no secret was ever stored). Cleared by a good handshake
+    /// or an explicit secret change.
+    #[serde(default)]
+    pub secret_rotated: bool,
+    /// Bad handshakes inside the current window (diagnostics, not a secret).
+    #[serde(default)]
+    pub bad_handshake_count: usize,
+    /// Monotonic rotation generation for this process (see BridgeHealth).
+    #[serde(default)]
+    pub rotation_count: u64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -94,6 +114,99 @@ fn validate_mode(raw: &str) -> Result<&'static str, TgProxyError> {
     }
 }
 
+/// Stale-secret detection: how many bad handshakes inside what window
+/// count as a pattern, not an accident.
+///
+/// Why 5 in 60 s: a single typo or a casual port probe produces one or two
+/// attempts and must never raise a banner. A real Telegram client with an
+/// old secret retries persistently (the 27.10 case produced dozens within
+/// seconds), so 5 trips within seconds while staying far above probe
+/// noise. The window slides: bursts older than 60 s stop counting.
+const STALE_BAD_HANDSHAKE_THRESHOLD: usize = 5;
+const STALE_BAD_HANDSHAKE_WINDOW: Duration = Duration::from_secs(60);
+
+/// In-memory stale-secret state for one bridge process.
+///
+/// Lives on the manager, not in settings: it describes the current run
+/// (recent handshakes, whether this start rotated the secret). It never
+/// touches the secret or the bridge config — detection only observes and
+/// reports. A good handshake proves a client with the current secret
+/// connected, so it clears both warnings; a bridge restart re-arms the
+/// counter from zero.
+struct BridgeHealth {
+    /// Timestamps of bad handshakes inside the current window.
+    bad_times: Mutex<VecDeque<Instant>>,
+    /// Threshold reached in the current window.
+    stale: RwLock<bool>,
+    /// This process's start() replaced a stored-but-unusable secret.
+    rotated: RwLock<bool>,
+    /// Monotonic rotation generation for this process. Never reset by
+    /// reset_run() or a good handshake: the frontend re-arms a dismissed
+    /// rotation banner when this changes, even if `rotated` never left
+    /// true (dismiss → second DPAPI loss → second rotation).
+    rotation_count: RwLock<u64>,
+}
+
+impl BridgeHealth {
+    fn new() -> Self {
+        Self {
+            bad_times: Mutex::new(VecDeque::new()),
+            stale: RwLock::new(false),
+            rotated: RwLock::new(false),
+            rotation_count: RwLock::new(0),
+        }
+    }
+
+    /// Records one bad handshake. Returns (became_stale, count_in_window).
+    fn record_bad_handshake(&self) -> (bool, usize) {
+        let mut times = self.bad_times.lock();
+        let now = Instant::now();
+        times.retain(|t| now.duration_since(*t) <= STALE_BAD_HANDSHAKE_WINDOW);
+        times.push_back(now);
+        let count = times.len();
+        let mut stale = self.stale.write();
+        if count >= STALE_BAD_HANDSHAKE_THRESHOLD && !*stale {
+            *stale = true;
+            return (true, count);
+        }
+        (false, count)
+    }
+
+    /// Records one good handshake. Returns true when a live warning
+    /// (stale pattern or unresolved rotation) was cleared by it.
+    fn record_good_handshake(&self) -> bool {
+        self.bad_times.lock().clear();
+        let was_stale = *self.stale.read();
+        let was_rotated = *self.rotated.read();
+        if was_stale || was_rotated {
+            *self.stale.write() = false;
+            *self.rotated.write() = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Fresh counting for a new bridge run. Rotation deliberately survives:
+    /// a stop/start does not fix the user's stale client.
+    fn reset_run(&self) {
+        self.bad_times.lock().clear();
+        *self.stale.write() = false;
+    }
+
+    fn snapshot(&self) -> (bool, bool, usize, u64) {
+        let mut times = self.bad_times.lock();
+        let now = Instant::now();
+        times.retain(|t| now.duration_since(*t) <= STALE_BAD_HANDSHAKE_WINDOW);
+        (
+            *self.stale.read(),
+            *self.rotated.read(),
+            times.len(),
+            *self.rotation_count.read(),
+        )
+    }
+}
+
 /// `tracing` layer funneling the bridge library's diagnostics into the
 /// supervisor log buffer.
 ///
@@ -102,9 +215,18 @@ fn validate_mode(raw: &str) -> Result<&'static str, TgProxyError> {
 /// the MTProto secret in its startup banner, so every message is scrubbed
 /// against the current secret by exact match before it reaches our logs
 /// (which users can export as a diagnostic package).
+///
+/// Stale-secret detection hooks in here because the library reports
+/// handshakes ONLY via tracing: there is no callback API, and forking the
+/// vendored library for a counter would be worse than matching its two
+/// stable debug strings. Per-event bad-handshake lines are the log flood
+/// from the 27.10 case, so they are counted and suppressed; only state
+/// transitions reach the log (one line each). Good-handshake lines are kept:
+/// they are infrequent and are the evidence that the bridge itself is fine.
 struct BridgeLogLayer {
     supervisor: Arc<Supervisor>,
     redact: Arc<RwLock<String>>,
+    health: Arc<BridgeHealth>,
 }
 
 struct MsgVisitor {
@@ -140,6 +262,30 @@ where
         if visitor.message.is_empty() {
             return;
         }
+        // Stale-secret detection: the library's only handshake signals.
+        // A bad handshake cannot be attributed to the user's client (any
+        // TCP speaker on the loopback port trips it), which is exactly why
+        // a single one is never enough — only the thresholded pattern
+        // raises the UI banner, and only transitions are logged.
+        if visitor
+            .message
+            .contains("bad handshake (wrong secret or reserved prefix)")
+        {
+            let (became_stale, count) = self.health.record_bad_handshake();
+            if became_stale {
+                self.supervisor.log(
+                    "warn",
+                    &format!(
+                        "[tg-bridge] Похоже, Telegram стучится со старым секретом: {count} неудачных подключений за 60 секунд. Обновите ссылку в Telegram."
+                    ),
+                );
+            }
+            return;
+        }
+        let mut warning_cleared = false;
+        if visitor.message.contains("handshake ok:") {
+            warning_cleared = self.health.record_good_handshake();
+        }
         let secret = self.redact.read();
         let msg = if secret.is_empty() {
             visitor.message
@@ -152,6 +298,12 @@ where
             _ => "info",
         };
         self.supervisor.log(level, &format!("[tg-bridge] {msg}"));
+        if warning_cleared {
+            self.supervisor.log(
+                "info",
+                "[tg-bridge] Подключение с актуальным секретом: предупреждение о старой ссылке снято",
+            );
+        }
     }
 }
 
@@ -172,6 +324,10 @@ pub struct TgProxyManager {
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     /// Current MTProto secret, mirrored for log redaction (see BridgeLogLayer).
     log_redact: Arc<RwLock<String>>,
+    /// Stale-secret detection state (see BridgeHealth). Same lifetime
+    /// reasoning as log_redact: the manager is a process singleton, so the
+    /// Once-installed log layer keeps pointing at the right object.
+    health: Arc<BridgeHealth>,
     sink: SinkSlot,
     supervisor: Arc<Supervisor>,
 }
@@ -187,6 +343,7 @@ impl TgProxyManager {
             bridge_task: Arc::new(Mutex::new(None)),
             shutdown_tx: Arc::new(Mutex::new(None)),
             log_redact: Arc::new(RwLock::new(String::new())),
+            health: Arc::new(BridgeHealth::new()),
             sink: SinkSlot::new(),
             supervisor,
         }
@@ -352,6 +509,8 @@ impl TgProxyManager {
             }
         };
         let host = Self::bind_host(lan_enabled);
+        let (stale_secret_detected, secret_rotated, bad_handshake_count, rotation_count) =
+            self.health.snapshot();
         TgProxyStatus {
             state: *self.state.read(),
             host: host.to_string(),
@@ -367,6 +526,10 @@ impl TgProxyManager {
             } else {
                 None
             },
+            stale_secret_detected,
+            secret_rotated,
+            bad_handshake_count,
+            rotation_count,
         }
     }
 
@@ -385,14 +548,34 @@ impl TgProxyManager {
         // is handled transparently by the settings layer).
         let settings = crate::win32::settings::load_settings();
         let mut secret = settings.tgproxy_secret.clone();
+        // A fresh counting run: handshakes from a previous run must not
+        // combine with the new one. Rotation deliberately survives restarts.
+        self.health.reset_run();
         if !Self::is_valid_secret(&secret) {
+            // Rotation vs first run: a stored-but-unusable value means old
+            // tg:// links just died (e.g. DPAPI unprotect failed after a
+            // profile move); an absent value means the user never had one
+            // and must not be scared with a rotation warning.
+            let had_stored_secret =
+                crate::win32::settings::stored_tgproxy_secret_present();
             secret = Self::generate_secret();
             let secret_clone = secret.clone();
             crate::win32::settings::update_settings(|s| {
                 s.tgproxy_secret = secret_clone;
             })
             .map_err(|e| TgProxyError::Settings(e.to_string()))?;
-            self.supervisor.log("info", "Сгенерирован новый MTProto-secret");
+            if had_stored_secret {
+                *self.health.rotated.write() = true;
+                // Monotonic generation: a second rotation must re-arm a
+                // dismissed banner even though `rotated` never left true.
+                *self.health.rotation_count.write() += 1;
+                self.supervisor.log(
+                    "warn",
+                    "Секрет Telegram-моста был утерян (например, после переноса профиля на другого пользователя или машину) и создан заново. Старые ссылки в Telegram больше не работают.",
+                );
+            } else {
+                self.supervisor.log("info", "Сгенерирован новый MTProto-secret");
+            }
         }
         let host = Self::bind_host(settings.tgproxy_lan);
         let mut port = Self::normalize_port(settings.tgproxy_port);
@@ -415,7 +598,11 @@ impl TgProxyManager {
         // Installed once per process; the layer holds an Arc to `log_redact`
         // so secret rotations are picked up without reinstalling.
         *self.log_redact.write() = secret.clone();
-        Self::install_bridge_logging(self.supervisor.clone(), self.log_redact.clone());
+        Self::install_bridge_logging(
+            self.supervisor.clone(),
+            self.log_redact.clone(),
+            self.health.clone(),
+        );
 
         // M2: a config error must never leave us stuck in `Starting` with no
         // task running — build it before touching the state machine.
@@ -555,6 +742,10 @@ impl TgProxyManager {
         *self.tg_link.write() = String::new();
         *self.state.write() = SupervisorState::Stopped;
         self.emit_state(SupervisorState::Stopped);
+        // A stopped bridge cannot produce handshakes; the next start
+        // re-arms from zero. Rotation survives: stopping does not fix
+        // the user's stale client.
+        self.health.reset_run();
 
         if persist_intent {
             let _ = crate::win32::settings::update_settings(|s| s.tgproxy_enabled = false);
@@ -566,11 +757,19 @@ impl TgProxyManager {
     /// Installs the global tracing subscriber exactly once. Our app does
     /// not use `tracing` itself, so this only affects the bridge library's
     /// diagnostics — nothing else starts logging unexpectedly.
-    fn install_bridge_logging(supervisor: Arc<Supervisor>, redact: Arc<RwLock<String>>) {
+    fn install_bridge_logging(
+        supervisor: Arc<Supervisor>,
+        redact: Arc<RwLock<String>>,
+        health: Arc<BridgeHealth>,
+    ) {
         use tracing_subscriber::layer::SubscriberExt;
         static INSTALLED: std::sync::Once = std::sync::Once::new();
         INSTALLED.call_once(|| {
-            let layer = BridgeLogLayer { supervisor, redact };
+            let layer = BridgeLogLayer {
+                supervisor,
+                redact,
+                health,
+            };
             let subscriber = tracing_subscriber::registry().with(layer);
             let _ = tracing::subscriber::set_global_default(subscriber);
         });
@@ -600,6 +799,9 @@ impl TgProxyManager {
         })
         .map_err(|e| TgProxyError::Settings(e.to_string()))?;
         *self.log_redact.write() = secret;
+        // A deliberate secret change supersedes any rotation warning: the
+        // user set this secret themselves, nothing was silently lost.
+        *self.health.rotated.write() = false;
         Ok(())
     }
 
@@ -686,6 +888,8 @@ impl TgProxyManager {
         })
         .map_err(|e| TgProxyError::Settings(e.to_string()))?;
         *self.log_redact.write() = secret.clone();
+        // Same reasoning as set_config: an explicit regeneration is not a loss.
+        *self.health.rotated.write() = false;
         Ok(secret)
     }
 }

@@ -394,6 +394,29 @@ pub fn load_settings() -> AppSettings {
     settings
 }
 
+/// True when the settings file on disk stores a non-empty tgproxy_secret
+/// (a DPAPI envelope or a legacy plaintext value). Used by the bridge at
+/// start() to tell a lost secret apart from a first run: an absent value
+/// means the user never had one, a stored-but-unusable value means old
+/// tg:// links just died. Reads the raw file, bypassing the cache and the
+/// DPAPI unwrap — the unwrap is exactly what discards this distinction.
+pub fn stored_tgproxy_secret_present() -> bool {
+    let path = get_settings_file_path();
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let value: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    value
+        .get("tgproxy_secret")
+        .and_then(|v| v.as_str())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false)
+}
+
 /// Reads and parses the settings file from disk, bypassing the cache.
 /// Corrupt files are quarantined (never silently reset) and DPAPI-wrapped
 /// secrets are unwrapped, exactly as `load_settings` has always done.
