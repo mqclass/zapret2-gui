@@ -387,6 +387,7 @@ impl SupervisorBackend {
                         state: crate::engine::SupervisorState::Error,
                         pid: None,
                         active_strategy: None,
+                        active_custom_args: false,
                         active_transport: None,
                         binary_path: None,
                         uptime_secs: 0,

@@ -125,16 +125,23 @@ export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose })
   const engineRunning = supervisor?.state === "running";
   const activeStrategyId = supervisor?.active_strategy ?? null;
   const activeEngine = strategies.find((s) => s.id === activeStrategyId)?.engine ?? null;
+  // Explicit backend flag: a custom-args launch still reports an
+  // active_strategy id (the flowseal-alt fallback), so a null id can
+  // never identify it — the old test was dead code.
+  const activeCustomArgs = supervisor?.active_custom_args === true;
   const splitEnforced = supervisor?.app_split_enforced === true;
   // Status notes: shown only for what is actually known. When the split
   // is enforced there is nothing to warn about. The Flowseal note needs
   // a running engine (only then is the active strategy known); the
-  // binary note is static and holds while stopped too.
+  // binary note is static and holds while stopped too. For a custom-args
+  // launch the strategy id may be the flowseal-alt fallback, so the
+  // id-derived branch is skipped there: only the backend reason, which
+  // reflects the binary actually selected at launch, may claim Flowseal.
   const showFlowsealNote =
     !splitEnforced &&
     mode !== "disabled" &&
     (supervisor?.app_split_not_enforced_reason === "flowseal" ||
-      (engineRunning && activeEngine === "winws"));
+      (engineRunning && !activeCustomArgs && activeEngine === "winws"));
   const showBinaryMissingNote =
     !splitEnforced &&
     mode !== "disabled" &&
@@ -181,11 +188,12 @@ export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose })
         return;
       }
       // Engine running but started with one-off custom args
-      // (active_strategy is null): restarting here would resolve the
-      // null strategy to the flowseal-alt fallback and silently switch
+      // (backend flag, not a null strategy id — the supervisor always
+      // reports an id after a successful start): restarting here
+      // would drop the one-off arguments and silently switch
       // strategies. Save only, say so plainly, and stay open so the
       // note is seen — same shape as the deferred branch above.
-      if (engineRunning && activeStrategyId == null) {
+      if (engineRunning && activeCustomArgs) {
         await saveConfig();
         setCustomArgsNote(true);
         return;

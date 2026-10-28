@@ -49,6 +49,8 @@ export interface SupervisorStatus {
   state: SupervisorState;
   pid: number | null;
   active_strategy: string | null;
+  /** True when the running engine was started with one-off custom arguments; absent from older backends. */
+  active_custom_args?: boolean;
   /** Active camouflage transport id applied at launch, if any. */
   active_transport: string | null;
   binary_path: string | null;

@@ -63,6 +63,12 @@ pub struct SupervisorStatus {
     pub state: SupervisorState,
     pub pid: Option<u32>,
     pub active_strategy: Option<String>,
+    /// True when the running engine was started with one-off custom
+    /// arguments. The fallback active_strategy id (flowseal-alt) says
+    /// nothing about such a launch, so this flag — not a null id —
+    /// is what the UI must test for a custom run.
+    #[serde(default)]
+    pub active_custom_args: bool,
     /// Active camouflage transport id, if one was applied at launch.
     pub active_transport: Option<String>,
     pub binary_path: Option<String>,
@@ -120,6 +126,10 @@ pub struct Supervisor {
     active_pid: Arc<RwLock<Option<u32>>>,
     active_child: Arc<Mutex<Option<tokio::process::Child>>>,
     active_strategy: Arc<RwLock<Option<String>>>,
+    /// Set from custom_args.is_some() on successful spawn in
+    /// start_locked; cleared when a new real start attempt begins,
+    /// on stop, and when the monitored child dies.
+    active_custom_args: Arc<AtomicBool>,
     active_transport: Arc<RwLock<Option<String>>>,
     binary_path: Arc<RwLock<Option<String>>>,
     start_time: Arc<RwLock<Option<Instant>>>,
@@ -182,6 +192,7 @@ impl Supervisor {
             active_pid: Arc::new(RwLock::new(None)),
             active_child: Arc::new(Mutex::new(None)),
             active_strategy: Arc::new(RwLock::new(None)),
+            active_custom_args: Arc::new(AtomicBool::new(false)),
             active_transport: Arc::new(RwLock::new(None)),
             binary_path: Arc::new(RwLock::new(None)),
             start_time: Arc::new(RwLock::new(None)),
@@ -328,6 +339,7 @@ impl Supervisor {
         let state = *self.state.read();
         let pid = *self.active_pid.read();
         let active_strategy = self.active_strategy.read().clone();
+        let active_custom_args = self.active_custom_args.load(Ordering::SeqCst);
         let active_transport = self.active_transport.read().clone();
         let binary_path = self.binary_path.read().clone();
         let uptime_secs = self
@@ -366,6 +378,7 @@ impl Supervisor {
             state,
             pid,
             active_strategy,
+            active_custom_args,
             active_transport,
             binary_path,
             uptime_secs,
@@ -569,6 +582,13 @@ impl Supervisor {
                 *state = SupervisorState::Starting;
             }
         }
+
+        // A real (non-no-op) attempt supersedes any previous launch:
+        // forget the old custom-args flag now, so a failed attempt
+        // cannot keep advertising a custom run. It is set again on
+        // successful spawn below, from custom_args.is_some().
+        self.active_custom_args.store(false, Ordering::SeqCst);
+        let is_custom_args = custom_args.is_some();
 
         // A real start attempt (not a no-op early return above) re-arms the
         // one-shot WinDivert recovery allowance, and only for user starts.
@@ -881,6 +901,8 @@ impl Supervisor {
         *self.active_child.lock() = Some(child);
         *self.active_pid.write() = Some(pid);
         *self.active_strategy.write() = Some(active_id);
+        self.active_custom_args
+            .store(is_custom_args, Ordering::SeqCst);
         *self.start_time.write() = Some(Instant::now());
         *self.state.write() = SupervisorState::Running;
 
@@ -985,6 +1007,9 @@ impl Supervisor {
                     // The engine is gone — drop stale strategy/binary or the UI
                     // would keep advertising a configuration that no longer runs.
                     *supervisor_clone.active_strategy.write() = None;
+                    supervisor_clone
+                        .active_custom_args
+                        .store(false, Ordering::SeqCst);
                     *supervisor_clone.active_transport.write() = None;
                     *supervisor_clone.binary_path.write() = None;
                     *supervisor_clone.app_split_launch.write() =
@@ -1115,6 +1140,7 @@ impl Supervisor {
             *self.active_pid.write() = None;
             *self.start_time.write() = None;
             *self.active_strategy.write() = None;
+            self.active_custom_args.store(false, Ordering::SeqCst);
             *self.active_transport.write() = None;
             *self.app_split_launch.write() = AppSplitLaunchState::default();
         }
