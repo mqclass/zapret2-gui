@@ -195,8 +195,8 @@ if (Test-Path (Join-Path $BinDir "winws2.exe")) { Copy-Item (Join-Path $BinDir "
 #         fork commit in the commit message.
 #    Until then both values stay empty and this block is skipped with a
 #    warning, keeping CI green.
-$SplitPinUrl = ""
-$SplitPinSha256 = ""
+$SplitPinUrl = "https://github.com/mqclass/zapret2/releases/download/winws2-split-v1.0.6/winws2-split.exe"
+$SplitPinSha256 = "3c43c3f3992dcfa4164e2a872d971757f6d2544933145c9705f11ac719b3f97c"
 $SplitTarget = Join-Path $BinDir "winws2-split.exe"
 if (-not (Test-Path $SplitTarget)) {
     if ([string]::IsNullOrWhiteSpace($SplitPinUrl) -or [string]::IsNullOrWhiteSpace($SplitPinSha256)) {
