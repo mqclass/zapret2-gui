@@ -37,14 +37,14 @@ $RequiredFiles = @("winws2.exe", "winws.exe", "WinDivert.dll", "WinDivert64.sys"
 # ==============================================================================
 $UpstreamPins = @{
     "zapret2" = @{
-        Label  = "bol-van/zapret2 v1.0.5.2"
-        Url    = "https://github.com/bol-van/zapret2/releases/download/v1.0.5.2/zapret2-v1.0.5.2.zip"
-        Sha256 = "f585590bea6da82ac2c74926f6ac17e6204ee8b53e455c2ba2edae0c58c5d4ac"
+        Label  = "bol-van/zapret2 v1.0.6"
+        Url    = "https://github.com/bol-van/zapret2/releases/download/v1.0.6/zapret2-v1.0.6.zip"
+        Sha256 = "e141b51b60c895fe9548f4d644365461dcad8155e068d284a9aae1724504237d"
     }
     "flowseal" = @{
-        Label  = "Flowseal/zapret-discord-youtube 1.10.3"
-        Url    = "https://github.com/Flowseal/zapret-discord-youtube/releases/download/1.10.3/zapret-discord-youtube-1.10.3.zip"
-        Sha256 = "244314ae1c24538a0d751601da8e0c925c843371eec4456eb15f14c4fd6b7058"
+        Label  = "Flowseal/zapret-discord-youtube 1.10.4"
+        Url    = "https://github.com/Flowseal/zapret-discord-youtube/releases/download/1.10.4/zapret-discord-youtube-1.10.4.zip"
+        Sha256 = "291af673bd0238506f9548e0e94ca0abf244000f4c9a06960544fb01c5f97b34"
     }
 }
 
@@ -112,8 +112,8 @@ $NeedsZapret2 = (-not (Test-Path (Join-Path $BinDir "winws2.exe"))) -or
 if ($NeedsZapret2) {
     $Pin = $UpstreamPins["zapret2"]
     Write-Host ("==> Downloading {0} from GitHub..." -f $Pin.Label) -ForegroundColor Cyan
-    $Z2Zip = Join-Path $env:TEMP "zapret2-v1.0.5.2.zip"
-    $Z2Dir = Join-Path $env:TEMP "zapret2-v1.0.5.2-extracted"
+    $Z2Zip = Join-Path $env:TEMP "zapret2-v1.0.6.zip"
+    $Z2Dir = Join-Path $env:TEMP "zapret2-v1.0.6-extracted"
 
     Invoke-WebRequest -Uri $Pin.Url -OutFile $Z2Zip
     Test-PinnedHash -Path $Z2Zip -ExpectedSha256 $Pin.Sha256 -Label $Pin.Label
