@@ -21,6 +21,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check version consistency
+        shell: pwsh
+        run: |
+          $cargo = [regex]::Match((Get-Content src-tauri/Cargo.toml -Raw), '(?ms)\[package\].*?^version\s*=\s*"([^"]+)"').Groups[1].Value
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauri = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $i18n = @{}
+          foreach ($lang in @('ru','en','uk')) {
+            $i18n[$lang] = [regex]::Match((Get-Content "src/i18n/$lang.ts" -Raw), '(?m)^\s*version:\s*"v?([^"]+)"').Groups[1].Value
+          }
+          Write-Host "Versions: cargo=$cargo package=$pkg tauri=$tauri ru=$($i18n['ru']) en=$($i18n['en']) uk=$($i18n['uk'])"
+          $all = @($cargo, $pkg, $tauri, $i18n['ru'], $i18n['en'], $i18n['uk'])
+          if (($all | Select-Object -Unique).Count -ne 1) {
+            Write-Error "Version mismatch across sources: cargo=$cargo package=$pkg tauri=$tauri ru=$($i18n['ru']) en=$($i18n['en']) uk=$($i18n['uk'])"
+            exit 1
+          }
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
