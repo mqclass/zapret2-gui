@@ -392,6 +392,10 @@ impl SupervisorBackend {
                         uptime_secs: 0,
                         total_logs_buffered: 0,
                         last_engine_error: None,
+                        app_split_configured_mode: None,
+                        app_split_applied_mode: None,
+                        app_split_enforced: false,
+                        app_split_not_enforced_reason: None,
                     })
                 }
             },

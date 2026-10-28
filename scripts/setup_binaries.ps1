@@ -182,6 +182,39 @@ if (Test-Path (Join-Path $BinDir "WinDivert64.sys")) { Copy-Item (Join-Path $Bin
 if (Test-Path (Join-Path $BinDir "cygwin1.dll")) { Copy-Item (Join-Path $BinDir "cygwin1.dll") (Join-Path $PSScriptRoot "..\cygwin1.dll") -Force }
 if (Test-Path (Join-Path $BinDir "winws2.exe")) { Copy-Item (Join-Path $BinDir "winws2.exe") (Join-Path $PSScriptRoot "..\winws2.exe") -Force }
 
+# 4. Optional: winws2-split.exe from our own fork (mqclass/zapret2).
+#    This is the split-enforcing winws2 build the supervisor launches when
+#    per-app split is enabled on a winws2 strategy. It is OPTIONAL: the
+#    supervisor falls back to plain winws2.exe while the split binary is
+#    absent, so this step must never fail the build before the fork ships.
+#    HOW TO PIN after the first fork build:
+#      1. Publish the fork build as a release asset (or a pinned commit
+#         artifact) and note its download URL below.
+#      2. Compute its hash:  Get-FileHash winws2-split.exe -Algorithm SHA256
+#      3. Fill $SplitPinUrl + $SplitPinSha256 in ONE commit and mention the
+#         fork commit in the commit message.
+#    Until then both values stay empty and this block is skipped with a
+#    warning, keeping CI green.
+$SplitPinUrl = ""
+$SplitPinSha256 = ""
+$SplitTarget = Join-Path $BinDir "winws2-split.exe"
+if (-not (Test-Path $SplitTarget)) {
+    if ([string]::IsNullOrWhiteSpace($SplitPinUrl) -or [string]::IsNullOrWhiteSpace($SplitPinSha256)) {
+        Write-Warning "winws2-split.exe: fork pin not filled yet (first mqclass/zapret2 build pending) - skipping, the build continues without the split engine."
+    } else {
+        Write-Host "==> Downloading winws2-split.exe from the mqclass/zapret2 fork..." -ForegroundColor Cyan
+        Invoke-WebRequest -Uri $SplitPinUrl -OutFile $SplitTarget
+        Test-PinnedHash -Path $SplitTarget -ExpectedSha256 $SplitPinSha256 -Label "mqclass/zapret2 winws2-split.exe"
+        Test-Authenticode -Path $SplitTarget
+    }
+} elseif (-not [string]::IsNullOrWhiteSpace($SplitPinUrl) -and -not [string]::IsNullOrWhiteSpace($SplitPinSha256)) {
+    # Pin filled and a split binary is already installed: verify the file
+    # on disk too, not just fresh downloads, so a stale or swapped binary
+    # fails the build with the same SECURITY error as a bad download.
+    # With an empty pin this branch is skipped, as before.
+    Test-PinnedHash -Path $SplitTarget -ExpectedSha256 $SplitPinSha256 -Label "mqclass/zapret2 winws2-split.exe"
+}
+
 # Verify files and distinct binaries
 $w1 = Join-Path $BinDir "winws.exe"
 $w2 = Join-Path $BinDir "winws2.exe"

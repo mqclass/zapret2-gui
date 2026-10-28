@@ -698,7 +698,25 @@ export const en: Translations = {
     apply: "Apply",
     configure: "Configure",
     selectedCount: "Selected: {n}",
-    devNotice: "This feature is still in development: your app selection is saved, but traffic is not split yet. These settings do not affect the bypass for now.",
+    noteFlowseal:
+      "A Flowseal strategy is active right now: per-app split does not apply to it. It only works on winws2 strategies (Lua presets and zapret2-ru-ultimate).",
+    noteBinaryMissing:
+      "The split engine (winws2-split.exe) is not installed yet: it will arrive with the first fork build. Until then the bypass runs as usual, without per-app split.",
+    noteEmptyAllowlist:
+      "No app is selected: in “Only selected” mode nothing would go through the bypass, all traffic would go direct. Pick at least one app or choose another mode.",
+    honestBrowser:
+      "Split inside a single browser is impossible: all tabs are the same exe file.",
+    honestUwpIpv6: "UWP apps from the Microsoft Store and IPv6 traffic are not supported yet.",
+    honestLaunchers: "Launchers and helpers are separate exe files: each one must be picked individually.",
+    restartWarning:
+      "Restarting briefly interrupts the bypass: connections will drop for that time.",
+    confirmRestartTitle: "Restart the bypass?",
+    restartNow: "Restart",
+    saveOnly: "Save only",
+    deferredNote:
+      "Settings saved, restart deferred: an automatic strategy probe or watchdog escalation is running right now. Restart the bypass manually once it finishes.",
+    customArgsNote:
+      "Settings saved, but the bypass was not restarted: it is currently running with one-off custom arguments, and a restart would silently switch it to another strategy. The settings will take effect at the next bypass start.",
   },
   dnsSplit: {
     title: "Split-DNS by domains",

@@ -680,7 +680,18 @@ export interface Translations {
     apply: string;
     configure: string;
     selectedCount: string;
-    devNotice: string;
+    noteFlowseal: string;
+    noteBinaryMissing: string;
+    noteEmptyAllowlist: string;
+    honestBrowser: string;
+    honestUwpIpv6: string;
+    honestLaunchers: string;
+    restartWarning: string;
+    confirmRestartTitle: string;
+    restartNow: string;
+    saveOnly: string;
+    deferredNote: string;
+    customArgsNote: string;
   };
   dnsSplit: {
     title: string;

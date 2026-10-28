@@ -4,8 +4,12 @@
 //! go direct. The UI shows running applications; the selection is stored as a
 //! list of lowercase executable paths in settings.
 //!
-//! NOTE: Traffic enforcement (WinDivert pre-filter in the svc) is not yet
-//! implemented — this module currently provides enumeration + persistence only.
+//! NOTE: This module provides enumeration + persistence only. Enforcement
+//! lives in the supervisor: when app split is enabled and the active
+//! strategy runs on winws2, the supervisor launches winws2-split.exe (the
+//! fork build) with --app-split-* arguments instead of plain winws2.exe.
+//! Flowseal (winws) strategies cannot use it — winws.exe and winws2.exe
+//! take different flag sets — so split is honestly not applied to them.
 
 use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::CloseHandle;

@@ -80,6 +80,14 @@ pub struct ZapretBinaries {
     pub bin_dir: PathBuf,
     pub winws2_exe: PathBuf,
     pub winws_exe: Option<PathBuf>,
+    /// Split-enforcing winws2 build from our fork (mqclass/zapret2).
+    /// Optional: the fork has not shipped its first build yet, so absence
+    /// is a normal state, not an error — the supervisor falls back to
+    /// plain winws2.exe and reports `binary_missing` in its status.
+    /// Resolved from the SAME candidate directory as winws2.exe, so a
+    /// partial planting cannot mix binaries from different directories.
+    #[serde(default)]
+    pub winws2_split_exe: Option<PathBuf>,
     pub windivert_dll: PathBuf,
     pub windivert_sys: PathBuf,
     pub lists_dir: Option<PathBuf>,
@@ -169,6 +177,13 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
         }
 
         let winws1_path = winws1.is_file().then(|| winws1.clone());
+        // Optional split build: same directory, same all-or-nothing rule
+        // for the directory itself (checked above); only its presence is
+        // optional, never its location.
+        let winws2_split_path = candidate
+            .join("winws2-split.exe")
+            .is_file()
+            .then(|| candidate.join("winws2-split.exe"));
 
         // Resolve lists directory relative to the install location.
         let lists_dir = [candidate.join("lists")]
@@ -180,6 +195,7 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
             bin_dir: candidate,
             winws2_exe: winws2,
             winws_exe: winws1_path,
+            winws2_split_exe: winws2_split_path,
             windivert_dll,
             windivert_sys,
             lists_dir,
@@ -487,7 +503,10 @@ pub fn process_image_matches(handle: HANDLE, expected_exe_name: &str) -> bool {
 /// protecting any actively running supervised process ID.
 pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
     let mut terminated_count = 0;
-    let targets = ["winws2.exe", "winws.exe"];
+    // winws2-split.exe is a winws2 build under another name: a stray split
+    // engine left behind by a crash must die with the rest, or it would
+    // keep holding WinDivert while the UI reports "stopped".
+    let targets = ["winws2.exe", "winws.exe", "winws2-split.exe"];
 
     unsafe {
         if let Ok(handle) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {

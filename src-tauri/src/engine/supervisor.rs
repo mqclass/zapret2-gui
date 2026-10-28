@@ -72,6 +72,42 @@ pub struct SupervisorStatus {
     /// last start attempt did not end in a recognized failure.
     #[serde(default)]
     pub last_engine_error: Option<String>,
+    /// App split as configured right now in settings ("disabled" |
+    /// "allowlist" | "blocklist"). Always live, even while stopped.
+    #[serde(default)]
+    pub app_split_configured_mode: Option<String>,
+    /// App split mode actually passed to the running engine, if any.
+    /// None while stopped or when split was not applied.
+    #[serde(default)]
+    pub app_split_applied_mode: Option<String>,
+    /// True only when the running engine really is winws2-split.exe with
+    /// --app-split-* arguments. Never true for Flowseal strategies.
+    #[serde(default)]
+    pub app_split_enforced: bool,
+    /// Why split is not enforced, when it is not. Codes: "disabled" |
+    /// "flowseal" | "binary_missing" | "not_running". None when enforced.
+    #[serde(default)]
+    pub app_split_not_enforced_reason: Option<String>,
+}
+
+/// App split outcome of the last launch, kept so get_status() can report
+/// what the RUNNING engine actually does (as opposed to what settings
+/// currently say, which may have changed since the launch).
+#[derive(Debug, Clone)]
+struct AppSplitLaunchState {
+    applied_mode: Option<String>,
+    enforced: bool,
+    reason: Option<String>,
+}
+
+impl Default for AppSplitLaunchState {
+    fn default() -> Self {
+        Self {
+            applied_mode: None,
+            enforced: false,
+            reason: Some("not_running".to_string()),
+        }
+    }
 }
 
 /// The main Supervisor managing the WinDivert and winws2 lifecycle.
@@ -102,6 +138,10 @@ pub struct Supervisor {
     /// Cleared on every start attempt; set by the monitor task when the child
     /// dies with a recognized failure signature.
     last_engine_error: Arc<RwLock<Option<String>>>,
+    /// App split outcome of the last launch (see AppSplitLaunchState).
+    /// Reset on stop and when the monitored child dies, so a dead engine
+    /// never keeps advertising an enforcement that no longer runs.
+    app_split_launch: Arc<RwLock<AppSplitLaunchState>>,
     /// Set by the stderr reader when the child reports a WinDivert open-filter
     /// failure; reset on every start attempt. Read by the monitor task.
     windivert_open_error: Arc<AtomicBool>,
@@ -153,6 +193,7 @@ impl Supervisor {
             sink: SinkSlot::new(),
             probes_started: Arc::new(AtomicBool::new(false)),
             last_engine_error: Arc::new(RwLock::new(None)),
+            app_split_launch: Arc::new(RwLock::new(AppSplitLaunchState::default())),
             windivert_open_error: Arc::new(AtomicBool::new(false)),
             windivert_recovery_done: Arc::new(AtomicBool::new(false)),
             last_start_params: Arc::new(RwLock::new((None, None))),
@@ -297,6 +338,30 @@ impl Supervisor {
         let total_logs_buffered = self.ring_buffer.lock().len();
         let last_engine_error = self.last_engine_error.read().clone();
 
+        // Configured mode is always live from settings; the applied side
+        // is meaningful only while an engine runs. A stopped engine
+        // enforces nothing, whatever the last launch did.
+        let app_split_configured_mode = Some(
+            format!(
+                "{:?}",
+                crate::win32::settings::load_settings().app_split_mode
+            )
+            .to_lowercase(),
+        );
+        let (app_split_applied_mode, app_split_enforced, app_split_not_enforced_reason) =
+            if state == SupervisorState::Running {
+                let launch = self.app_split_launch.read().clone();
+                (
+                    launch.applied_mode,
+                    launch.enforced,
+                    launch.reason,
+                )
+            } else if app_split_configured_mode.as_deref() == Some("disabled") {
+                (None, false, Some("disabled".to_string()))
+            } else {
+                (None, false, Some("not_running".to_string()))
+            };
+
         SupervisorStatus {
             state,
             pid,
@@ -306,6 +371,10 @@ impl Supervisor {
             uptime_secs,
             total_logs_buffered,
             last_engine_error,
+            app_split_configured_mode,
+            app_split_applied_mode,
+            app_split_enforced,
+            app_split_not_enforced_reason,
         }
     }
 
@@ -588,7 +657,7 @@ impl Supervisor {
         });
 
         let use_winws1 = target_strat.as_ref().map_or(false, |s| s.engine == "winws");
-        let target_exe = if use_winws1 {
+        let mut target_exe = if use_winws1 {
             if let Some(ref w1) = binaries.winws_exe {
                 w1.clone()
             } else {
@@ -597,6 +666,64 @@ impl Supervisor {
         } else {
             binaries.winws2_exe.clone()
         };
+
+        // App split binary selection. The split build is a winws2 fork, so
+        // it can only replace winws2.exe: Flowseal strategies run on
+        // winws.exe, whose flag set (--dpi-desync-*) winws2.exe does not
+        // even accept, and a missing split binary is a normal pre-fork
+        // state, not a start failure. Every branch is logged, so the
+        // engine log alone explains which binary runs and why.
+        let split_settings = crate::win32::settings::load_settings();
+        let split_mode_str = format!("{:?}", split_settings.app_split_mode).to_lowercase();
+        let mut split_launch = AppSplitLaunchState {
+            applied_mode: None,
+            enforced: false,
+            reason: Some("disabled".to_string()),
+        };
+        if split_settings.app_split_mode == crate::win32::settings::AppSplitMode::Disabled {
+            self.log(
+                "info",
+                "App split disabled: running the standard engine binary",
+            );
+        } else if use_winws1 {
+            // Flowseal keeps winws.exe; split is honestly not applied.
+            split_launch.reason = Some("flowseal".to_string());
+            self.log(
+                "info",
+                &format!(
+                    "App split '{}' configured but strategy '{}' is Flowseal (winws): split does not apply to winws.exe, keeping the standard binary",
+                    split_mode_str, active_id
+                ),
+            );
+        } else if let Some(ref split_exe) = binaries.winws2_split_exe {
+            target_exe = split_exe.clone();
+            split_launch = AppSplitLaunchState {
+                applied_mode: Some(split_mode_str.clone()),
+                enforced: true,
+                reason: None,
+            };
+            self.log(
+                "info",
+                &format!(
+                    "App split '{}' enforced: using winws2-split.exe for strategy '{}' ({} app paths)",
+                    split_mode_str,
+                    active_id,
+                    split_settings.app_split_list.len().min(100)
+                ),
+            );
+        } else {
+            // Fork not built yet: fall back to plain winws2.exe rather
+            // than failing the start the user asked for.
+            split_launch.reason = Some("binary_missing".to_string());
+            self.log(
+                "info",
+                &format!(
+                    "App split '{}' configured but winws2-split.exe is not installed yet: falling back to winws2.exe without app split",
+                    split_mode_str
+                ),
+            );
+        }
+        *self.app_split_launch.write() = split_launch;
 
         *self.binary_path.write() = Some(target_exe.to_string_lossy().to_string());
         self.log(
@@ -652,9 +779,58 @@ impl Supervisor {
         }
         *self.active_transport.write() = applied_transport;
 
+        // App split arguments for winws2-split.exe only (interface fixed
+        // with the fork side). Appended after the transport transform and
+        // before spawn. The parameters log below shows the launch line
+        // with app-split paths masked (see below), never the real paths.
+        // The supervisor's own PID is excluded so the tgproxy
+        // bridge traffic (which runs inside this process) is not split.
+        // The 100-entry cap mirrors set_app_split_config; the take() here
+        // is a second line of defence against direct settings edits.
+        let mut args = args;
+        let split_launch_snapshot = self.app_split_launch.read().clone();
+        if split_launch_snapshot.enforced {
+            // Paths and the PID exclusion ride only with --app-split-mode:
+            // enforced == true with applied_mode == None must never send
+            // bare paths to the engine (unreachable today, but the two
+            // constructors could drift apart).
+            if let Some(ref applied) = split_launch_snapshot.applied_mode {
+                args.push(format!("--app-split-mode={}", applied));
+                for path in split_settings.app_split_list.iter().take(100) {
+                    args.push(format!("--app-split-path={}", path));
+                }
+                args.push(format!(
+                    "--app-split-exclude-pid={}",
+                    std::process::id()
+                ));
+            }
+        }
+
+        // Log the launch line with app-split paths masked: full paths
+        // (including the user profile directory) must not land in engine
+        // logs, matching the C-side no-paths policy. Only the mode and
+        // the path count are printed; the arguments passed to the engine
+        // above are unchanged.
+        let split_path_count = args
+            .iter()
+            .filter(|a| a.starts_with("--app-split-path="))
+            .count();
+        let masked_args: Vec<&str> = args
+            .iter()
+            .filter(|a| !a.starts_with("--app-split-path="))
+            .map(|s| s.as_str())
+            .collect();
         self.log(
             "info",
-            &format!("Bypass parameters: {}", args.join(" ")),
+            &format!(
+                "Bypass parameters: {}{}",
+                masked_args.join(" "),
+                if split_path_count > 0 {
+                    format!(" [--app-split-path: {} path(s) hidden]", split_path_count)
+                } else {
+                    String::new()
+                }
+            ),
         );
 
         // 4. Fast spawn process in isolated process group and bind to Job Object
@@ -811,6 +987,8 @@ impl Supervisor {
                     *supervisor_clone.active_strategy.write() = None;
                     *supervisor_clone.active_transport.write() = None;
                     *supervisor_clone.binary_path.write() = None;
+                    *supervisor_clone.app_split_launch.write() =
+                        AppSplitLaunchState::default();
                 }
 
                 // Capture the generation and params BEFORE the grace poll: a
@@ -938,6 +1116,7 @@ impl Supervisor {
             *self.start_time.write() = None;
             *self.active_strategy.write() = None;
             *self.active_transport.write() = None;
+            *self.app_split_launch.write() = AppSplitLaunchState::default();
         }
 
         self.emit_state_change(SupervisorState::Stopped);

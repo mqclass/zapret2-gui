@@ -56,6 +56,14 @@ export interface SupervisorStatus {
   total_logs_buffered: number;
   /** Last fatal engine error code, e.g. "windivert_conflict"; null otherwise. */
   last_engine_error: string | null;
+  /** App split mode configured in settings; absent from older backends. */
+  app_split_configured_mode?: string | null;
+  /** App split mode actually passed to the running engine, if any. */
+  app_split_applied_mode?: string | null;
+  /** True only when the running engine really is winws2-split.exe. */
+  app_split_enforced?: boolean;
+  /** Why split is not enforced: "disabled" | "flowseal" | "binary_missing" | "not_running". */
+  app_split_not_enforced_reason?: string | null;
 }
 
 export interface TgProxyStatus {
@@ -90,6 +98,8 @@ export interface TgProxyStatus {
 export interface ZapretBinaries {
   bin_dir: string;
   winws2_exe: string;
+  /** Split-enforcing fork build; null when the fork has not shipped yet. */
+  winws2_split_exe?: string | null;
   windivert_dll: string;
   windivert_sys: string;
 }
