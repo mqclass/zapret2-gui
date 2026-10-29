@@ -1,6 +1,7 @@
-//! GUI-side client for `zapret2-svc.exe`.
+//! GUI-side client for `zapret2-svc`.
 //!
-//! [`SvcClient`] speaks the JSON-lines protocol over the named pipe. Two
+//! [`SvcClient`] speaks the JSON-lines protocol over the svc transport:
+//! the named pipe on Windows, a Unix socket on Linux. Two
 //! connections are used: one for sequential request/response commands, one
 //! for the event subscription. [`SupervisorBackend`] abstracts "local
 //! in-process supervisor" vs "remote svc", so Tauri commands don't care.
@@ -12,7 +13,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tauri::AppHandle;
-#[cfg(windows)]
 use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(windows)]
@@ -20,18 +20,16 @@ use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::Mutex;
 
 use crate::engine::{LogEntry, Supervisor, SupervisorStatus, TgProxyManager, TgProxyStatus};
-use crate::svc_ipc::{ClientMessage, ServerMessage, PROTOCOL_VERSION};
+use crate::svc_ipc::{ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION};
 #[cfg(windows)]
-use crate::svc_ipc::{SvcEvent, SVC_PIPE_NAME};
+use crate::svc_ipc::SVC_PIPE_NAME;
 
 /// The byte-stream transport to the svc: a named pipe on Windows, a Unix
-/// stream on Linux. The protocol logic in this module is written against
-/// the alias and shared; only opening the stream is platform-specific
-/// (`open_svc_stream`). The Linux socket listener arrives with the
-/// transport step of the port (phase 1, step 2); until then
-/// `SvcClient::connect` on Linux reports the transport as unavailable
-/// and the GUI stays on its in-process Local backend — the designed
-/// fallback for a missing svc, not an error path.
+/// stream on Linux (socket path resolved by
+/// [`svc_socket_path`](crate::svc_ipc::svc_socket_path), the same
+/// function the server binds through). The protocol logic in this module
+/// is written against the alias and shared; only opening the stream is
+/// platform-specific (`open_svc_stream`).
 // `#[allow(dead_code)]` on the transport pieces below: both binaries
 // include this module, but the svc binary itself never acts as a client,
 // so in that binary's build they read as dead — same idiom as the
@@ -51,13 +49,16 @@ async fn open_svc_stream() -> io::Result<SvcStream> {
 }
 
 /// Opens the svc byte stream (see [`SvcStream`]).
+///
+/// Connect failures are immediate, never hangs: a missing socket file is
+/// `NotFound`, a stale one `ConnectionRefused`, and a socket owned by
+/// another user (mode 0660) `PermissionDenied` — all surface as a plain
+/// connect error, and the GUI falls back to its in-process Local backend
+/// exactly as it does for a missing svc on Windows.
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 async fn open_svc_stream() -> io::Result<SvcStream> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "svc transport is not available on Linux yet (phase 1 step 2 adds the Unix-socket transport)",
-    ))
+    tokio::net::UnixStream::connect(crate::svc_ipc::svc_socket_path()).await
 }
 
 /// Connected client to a running svc instance. Commands are serialized
@@ -354,9 +355,11 @@ impl SvcClient {
         FORWARDER_RUNNING.store(false, Ordering::SeqCst);
     }
 
-    #[cfg(windows)]
+    /// One transport-agnostic implementation: the subscription rides the
+    /// same `open_svc_stream` as the command connection, so Windows and
+    /// Linux forward events identically.
     async fn forward_events_inner(app: AppHandle) {
-        let client = match ClientOptions::new().open(SVC_PIPE_NAME) {
+        let client = match open_svc_stream().await {
             Ok(c) => c,
             Err(_) => return,
         };
@@ -401,12 +404,6 @@ impl SvcClient {
         }
     }
 
-    /// Linux: no svc transport exists yet (phase 1, step 2), so there is
-    /// nothing to subscribe to. Returns immediately; the caller's
-    /// single-flight guard resets and a later attach can retry once the
-    /// Unix-socket transport lands.
-    #[cfg(target_os = "linux")]
-    async fn forward_events_inner(_app: AppHandle) {}
 }
 
 /// Process-wide guard: only one event-forwarder task may run at a time.

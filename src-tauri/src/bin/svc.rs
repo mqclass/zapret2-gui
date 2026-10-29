@@ -3,9 +3,12 @@
 //! Runs the bypass engine with no UI and no WebView2 dependency. This process
 //! owns the Windows Job Object (with `KILL_ON_JOB_CLOSE`): if the service
 //! dies, `winws2.exe` dies with it — the orphan safety property. GUI crashes
-//! do NOT kill it; GUI clients attach over the named pipe instead.
+//! do NOT kill it.
 //!
-//! Single-instance is enforced via a global named mutex; a second copy exits.
+//! Single-instance is enforced via a global named mutex on Windows and
+//! an flock-ed lock file on Linux; a second copy exits. GUI clients
+//! attach over the local IPC transport (named pipe on Windows, Unix
+//! socket on Linux) instead of owning the engine themselves.
 
 #[path = "../engine/mod.rs"]
 mod engine;
@@ -63,31 +66,52 @@ static INSTANCE_LOCK_FD: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
 /// `flock` on a lock file. The fd is kept open for the whole process
 /// lifetime; the kernel releases the lock when the process dies in any
 /// way, so a crashed svc never leaves a stale "already running" claim
-/// (unlike a PID file). The svc runs as root under systemd, so the lock
-/// lives in /run; /tmp is the fallback for unprivileged dev runs.
+/// (unlike a PID file).
+///
+/// The lock's directory is chosen by *writability*, probed by actually
+/// opening the file — not by the directory merely existing: /run exists
+/// on every Linux box but is root-owned, so an unprivileged dev run
+/// cannot create the lock there and must fall through to
+/// $XDG_RUNTIME_DIR or /tmp (an existence check picked /run and then
+/// failed the whole claim). Order: /run (the svc runs as root under
+/// systemd, so this is the production path) → $XDG_RUNTIME_DIR → /tmp.
+/// A directory that opens but whose lock is already held means a live
+/// instance in a place we can see: that is a real "already running",
+/// not a fall-through.
 #[cfg(target_os = "linux")]
 fn claim_single_instance() -> bool {
-    let lock_path = if std::path::Path::new("/run").is_dir() {
-        "/run/zapret2-svc.lock"
-    } else {
-        "/tmp/zapret2-svc.lock"
-    };
-    let c_path = match std::ffi::CString::new(lock_path) {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    unsafe {
-        let fd = libc::open(c_path.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o644);
-        if fd < 0 {
-            return false;
+    use std::os::unix::ffi::OsStrExt;
+
+    let mut candidates: Vec<std::path::PathBuf> = vec![std::path::PathBuf::from("/run")];
+    if let Some(xdg) = std::env::var_os("XDG_RUNTIME_DIR") {
+        if !xdg.is_empty() {
+            candidates.push(std::path::PathBuf::from(xdg));
         }
-        if libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) != 0 {
-            libc::close(fd);
-            return false;
-        }
-        let _ = INSTANCE_LOCK_FD.set(fd);
     }
-    true
+    candidates.push(std::path::PathBuf::from("/tmp"));
+
+    for dir in candidates {
+        let lock_path = dir.join("zapret2-svc.lock");
+        let c_path = match std::ffi::CString::new(lock_path.as_os_str().as_bytes()) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        unsafe {
+            let fd = libc::open(c_path.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o644);
+            if fd < 0 {
+                // Not writable for us (permissions, read-only fs, ...):
+                // probe the next candidate instead of failing the claim.
+                continue;
+            }
+            if libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) != 0 {
+                libc::close(fd);
+                return false;
+            }
+            let _ = INSTANCE_LOCK_FD.set(fd);
+        }
+        return true;
+    }
+    false
 }
 
 #[tokio::main]
@@ -142,7 +166,10 @@ async fn main() {
     #[cfg(windows)]
     println!("zapret2-svc started, listening on the named pipe.");
     #[cfg(target_os = "linux")]
-    println!("zapret2-svc started (IPC transport arrives in phase 1 step 2).");
+    println!(
+        "zapret2-svc started, listening on unix socket {}.",
+        crate::svc_ipc::svc_socket_path().display()
+    );
 
     // Serve GUI clients until Ctrl+C.
     let server_task = tokio::spawn(run_pipe_server(

@@ -1,8 +1,13 @@
-//! Named-pipe server for `zapret2-svc.exe`.
+//! IPC server for `zapret2-svc`.
 //!
-//! Listens on [`SVC_PIPE_NAME`](crate::svc_ipc::SVC_PIPE_NAME), speaks the
-//! [`ClientMessage`](crate::svc_ipc::ClientMessage) /
+//! Listens on [`SVC_PIPE_NAME`](crate::svc_ipc::SVC_PIPE_NAME) (Windows
+//! named pipe) or on the Unix socket from
+//! [`svc_socket_path`](crate::svc_ipc::svc_socket_path) (Linux), and
+//! speaks the [`ClientMessage`](crate::svc_ipc::ClientMessage) /
 //! [`ServerMessage`](crate::svc_ipc::ServerMessage) JSON-lines protocol.
+//! The per-connection session (`handle_client`) is written against
+//! generic async streams and shared by both transports; only the
+//! listener setup is platform-specific.
 //!
 //! [`PipeSink`] is the [`EventSink`](crate::engine::events::EventSink)
 //! implementation the svc installs on its engine: every engine event is
@@ -10,12 +15,10 @@
 
 use std::sync::Arc;
 
-#[cfg(windows)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::NamedPipeServer;
 use tokio::sync::broadcast;
-#[cfg(windows)]
 use tokio::sync::Mutex;
 #[cfg(windows)]
 use windows::core::PCWSTR;
@@ -33,10 +36,9 @@ use windows::Win32::System::Pipes::{
 };
 
 use crate::engine::{EventSink, LogEntry, Supervisor, SupervisorState, TgProxyManager};
+use crate::svc_ipc::{ClientMessage, ServerMessage, PROTOCOL_VERSION};
 #[cfg(windows)]
-use crate::svc_ipc::{
-    ClientMessage, ServerMessage, PROTOCOL_VERSION, SVC_PIPE_NAME,
-};
+use crate::svc_ipc::SVC_PIPE_NAME;
 use crate::svc_ipc::SvcEvent;
 use crate::engine::DiagnosticsReport;
 
@@ -76,17 +78,18 @@ impl EventSink for PipeSink {
 /// Per-connection handler: JSON-lines request/response, plus an optional
 /// event subscription streaming [`SvcEvent`]s back.
 ///
-/// Windows transport (named pipe). The protocol handling is stream-
-/// generic; the Linux Unix-socket listener reuses it when the transport
-/// step of the port (phase 1, step 2) lands.
-#[cfg(windows)]
-async fn handle_client(
-    server: NamedPipeServer,
+/// Transport-agnostic: the Windows named pipe and the Linux Unix socket
+/// both hand their accepted stream here, so the protocol session exists
+/// exactly once — there is no second implementation to drift.
+async fn handle_client<S>(
+    stream: S,
     supervisor: Arc<Supervisor>,
     tgproxy: Arc<TgProxyManager>,
     event_tx: broadcast::Sender<SvcEvent>,
-) {
-    let (reader, writer) = tokio::io::split(server);
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+{
+    let (reader, writer) = tokio::io::split(stream);
     let mut lines = BufReader::new(reader).lines();
     let writer = Arc::new(Mutex::new(writer));
     let mut event_rx: Option<broadcast::Receiver<SvcEvent>> = None;
@@ -293,11 +296,13 @@ async fn handle_client(
     }
 }
 
-#[cfg(windows)]
-async fn write_msg(
-    writer: &Arc<Mutex<tokio::io::WriteHalf<NamedPipeServer>>>,
+async fn write_msg<W>(
+    writer: &Arc<Mutex<W>>,
     msg: &ServerMessage,
-) -> std::io::Result<()> {
+) -> std::io::Result<()>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
     let mut line = serde_json::to_string(msg).unwrap_or_else(|_| r#"{"type":"response","ok":false,"error":"encode error"}"#.to_string());
     line.push('\n');
     let mut w = writer.lock().await;
@@ -397,24 +402,107 @@ pub async fn run_pipe_server(
     }
 }
 
-/// Linux: the IPC transport does not exist yet — the Unix-socket listener
-/// is phase 1, step 2, and will reuse the Windows handler's protocol
-/// logic over `tokio::net::UnixStream`. Until then the svc has no way to
-/// accept GUI clients, so this parks forever (the svc's other duties in
-/// `main` — signal handling, the Telegram bridge autostart — still run)
-/// after printing exactly why. It must NOT pretend to listen: a GUI
-/// attach attempt fails on the client side (`SvcClient::connect`), which
-/// is the honest signal.
+/// Runs the Unix-socket server until the process exits (Linux).
+///
+/// Access model — the filesystem analogue of the Windows pipe DACL: the
+/// socket file is chmodded to 0660 right after binding, so only its
+/// owner (the svc user, root under systemd) and its group can connect.
+/// Unlike a DACL this is not per-user granular; who may drive the
+/// supervisor is decided by socket file ownership/permissions, which
+/// the administrator controls via the runtime directory.
+///
+/// Stale-socket handling: a leftover socket file from a crashed svc is
+/// indistinguishable from a live one by name alone, so an existing file
+/// is probed with a real connect. Only when the probe fails (nobody
+/// listening) is the file unlinked and rebound; a live listener is
+/// never taken over — this server parks with a clear message instead
+/// (single-instance is normally enforced earlier, by the flock claim
+/// in `main`; this is the belt-and-braces guard for custom socket
+/// paths via `ZAPRET2_SVC_SOCKET`).
 #[cfg(target_os = "linux")]
 pub async fn run_pipe_server(
-    _supervisor: Arc<Supervisor>,
-    _tgproxy: Arc<TgProxyManager>,
-    _event_tx: broadcast::Sender<SvcEvent>,
+    supervisor: Arc<Supervisor>,
+    tgproxy: Arc<TgProxyManager>,
+    event_tx: broadcast::Sender<SvcEvent>,
 ) {
-    eprintln!(
-        "svc: IPC transport is not available on Linux yet \
-         (phase 1 step 2 adds the Unix-socket listener); \
-         GUI clients cannot attach to this svc instance"
-    );
-    std::future::pending::<()>().await;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::Duration;
+
+    let path = crate::svc_ipc::svc_socket_path();
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            // Under systemd the RuntimeDirectory already exists; this is
+            // for dev runs with a custom ZAPRET2_SVC_SOCKET. Best-effort:
+            // a real failure surfaces at bind time below.
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
+    if path.exists() {
+        match std::os::unix::net::UnixStream::connect(&path) {
+            Ok(_probe) => {
+                // A live listener owns this path. Dropping `_probe`
+                // disconnects; the other svc keeps serving. Park rather
+                // than unlink a working endpoint out from under it.
+                eprintln!(
+                    "svc: {} is already served by a live listener; \
+                     this instance will not take it over",
+                    path.display()
+                );
+                std::future::pending::<()>().await;
+                return;
+            }
+            Err(_) => {
+                // Stale socket (or a stray regular file): safe to remove.
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+    let listener = match tokio::net::UnixListener::bind(&path) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("svc: cannot bind unix socket {}: {e}", path.display());
+            std::future::pending::<()>().await;
+            return;
+        }
+    };
+    // Restrict the endpoint before accepting anyone (see module docs):
+    // owner + group only, mirroring the Windows DACL's intent.
+    if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o660)) {
+        eprintln!(
+            "svc: cannot chmod 0660 {}: {e}; socket stays at umask defaults",
+            path.display()
+        );
+    }
+    eprintln!("svc: listening on unix socket {}", path.display());
+
+    loop {
+        match listener.accept().await {
+            Ok((stream, _addr)) => {
+                // SO_PEERCRED via tokio: who is on the other end. The
+                // socket's 0660 mode is the gate; this log line is the
+                // audit trail for it.
+                match stream.peer_cred() {
+                    Ok(cred) => eprintln!(
+                        "svc: unix client connected: uid={} gid={} pid={}",
+                        cred.uid(),
+                        cred.gid(),
+                        cred.pid()
+                            .map(|p| p.to_string())
+                            .unwrap_or_else(|| "?".to_string())
+                    ),
+                    Err(e) => eprintln!("svc: unix client connected (peer cred unavailable: {e})"),
+                }
+                let sup = supervisor.clone();
+                let tgp = tgproxy.clone();
+                let tx = event_tx.clone();
+                tokio::spawn(async move {
+                    handle_client(stream, sup, tgp, tx).await;
+                });
+            }
+            Err(e) => {
+                eprintln!("svc: unix accept error: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
 }

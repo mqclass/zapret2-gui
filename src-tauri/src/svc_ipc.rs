@@ -1,6 +1,8 @@
 //! IPC protocol between `zapret2-svc.exe` (headless supervisor) and GUI clients.
 //!
-//! Transport: Windows named pipe `\\.\pipe\zapret2-svc`, newline-delimited JSON.
+//! Transport: Windows named pipe `\\.\pipe\zapret2-svc`; on Linux, a Unix
+//! socket (see [`svc_socket_path`]). Either way the wire format is the
+//! same: newline-delimited JSON.
 //! Every line is one [`ClientMessage`] (GUI -> svc) or one [`ServerMessage`]
 //! (svc -> GUI). The event variants mirror [`EventSink`](crate::engine::events::EventSink)
 //! one-to-one, so the svc can reuse the engine without translation layers.
@@ -16,6 +18,33 @@ use crate::engine::{DiagnosticsReport, LogEntry, SupervisorState, SupervisorStat
 
 /// Well-known pipe name for the supervisor service.
 pub const SVC_PIPE_NAME: &str = r"\\.\pipe\zapret2-svc";
+/// Default path of the supervisor Unix socket on Linux. `/run/zapret2` is
+/// the systemd `RuntimeDirectory` of zapret2-svc.service: systemd creates
+/// it (owned by the service user, root) when the unit starts and removes
+/// it when the unit stops.
+#[cfg(target_os = "linux")]
+pub const SVC_SOCKET_DEFAULT_PATH: &str = "/run/zapret2/svc.sock";
+/// Environment variable overriding the svc socket path on Linux
+/// (tests and unprivileged dev runs).
+#[cfg(target_os = "linux")]
+pub const SVC_SOCKET_ENV_VAR: &str = "ZAPRET2_SVC_SOCKET";
+
+/// The one source of truth for the svc socket location on Linux: the
+/// server binds and every client connects through this resolution, so
+/// the two sides can never drift apart.
+///
+/// `ZAPRET2_SVC_SOCKET` wins when set and non-empty; otherwise the
+/// systemd runtime path above. Access model: after binding, the svc
+/// chmods the socket file to 0660 — the filesystem-permissions analogue
+/// of the Windows pipe DACL. Who may drive the supervisor is decided by
+/// who can open this file.
+#[cfg(target_os = "linux")]
+pub fn svc_socket_path() -> std::path::PathBuf {
+    match std::env::var_os(SVC_SOCKET_ENV_VAR) {
+        Some(p) if !p.is_empty() => std::path::PathBuf::from(p),
+        _ => std::path::PathBuf::from(SVC_SOCKET_DEFAULT_PATH),
+    }
+}
 /// Named mutex used for single-instance enforcement of the svc process.
 pub const SVC_SINGLE_INSTANCE_MUTEX: &str = "Global\\zapret2-svc-single-instance";
 /// IPC protocol version. Bumped on any breaking change; the Hello handshake

@@ -1,0 +1,49 @@
+# zapret2-svc — headless supervisor service for zapret2-gui (Linux).
+#
+# Install:
+#   1. Place the built binary at /usr/local/bin/zapret2-svc
+#      (root-owned, chmod 0755).
+#   2. Copy this file to /etc/systemd/system/zapret2-svc.service
+#   3. systemctl daemon-reload && systemctl enable --now zapret2-svc
+#
+# The service runs as root: the bypass engine needs root for
+# NFQUEUE/nftables. The GUI stays unprivileged and talks to this
+# service over a Unix socket.
+#
+# Socket access model (read before debugging "GUI cannot connect"):
+#   The service creates /run/zapret2/svc.sock (the RuntimeDirectory
+#   below) and chmods it 0660 with owner root:root. A desktop GUI
+#   running as a normal user therefore CANNOT connect out of the box.
+#   That is deliberate — whoever can open this socket can start/stop
+#   the bypass. To grant a desktop user access, the administrator can
+#   create a group (e.g. "zapret2"), add the user to it, and chgrp the
+#   socket after start via a drop-in:
+#       # /etc/systemd/system/zapret2-svc.service.d/group.conf
+#       [Service]
+#       ExecStartPost=/bin/sh -c 'chgrp zapret2 /run/zapret2/svc.sock'
+#   There is intentionally no automation for this in phase 1.
+#   For tests/dev runs the socket path can be overridden with the
+#   ZAPRET2_SVC_SOCKET environment variable (both in the svc and in
+#   the client — they resolve the path through the same function).
+#
+# Logs: journalctl -u zapret2-svc -f
+#   (the svc writes its own messages to stdout/stderr, i.e. the journal)
+
+[Unit]
+Description=zapret2 supervisor service (headless bypass engine)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/zapret2-svc
+# /run/zapret2: created by systemd before start, removed on stop.
+# The svc binds /run/zapret2/svc.sock inside it.
+RuntimeDirectory=zapret2
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
