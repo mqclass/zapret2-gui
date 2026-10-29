@@ -68,6 +68,15 @@ jobs:
           cargo build --release --bin zapret2-svc
           cargo build --release
 
+      - name: Compute package version
+        shell: pwsh
+        run: |
+          # Branch names may contain '/' (e.g. feature/linux-port), which is
+          # not valid inside a file or artifact name; tag names are unaffected.
+          $ver = "${{ github.ref_name }}" -replace '[\\/]', '-'
+          if (-not $ver) { $ver = "latest" }
+          "PKG_VER=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Package Release
         shell: pwsh
         run: |
@@ -96,13 +105,13 @@ jobs:
           # Create launch bat
           "@echo off`r`ncd /d `"%~dp0`"`r`nstart `"`" `"zapret2.exe`"" | Set-Content -Path "$pkgDir/Запустить zapret2.bat" -Encoding ASCII
 
-          $ver = if ("${{ github.ref_name }}") { "${{ github.ref_name }}" } else { "latest" }
+          $ver = "${{ env.PKG_VER }}"
           Compress-Archive -Path "$pkgDir/*" -DestinationPath "./zapret2-${ver}-windows-x64.zip" -CompressionLevel Optimal
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: zapret2-${{ github.ref_name }}-windows-x64
+          name: zapret2-${{ env.PKG_VER }}-windows-x64
           path: ./zapret2-*-windows-x64.zip
 
       - name: Publish GitHub Release
