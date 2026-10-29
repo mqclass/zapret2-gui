@@ -28,7 +28,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::win32::settings::{load_settings, update_settings};
+use crate::platform::settings::{load_settings, update_settings};
 
 /// Built-in hosts source.
 #[derive(Debug, Clone, Copy)]

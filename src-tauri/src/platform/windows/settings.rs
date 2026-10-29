@@ -138,7 +138,7 @@ pub struct AppSettings {
     /// system hosts file.
     #[serde(default)]
     pub smart_hosts_enabled: bool,
-    /// Enabled smart-hosts source ids (see win32::smart_hosts::HOST_SOURCES).
+    /// Enabled smart-hosts source ids (see platform::smart_hosts::HOST_SOURCES).
     #[serde(default = "default_smart_hosts_sources")]
     pub smart_hosts_sources: Vec<String>,
     /// Whether `0.0.0.0` adblock entries from sources are applied too.

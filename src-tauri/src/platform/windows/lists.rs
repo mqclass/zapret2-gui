@@ -9,8 +9,8 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::win32::process::resolve_binaries;
-use crate::win32::settings::atomic_write;
+use crate::platform::process::resolve_binaries;
+use crate::platform::settings::atomic_write;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -214,7 +214,7 @@ pub fn remove_domain_from_list(filename: &str, raw_domain: &str) -> Result<Vec<S
 
 /// Flushes Windows DNS client cache via ipconfig /flushdns.
 pub fn flush_dns_cache() -> Result<String, String> {
-    let output = Command::new(crate::win32::system32("ipconfig.exe"))
+    let output = Command::new(crate::platform::system32("ipconfig.exe"))
         .arg("/flushdns")
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -231,7 +231,7 @@ pub fn flush_dns_cache() -> Result<String, String> {
 /// Opens the lists directory in Windows Explorer.
 pub fn open_lists_folder() -> Result<(), String> {
     let dir = get_lists_dir()?;
-    Command::new(crate::win32::system32("explorer.exe"))
+    Command::new(crate::platform::system32("explorer.exe"))
         .arg(&dir)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()

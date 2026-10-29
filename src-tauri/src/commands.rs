@@ -15,12 +15,12 @@ use tauri::State;
 use crate::engine::probes::{DiagnosticsReport, DiagnosticsService};
 use crate::engine::supervisor::{LogEntry, SupervisorState, SupervisorStatus};
 use crate::engine::tgproxy::TgProxyStatus;
-use crate::win32::conflicts::{
-    resolve_all_conflicts_excluding as win32_resolve_all_conflicts,
-    scan_conflicts_excluding as win32_scan_conflicts, ConflictItem,
+use crate::platform::conflicts::{
+    resolve_all_conflicts_excluding as platform_resolve_all_conflicts,
+    scan_conflicts_excluding as platform_scan_conflicts, ConflictItem,
 };
-use crate::win32::privileges::{is_elevated, relaunch_elevated as win32_relaunch_elevated};
-use crate::win32::process::{
+use crate::platform::privileges::{is_elevated, relaunch_elevated as platform_relaunch_elevated};
+use crate::platform::process::{
     discover_strategies, kill_stray_winws2_processes, resolve_binaries, LuaStrategy, ZapretBinaries,
 };
 
@@ -90,8 +90,8 @@ pub async fn get_system_status(state: State<'_, AppState>) -> Result<SystemStatu
         }
     };
 
-    let conflicts = win32_scan_conflicts(supervisor_status.pid);
-    let autostart_enabled = crate::win32::autostart::is_autostart_enabled();
+    let conflicts = platform_scan_conflicts(supervisor_status.pid);
+    let autostart_enabled = crate::platform::autostart::is_autostart_enabled();
 
     Ok(SystemStatusResponse {
         is_elevated: elevated,
@@ -106,13 +106,13 @@ pub async fn get_system_status(state: State<'_, AppState>) -> Result<SystemStatu
 /// Checks whether autostart on Windows logon is enabled.
 #[tauri::command]
 pub async fn get_autostart_status() -> Result<bool, String> {
-    Ok(crate::win32::autostart::is_autostart_enabled())
+    Ok(crate::platform::autostart::is_autostart_enabled())
 }
 
 /// Enables or disables autostart on Windows logon.
 #[tauri::command]
 pub async fn set_autostart_status(enable: bool) -> Result<bool, String> {
-    crate::win32::autostart::set_autostart(enable)
+    crate::platform::autostart::set_autostart(enable)
 }
 
 /// Discovers and lists all Lua DPI bypass strategies available on the host.
@@ -236,7 +236,7 @@ pub async fn clear_logs(state: State<'_, AppState>) -> Result<(), String> {
 /// Relaunches the application with UAC Administrator privileges.
 #[tauri::command]
 pub async fn relaunch_elevated() -> Result<(), String> {
-    win32_relaunch_elevated().map_err(|e| e.to_string())
+    platform_relaunch_elevated().map_err(|e| e.to_string())
 }
 
 /// Finds and forcefully terminates any orphaned `winws2.exe` instances left running,
@@ -254,7 +254,7 @@ pub async fn kill_stray_processes(state: State<'_, AppState>) -> Result<usize, S
 pub async fn scan_conflicts(state: State<'_, AppState>) -> Result<Vec<ConflictItem>, String> {
     let backend = state.backend.read().clone();
     let pid = backend.get_status().await.pid;
-    Ok(win32_scan_conflicts(pid))
+    Ok(platform_scan_conflicts(pid))
 }
 
 /// Terminates conflicting DPI bypass processes and stops conflicting Windows services.
@@ -262,20 +262,20 @@ pub async fn scan_conflicts(state: State<'_, AppState>) -> Result<Vec<ConflictIt
 pub async fn resolve_conflicts(state: State<'_, AppState>) -> Result<usize, String> {
     let backend = state.backend.read().clone();
     let pid = backend.get_status().await.pid;
-    win32_resolve_all_conflicts(pid)
+    platform_resolve_all_conflicts(pid)
 }
 
 /// Saves or updates a custom user profile and returns the refreshed strategy list.
 #[tauri::command]
 pub async fn save_custom_profile(strategy: LuaStrategy) -> Result<Vec<LuaStrategy>, String> {
-    crate::win32::custom_profiles::save_custom_profile(strategy)?;
+    crate::platform::custom_profiles::save_custom_profile(strategy)?;
     discover_strategies().map_err(|e| e.to_string())
 }
 
 /// Deletes a custom user profile by ID and returns the refreshed strategy list.
 #[tauri::command]
 pub async fn delete_custom_profile(id: String) -> Result<Vec<LuaStrategy>, String> {
-    crate::win32::custom_profiles::delete_custom_profile(&id)?;
+    crate::platform::custom_profiles::delete_custom_profile(&id)?;
     discover_strategies().map_err(|e| e.to_string())
 }
 
@@ -284,7 +284,7 @@ pub async fn delete_custom_profile(id: String) -> Result<Vec<LuaStrategy>, Strin
 pub async fn parse_args_string(raw: String) -> Result<Vec<String>, String> {
     let resolved = resolve_binaries().map_err(|e| e.to_string())?;
     let lists_dir = resolved.lists_dir.unwrap_or_else(|| resolved.bin_dir.join("../lists"));
-    Ok(crate::win32::custom_profiles::parse_command_line_args(&raw, &resolved.bin_dir, &lists_dir))
+    Ok(crate::platform::custom_profiles::parse_command_line_args(&raw, &resolved.bin_dir, &lists_dir))
 }
 
 /// Exits the application cleanly, stopping the Telegram bridge, the background
@@ -309,43 +309,43 @@ pub async fn exit_app(state: State<'_, AppState>, app: tauri::AppHandle) -> Resu
 /// Returns all available domain/hostlist files in the lists directory.
 #[tauri::command]
 pub async fn list_domain_files() -> Result<Vec<String>, String> {
-    crate::win32::lists::list_domain_files()
+    crate::platform::lists::list_domain_files()
 }
 
 /// Reads domain entries from a specific file in the lists directory.
 #[tauri::command]
 pub async fn read_domain_list(filename: String) -> Result<Vec<String>, String> {
-    crate::win32::lists::read_domains(&filename)
+    crate::platform::lists::read_domains(&filename)
 }
 
 /// Adds a domain to a specific list file and returns the updated domain list.
 #[tauri::command]
 pub async fn add_domain_to_list(filename: String, domain: String) -> Result<Vec<String>, String> {
-    crate::win32::lists::add_domain_to_list(&filename, &domain)
+    crate::platform::lists::add_domain_to_list(&filename, &domain)
 }
 
 /// Removes a domain from a specific list file and returns the updated domain list.
 #[tauri::command]
 pub async fn remove_domain_from_list(filename: String, domain: String) -> Result<Vec<String>, String> {
-    crate::win32::lists::remove_domain_from_list(&filename, &domain)
+    crate::platform::lists::remove_domain_from_list(&filename, &domain)
 }
 
 /// Flushes Windows DNS client cache via ipconfig /flushdns.
 #[tauri::command]
 pub async fn flush_dns_cache() -> Result<String, String> {
-    crate::win32::lists::flush_dns_cache()
+    crate::platform::lists::flush_dns_cache()
 }
 
 /// Opens the lists directory in Windows Explorer.
 #[tauri::command]
 pub async fn open_lists_folder() -> Result<(), String> {
-    crate::win32::lists::open_lists_folder()
+    crate::platform::lists::open_lists_folder()
 }
 
 /// Opens the lists directory in Windows Explorer (alias).
 #[tauri::command]
 pub async fn reveal_lists_folder() -> Result<(), String> {
-    crate::win32::lists::open_lists_folder()
+    crate::platform::lists::open_lists_folder()
 }
 
 /// Opens the persistent logs folder in Windows Explorer. Returns the opened
@@ -475,7 +475,7 @@ pub async fn probe_strategy(
 /// strategy, which would hijack the next tray/autostart start.
 #[tauri::command]
 pub async fn set_last_strategy(strategy_id: Option<String>) -> Result<(), String> {
-    crate::win32::settings::update_settings(|s| {
+    crate::platform::settings::update_settings(|s| {
         s.last_strategy_id = strategy_id;
     })?;
     Ok(())
@@ -513,23 +513,23 @@ fn probe_error_result(
 
 /// Retrieves current application settings (Split-Tunneling, Game Filter, DNS).
 #[tauri::command]
-pub async fn get_app_settings() -> Result<crate::win32::settings::AppSettings, String> {
-    Ok(crate::win32::settings::load_settings())
+pub async fn get_app_settings() -> Result<crate::platform::settings::AppSettings, String> {
+    Ok(crate::platform::settings::load_settings())
 }
 
 /// Saves application settings.
 #[tauri::command]
 pub async fn save_app_settings(
-    settings: crate::win32::settings::AppSettings,
+    settings: crate::platform::settings::AppSettings,
 ) -> Result<(), String> {
     // Serialized vs. concurrent backend mutations (L-4).
-    crate::win32::settings::update_settings(|s| *s = settings)
+    crate::platform::settings::update_settings(|s| *s = settings)
 }
 
 /// Toggles Windows toast notifications for engine events.
 #[tauri::command]
 pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
-    crate::win32::settings::update_settings(|s| s.notifications_enabled = enable)
+    crate::platform::settings::update_settings(|s| s.notifications_enabled = enable)
         .map_err(|e| e.to_string())?;
     Ok(enable)
 }
@@ -538,7 +538,7 @@ pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
 /// automatic escalation on confirmed degradation.
 #[tauri::command]
 pub async fn set_watchdog_enabled(enable: bool) -> Result<bool, String> {
-    crate::win32::settings::update_settings(|s| s.watchdog_enabled = enable)
+    crate::platform::settings::update_settings(|s| s.watchdog_enabled = enable)
         .map_err(|e| e.to_string())?;
     Ok(enable)
 }
@@ -549,7 +549,7 @@ pub async fn set_watchdog_enabled(enable: bool) -> Result<bool, String> {
 #[tauri::command]
 pub async fn set_watchdog_interval(minutes: u64) -> Result<u64, String> {
     let clamped = minutes.clamp(5, 120);
-    crate::win32::settings::update_settings(|s| s.watchdog_interval_minutes = clamped)
+    crate::platform::settings::update_settings(|s| s.watchdog_interval_minutes = clamped)
         .map_err(|e| e.to_string())?;
     Ok(clamped)
 }
@@ -572,7 +572,7 @@ pub async fn set_accent_color(color: Option<String>) -> Result<Option<String>, S
         }
         None => None,
     };
-    crate::win32::settings::update_settings(|s| s.accent_color = checked.clone())
+    crate::platform::settings::update_settings(|s| s.accent_color = checked.clone())
         .map_err(|e| e.to_string())?;
     Ok(checked)
 }
@@ -707,7 +707,7 @@ pub async fn list_transports() -> Result<Vec<crate::engine::transport::Transport
 /// Returns the currently selected transport id, if any (`None` = direct launch).
 #[tauri::command]
 pub async fn get_active_transport() -> Result<Option<String>, String> {
-    Ok(crate::win32::settings::load_settings().active_transport_id)
+    Ok(crate::platform::settings::load_settings().active_transport_id)
 }
 
 /// Selects the active camouflage transport.
@@ -736,7 +736,7 @@ pub async fn set_active_transport(transport_id: String) -> Result<(), String> {
         ));
     }
 
-    let mut settings = crate::win32::settings::load_settings();
+    let mut settings = crate::platform::settings::load_settings();
     if transport_id == "direct" {
         settings.active_transport_id = None;
     } else {
@@ -747,7 +747,7 @@ pub async fn set_active_transport(transport_id: String) -> Result<(), String> {
         .transport_configs
         .entry(transport_id.clone())
         .or_insert_with(|| crate::engine::transport::TransportConfig::for_transport(&transport_id));
-    crate::win32::settings::save_settings(settings)?;
+    crate::platform::settings::save_settings(settings)?;
     Ok(())
 }
 
@@ -788,7 +788,7 @@ pub async fn set_transport_config(
         .to_string()
     })?;
 
-    let mut settings = crate::win32::settings::load_settings();
+    let mut settings = crate::platform::settings::load_settings();
     let enabled = settings
         .transport_configs
         .get(&transport_id)
@@ -801,7 +801,7 @@ pub async fn set_transport_config(
     };
     transport.validate_config(&config).map_err(|e| e.to_string())?;
     settings.transport_configs.insert(transport_id, config);
-    crate::win32::settings::save_settings(settings)?;
+    crate::platform::settings::save_settings(settings)?;
     Ok(())
 }
 
@@ -844,13 +844,13 @@ pub async fn export_diagnostics_bundle(
     let _ = writeln!(
         out,
         "elevated: {}",
-        crate::win32::privileges::is_elevated().unwrap_or(false)
+        crate::platform::privileges::is_elevated().unwrap_or(false)
     );
     let _ = writeln!(out);
 
     // 1. Settings (no secrets are stored in AppSettings).
     let _ = writeln!(out, "----- settings -----");
-    match serde_json::to_string_pretty(&crate::win32::settings::load_settings()) {
+    match serde_json::to_string_pretty(&crate::platform::settings::load_settings()) {
         Ok(json) => {
             let _ = writeln!(out, "{}", json);
         }
@@ -862,7 +862,7 @@ pub async fn export_diagnostics_bundle(
 
     // 2. Active strategy details.
     let _ = writeln!(out, "----- active strategy -----");
-    let settings = crate::win32::settings::load_settings();
+    let settings = crate::platform::settings::load_settings();
     let active_id = settings.last_strategy_id.clone().unwrap_or_default();
     let _ = writeln!(
         out,
@@ -873,7 +873,7 @@ pub async fn export_diagnostics_bundle(
             &active_id
         }
     );
-    match crate::win32::process::discover_strategies() {
+    match crate::platform::process::discover_strategies() {
         Ok(strategies) => {
             if let Some(s) = strategies.iter().find(|s| s.id == active_id) {
                 let _ = writeln!(out, "name: {}", s.name);
@@ -933,9 +933,9 @@ pub async fn export_diagnostics_bundle(
 /// Changes the active Split-Tunneling mode.
 #[tauri::command]
 pub async fn set_split_tunnel_mode(
-    mode: crate::win32::settings::SplitTunnelMode,
-) -> Result<crate::win32::settings::AppSettings, String> {
-    crate::win32::settings::update_settings(|s| {
+    mode: crate::platform::settings::SplitTunnelMode,
+) -> Result<crate::platform::settings::AppSettings, String> {
+    crate::platform::settings::update_settings(|s| {
         s.split_tunnel_mode = mode;
         s.clone()
     })
@@ -945,18 +945,18 @@ pub async fn set_split_tunnel_mode(
 #[tauri::command]
 pub async fn run_auto_doctor(
     state: State<'_, AppState>,
-) -> Result<crate::win32::doctor::DoctorReport, String> {
+) -> Result<crate::platform::doctor::DoctorReport, String> {
     let backend = state.backend.read().clone();
     let status = backend.get_status().await;
     // Never let the doctor tear the WinDivert driver down from under a running engine.
     let engine_running = status.state == SupervisorState::Running;
-    Ok(crate::win32::doctor::run_auto_doctor(status.pid, engine_running).await)
+    Ok(crate::platform::doctor::run_auto_doctor(status.pid, engine_running).await)
 }
 
 /// Retrieves DNS status and available providers.
 #[tauri::command]
-pub async fn get_dns_status() -> Result<crate::win32::dns::DnsStatus, String> {
-    crate::win32::dns::get_dns_status()
+pub async fn get_dns_status() -> Result<crate::platform::dns::DnsStatus, String> {
+    crate::platform::dns::get_dns_status()
 }
 
 /// Configures system DNS on the active network adapter or selective Split-DNS via NRPT.
@@ -964,8 +964,8 @@ pub async fn get_dns_status() -> Result<crate::win32::dns::DnsStatus, String> {
 pub async fn set_system_dns(
     provider_id: String,
     scope: Option<String>,
-) -> Result<crate::win32::dns::DnsStatus, String> {
-    crate::win32::dns::set_system_dns(&provider_id, scope.as_deref())
+) -> Result<crate::platform::dns::DnsStatus, String> {
+    crate::platform::dns::set_system_dns(&provider_id, scope.as_deref())
 }
 
 /// Adds a user-defined DNS resolver (name + IPv4 addresses).
@@ -974,21 +974,21 @@ pub async fn add_custom_dns(
     name: String,
     primary: String,
     secondary: String,
-) -> Result<crate::win32::dns::DnsStatus, String> {
-    crate::win32::dns::add_custom_dns(&name, &primary, &secondary)
+) -> Result<crate::platform::dns::DnsStatus, String> {
+    crate::platform::dns::add_custom_dns(&name, &primary, &secondary)
 }
 
 /// Removes a user-defined DNS resolver by its id.
 #[tauri::command]
-pub async fn remove_custom_dns(id: String) -> Result<crate::win32::dns::DnsStatus, String> {
-    crate::win32::dns::remove_custom_dns(&id)
+pub async fn remove_custom_dns(id: String) -> Result<crate::platform::dns::DnsStatus, String> {
+    crate::platform::dns::remove_custom_dns(&id)
 }
 
 /// Lists running applications for per-app split tunneling selection.
 #[tauri::command]
-pub async fn list_running_apps() -> Result<Vec<crate::win32::app_split::AppInfo>, String> {
+pub async fn list_running_apps() -> Result<Vec<crate::platform::app_split::AppInfo>, String> {
     // Process enumeration does OpenProcess per PID; don't block the async runtime.
-    tauri::async_runtime::spawn_blocking(|| crate::win32::app_split::list_running_apps())
+    tauri::async_runtime::spawn_blocking(|| crate::platform::app_split::list_running_apps())
         .await
         .map_err(|e| e.to_string())
 }
@@ -996,7 +996,7 @@ pub async fn list_running_apps() -> Result<Vec<crate::win32::app_split::AppInfo>
 /// Gets the current per-app split tunneling configuration.
 #[tauri::command]
 pub async fn get_app_split_config() -> Result<AppSplitConfig, String> {
-    let s = crate::win32::settings::load_settings();
+    let s = crate::platform::settings::load_settings();
     Ok(AppSplitConfig {
         mode: format!("{:?}", s.app_split_mode).to_lowercase(),
         apps: s.app_split_list,
@@ -1010,20 +1010,20 @@ pub async fn set_app_split_config(
     apps: Vec<String>,
 ) -> Result<AppSplitConfig, String> {
     let parsed = match mode.to_lowercase().as_str() {
-        "disabled" => crate::win32::settings::AppSplitMode::Disabled,
-        "allowlist" => crate::win32::settings::AppSplitMode::Allowlist,
-        "blocklist" => crate::win32::settings::AppSplitMode::Blocklist,
+        "disabled" => crate::platform::settings::AppSplitMode::Disabled,
+        "allowlist" => crate::platform::settings::AppSplitMode::Allowlist,
+        "blocklist" => crate::platform::settings::AppSplitMode::Blocklist,
         _ => return Err(format!("Unknown app split mode: {}", mode)),
     };
     // Deduplicate: direct IPC callers may send duplicates.
     let mut seen = std::collections::HashSet::new();
     let normalized: Vec<String> = apps
         .into_iter()
-        .map(|p| crate::win32::app_split::normalize_app_path(&p))
+        .map(|p| crate::platform::app_split::normalize_app_path(&p))
         .filter(|p| !p.is_empty() && seen.insert(p.clone()))
         .take(100)
         .collect();
-    crate::win32::settings::update_settings(|s| {
+    crate::platform::settings::update_settings(|s| {
         s.app_split_mode = parsed;
         s.app_split_list = normalized;
     })
@@ -1041,25 +1041,25 @@ pub struct AppSplitConfig {
 #[tauri::command]
 pub async fn get_split_dns_domains() -> Result<SplitDnsDomains, String> {
     Ok(SplitDnsDomains {
-        builtin: crate::win32::dns::SPLIT_DNS_NAMESPACES
+        builtin: crate::platform::dns::SPLIT_DNS_NAMESPACES
             .iter()
             .map(|s| s.to_string())
             .collect(),
-        custom: crate::win32::settings::load_settings().dns_split_custom_domains,
+        custom: crate::platform::settings::load_settings().dns_split_custom_domains,
     })
 }
 
 /// Adds a custom domain to the Split-DNS list.
 #[tauri::command]
 pub async fn add_split_dns_domain(domain: String) -> Result<SplitDnsDomains, String> {
-    crate::win32::dns::add_split_dns_domain(&domain)?;
+    crate::platform::dns::add_split_dns_domain(&domain)?;
     get_split_dns_domains().await
 }
 
 /// Removes a custom domain from the Split-DNS list.
 #[tauri::command]
 pub async fn remove_split_dns_domain(domain: String) -> Result<SplitDnsDomains, String> {
-    crate::win32::dns::remove_split_dns_domain(&domain)?;
+    crate::platform::dns::remove_split_dns_domain(&domain)?;
     get_split_dns_domains().await
 }
 
@@ -1069,34 +1069,34 @@ pub async fn remove_split_dns_domain(domain: String) -> Result<SplitDnsDomains, 
 
 /// Returns the smart-hosts status snapshot.
 #[tauri::command]
-pub async fn get_smart_hosts_status() -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
-    Ok(crate::win32::smart_hosts::status())
+pub async fn get_smart_hosts_status() -> Result<crate::platform::smart_hosts::SmartHostsStatus, String> {
+    Ok(crate::platform::smart_hosts::status())
 }
 
 /// Enables smart hosts (downloads and applies fresh lists immediately).
 #[tauri::command]
-pub async fn enable_smart_hosts() -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
-    crate::win32::smart_hosts::enable_smart_hosts().await
+pub async fn enable_smart_hosts() -> Result<crate::platform::smart_hosts::SmartHostsStatus, String> {
+    crate::platform::smart_hosts::enable_smart_hosts().await
 }
 
 /// Disables smart hosts (removes our section from the hosts file).
 #[tauri::command]
-pub async fn disable_smart_hosts() -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
-    crate::win32::smart_hosts::disable_smart_hosts()
+pub async fn disable_smart_hosts() -> Result<crate::platform::smart_hosts::SmartHostsStatus, String> {
+    crate::platform::smart_hosts::disable_smart_hosts()
 }
 
 /// Re-downloads and re-applies smart hosts now.
 #[tauri::command]
-pub async fn refresh_smart_hosts() -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
-    crate::win32::smart_hosts::refresh_smart_hosts().await
+pub async fn refresh_smart_hosts() -> Result<crate::platform::smart_hosts::SmartHostsStatus, String> {
+    crate::platform::smart_hosts::refresh_smart_hosts().await
 }
 
 /// Sets which sources are merged (ids from smart_hosts::HOST_SOURCES).
 #[tauri::command]
 pub async fn set_smart_hosts_sources(
     sources: Vec<String>,
-) -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
-    let known: std::collections::HashSet<&str> = crate::win32::smart_hosts::HOST_SOURCES
+) -> Result<crate::platform::smart_hosts::SmartHostsStatus, String> {
+    let known: std::collections::HashSet<&str> = crate::platform::smart_hosts::HOST_SOURCES
         .iter()
         .map(|s| s.id)
         .collect();
@@ -1107,14 +1107,14 @@ pub async fn set_smart_hosts_sources(
     if filtered.is_empty() {
         return Err("Выберите хотя бы один источник".to_string());
     }
-    crate::win32::settings::update_settings(|s| {
+    crate::platform::settings::update_settings(|s| {
         s.smart_hosts_sources = filtered;
     });
     // Re-apply with the new source set if currently enabled.
-    if crate::win32::settings::load_settings().smart_hosts_enabled {
-        crate::win32::smart_hosts::refresh_smart_hosts().await
+    if crate::platform::settings::load_settings().smart_hosts_enabled {
+        crate::platform::smart_hosts::refresh_smart_hosts().await
     } else {
-        Ok(crate::win32::smart_hosts::status())
+        Ok(crate::platform::smart_hosts::status())
     }
 }
 
@@ -1122,21 +1122,21 @@ pub async fn set_smart_hosts_sources(
 #[tauri::command]
 pub async fn set_smart_hosts_adblock(
     include: bool,
-) -> Result<crate::win32::smart_hosts::SmartHostsStatus, String> {
-    crate::win32::settings::update_settings(|s| {
+) -> Result<crate::platform::smart_hosts::SmartHostsStatus, String> {
+    crate::platform::settings::update_settings(|s| {
         s.smart_hosts_include_adblock = include;
     });
-    if crate::win32::settings::load_settings().smart_hosts_enabled {
-        crate::win32::smart_hosts::refresh_smart_hosts().await
+    if crate::platform::settings::load_settings().smart_hosts_enabled {
+        crate::platform::smart_hosts::refresh_smart_hosts().await
     } else {
-        Ok(crate::win32::smart_hosts::status())
+        Ok(crate::platform::smart_hosts::status())
     }
 }
 
 /// Best-effort daily refresh hook for the frontend scheduler.
 #[tauri::command]
 pub async fn maybe_refresh_smart_hosts() {
-    crate::win32::smart_hosts::maybe_refresh_smart_hosts().await
+    crate::platform::smart_hosts::maybe_refresh_smart_hosts().await
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1153,8 +1153,8 @@ pub async fn benchmark_youtube_speed() -> Result<crate::engine::speedtest::Speed
 
 /// Updates domain lists and ipsets from remote repository.
 #[tauri::command]
-pub async fn sync_remote_lists() -> Result<crate::win32::lists::ListSyncReport, String> {
-    crate::win32::lists::update_remote_lists().await
+pub async fn sync_remote_lists() -> Result<crate::platform::lists::ListSyncReport, String> {
+    crate::platform::lists::update_remote_lists().await
 }
 
 /// Checks GitHub for a newer release and compares it with the running version.
@@ -1163,8 +1163,8 @@ pub async fn sync_remote_lists() -> Result<crate::win32::lists::ListSyncReport, 
 /// frontend scheduler swallows those silently and retries on schedule, while
 /// the manual "check" button surfaces them.
 #[tauri::command]
-pub async fn check_for_updates() -> Result<crate::win32::updater::UpdateInfo, String> {
-    crate::win32::updater::check_for_updates().await
+pub async fn check_for_updates() -> Result<crate::platform::updater::UpdateInfo, String> {
+    crate::platform::updater::check_for_updates().await
 }
 
 /// Downloads the latest release asset with streaming SHA256 verification.
@@ -1174,7 +1174,7 @@ pub async fn check_for_updates() -> Result<crate::win32::updater::UpdateInfo, St
 /// no sha256 digest; deletes the temp file on hash mismatch.
 #[tauri::command]
 pub async fn download_update(app: tauri::AppHandle) -> Result<String, String> {
-    crate::win32::updater::download_update(app)
+    crate::platform::updater::download_update(app)
         .await
         .map(|p| p.to_string_lossy().to_string())
 }
@@ -1197,7 +1197,7 @@ pub async fn install_update(state: State<'_, AppState>) -> Result<(), String> {
     let engine_state = backend.get_status().await.state;
     let sidecars = state.sidecars.clone();
     tokio::task::spawn_blocking(move || {
-        crate::win32::updater::install_update(engine_state, &sidecars)
+        crate::platform::updater::install_update(engine_state, &sidecars)
     })
     .await
     .map_err(|e| format!("Install task failed: {e}"))?
@@ -1207,7 +1207,7 @@ pub async fn install_update(state: State<'_, AppState>) -> Result<(), String> {
 /// download loop checks the flag between chunks and aborts cleanly.
 #[tauri::command]
 pub async fn cancel_update_download() -> Result<(), String> {
-    crate::win32::updater::cancel_download_update();
+    crate::platform::updater::cancel_download_update();
     Ok(())
 }
 
@@ -1218,11 +1218,11 @@ pub async fn cancel_update_download() -> Result<(), String> {
 #[tauri::command]
 pub async fn get_sidecar_statuses(
     state: State<'_, AppState>,
-) -> Result<Vec<crate::win32::updater::SidecarStatusView>, String> {
+) -> Result<Vec<crate::platform::updater::SidecarStatusView>, String> {
     Ok(state
         .sidecars
         .iter()
-        .map(|s| crate::win32::updater::SidecarStatusView {
+        .map(|s| crate::platform::updater::SidecarStatusView {
             name: s.name().to_string(),
             active: s.is_active(),
         })
@@ -1231,14 +1231,14 @@ pub async fn get_sidecar_statuses(
 
 /// Returns the auto-update toggle and the last successful check timestamp.
 #[tauri::command]
-pub async fn get_update_prefs() -> Result<crate::win32::updater::UpdatePrefs, String> {
-    Ok(crate::win32::updater::get_update_prefs())
+pub async fn get_update_prefs() -> Result<crate::platform::updater::UpdatePrefs, String> {
+    Ok(crate::platform::updater::get_update_prefs())
 }
 
 /// Enables or disables the scheduled update check.
 #[tauri::command]
 pub async fn set_auto_update_enabled(enable: bool) -> Result<bool, String> {
-    crate::win32::updater::set_auto_update_enabled(enable)
+    crate::platform::updater::set_auto_update_enabled(enable)
 }
 
 /// Minimizes the application window.

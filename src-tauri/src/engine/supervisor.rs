@@ -25,8 +25,8 @@ use tokio::time::interval;
 
 use crate::engine::logger::FileLogger;
 use crate::engine::probes::DiagnosticsService;
-use crate::win32::job_object::JobObject;
-use crate::win32::process::{
+use crate::platform::job_object::JobObject;
+use crate::platform::process::{
     cleanup_windivert_driver, discover_strategies, kill_stray_winws2_processes, resolve_binaries,
     spawn_process, spawn_winws2, stop_winws2_gracefully, ProcessError, SupervisedProcess,
     ZapretBinaries,
@@ -370,7 +370,7 @@ impl Supervisor {
         let app_split_configured_mode = Some(
             format!(
                 "{:?}",
-                crate::win32::settings::load_settings().app_split_mode
+                crate::platform::settings::load_settings().app_split_mode
             )
             .to_lowercase(),
         );
@@ -550,7 +550,7 @@ impl Supervisor {
         // would start half-broken (WinDivert fails without admin rights) and
         // the UI would never show the admin prompt. The error string keeps the
         // ADMIN_REQUIRED prefix so the frontend opens the admin gate modal.
-        if !crate::win32::privileges::is_elevated().unwrap_or(false) {
+        if !crate::platform::privileges::is_elevated().unwrap_or(false) {
             self.log(
                 "error",
                 "Запуск движка требует прав администратора — пропуск запуска",
@@ -567,7 +567,7 @@ impl Supervisor {
         // The None path (tray/autostart/first run) keeps its compatibility
         // fallback below, with logging.
         if let Some(ref id) = strategy_id {
-            let discovered = match crate::win32::process::discover_strategies() {
+            let discovered = match crate::platform::process::discover_strategies() {
                 Ok(list) => list,
                 Err(e) => return Err(e),
             };
@@ -655,7 +655,7 @@ impl Supervisor {
             // retired preset) still falls back to the default, but loudly:
             // this is the only substitution left, and it is logged both
             // to stderr and to the engine log.
-            let last_id = crate::win32::settings::load_settings().last_strategy_id;
+            let last_id = crate::platform::settings::load_settings().last_strategy_id;
             let from_last = last_id
                 .as_ref()
                 .and_then(|lid| strategies.iter().find(|s| s.id == *lid).cloned());
@@ -695,8 +695,8 @@ impl Supervisor {
             .unwrap_or_else(|| "flowseal-alt".into());
 
         // Remember last used strategy in settings (serialized vs. concurrent
-        // mutations — see win32::settings::update_settings, L-4).
-        let _ = crate::win32::settings::update_settings(|s| {
+        // mutations — see platform::settings::update_settings, L-4).
+        let _ = crate::platform::settings::update_settings(|s| {
             s.last_strategy_id = Some(active_id.clone());
         });
 
@@ -717,14 +717,14 @@ impl Supervisor {
         // even accept, and a missing split binary is a normal pre-fork
         // state, not a start failure. Every branch is logged, so the
         // engine log alone explains which binary runs and why.
-        let split_settings = crate::win32::settings::load_settings();
+        let split_settings = crate::platform::settings::load_settings();
         let split_mode_str = format!("{:?}", split_settings.app_split_mode).to_lowercase();
         let mut split_launch = AppSplitLaunchState {
             applied_mode: None,
             enforced: false,
             reason: Some("disabled".to_string()),
         };
-        if split_settings.app_split_mode == crate::win32::settings::AppSplitMode::Disabled {
+        if split_settings.app_split_mode == crate::platform::settings::AppSplitMode::Disabled {
             self.log(
                 "info",
                 "App split disabled: running the standard engine binary",
@@ -787,7 +787,7 @@ impl Supervisor {
         } else {
             Some(
                 Self::split_tunnel_mode_str(
-                    crate::win32::settings::load_settings().split_tunnel_mode,
+                    crate::platform::settings::load_settings().split_tunnel_mode,
                 )
                 .to_string(),
             )
@@ -807,7 +807,7 @@ impl Supervisor {
         // 2. Fast pre-launch setup: enable TCP timestamps asynchronously without blocking
         if use_winws1 {
             tokio::spawn(async {
-                let _ = tokio::process::Command::new(crate::win32::system32("netsh.exe"))
+                let _ = tokio::process::Command::new(crate::platform::system32("netsh.exe"))
                     .args(["interface", "tcp", "set", "global", "timestamps=enabled"])
                     .creation_flags(0x08000000)
                     .output()
@@ -1221,9 +1221,9 @@ impl Supervisor {
     }
 
     fn build_flowseal_args(preset_id: &str, bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
-        let settings = crate::win32::settings::load_settings();
-        let is_game = settings.split_tunnel_mode == crate::win32::settings::SplitTunnelMode::GameMode;
-        let is_strict = settings.split_tunnel_mode == crate::win32::settings::SplitTunnelMode::Strict;
+        let settings = crate::platform::settings::load_settings();
+        let is_game = settings.split_tunnel_mode == crate::platform::settings::SplitTunnelMode::GameMode;
+        let is_strict = settings.split_tunnel_mode == crate::platform::settings::SplitTunnelMode::Strict;
 
         let game_tcp = Self::sanitize_port_spec(&settings.game_filter_tcp);
         let game_udp = Self::sanitize_port_spec(&settings.game_filter_udp);
@@ -1858,7 +1858,7 @@ impl Supervisor {
 
         // 1. If it's a Flowseal preset, build Flowseal arguments using resolved directories.
         // Known presets are exactly the five discovered in
-        // win32::process::discover_strategies; any other flowseal-* string
+        // platform::process::discover_strategies; any other flowseal-* string
         // (e.g. a typo) used to silently get the weakest general preset
         // via the catch-all in build_flowseal_args.
         if strat_id.starts_with("flowseal-") {
@@ -1969,7 +1969,7 @@ impl Supervisor {
             }
         };
 
-        let settings = crate::win32::settings::load_settings();
+        let settings = crate::platform::settings::load_settings();
         let game_tcp = Self::sanitize_port_spec(&settings.game_filter_tcp);
         let game_udp = Self::sanitize_port_spec(&settings.game_filter_udp);
 
@@ -1989,9 +1989,9 @@ impl Supervisor {
     /// to set_split_tunnel_mode, so status values compare directly
     /// against the selected mode.
     fn split_tunnel_mode_str(
-        mode: crate::win32::settings::SplitTunnelMode,
+        mode: crate::platform::settings::SplitTunnelMode,
     ) -> &'static str {
-        use crate::win32::settings::SplitTunnelMode;
+        use crate::platform::settings::SplitTunnelMode;
         match mode {
             SplitTunnelMode::Full => "full",
             SplitTunnelMode::Strict => "strict",
@@ -2008,7 +2008,7 @@ impl Supervisor {
     /// byte; STRICT and GAME deviate from it exactly as documented on
     /// each block below.
     fn build_lua_preset_args(
-        mode: crate::win32::settings::SplitTunnelMode,
+        mode: crate::platform::settings::SplitTunnelMode,
         game_tcp: &str,
         game_udp: &str,
         lib_init: Option<&str>,
@@ -2016,7 +2016,7 @@ impl Supervisor {
         google_list: &str,
         ipset_all: &str,
     ) -> Vec<String> {
-        use crate::win32::settings::SplitTunnelMode;
+        use crate::platform::settings::SplitTunnelMode;
         let is_strict = mode == SplitTunnelMode::Strict;
         let is_game = mode == SplitTunnelMode::GameMode;
 
@@ -2248,7 +2248,7 @@ mod tests {
     /// both scripts loaded relatively, default game port specs, and
     /// bundled list paths (the l() relative form).
     fn lua_test_args(
-        mode: crate::win32::settings::SplitTunnelMode,
+        mode: crate::platform::settings::SplitTunnelMode,
     ) -> Vec<String> {
         Supervisor::build_lua_preset_args(
             mode,
@@ -2293,13 +2293,13 @@ mod tests {
         .map(|s| s.to_string())
         .collect();
 
-        let args = lua_test_args(crate::win32::settings::SplitTunnelMode::Full);
+        let args = lua_test_args(crate::platform::settings::SplitTunnelMode::Full);
         assert_eq!(args, expected);
     }
 
     #[test]
     fn test_lua_strict_mode_gates_tcp_and_drops_quic() {
-        let args = lua_test_args(crate::win32::settings::SplitTunnelMode::Strict);
+        let args = lua_test_args(crate::platform::settings::SplitTunnelMode::Strict);
 
         // Root capture filters are NOT narrowed (Flowseal parity).
         assert_eq!(args[0], "--wf-tcp-out=80,443,2053,2083,2087,2096,8443");
@@ -2353,7 +2353,7 @@ mod tests {
     #[test]
     fn test_lua_game_mode_extends_full_with_game_sections() {
         let args =
-            lua_test_args(crate::win32::settings::SplitTunnelMode::GameMode);
+            lua_test_args(crate::platform::settings::SplitTunnelMode::GameMode);
 
         // Capture filters widened by the game specs.
         assert_eq!(

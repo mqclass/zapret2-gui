@@ -515,7 +515,7 @@ impl TgProxyManager {
     }
 
     pub fn get_status(&self) -> TgProxyStatus {
-        let settings = crate::win32::settings::load_settings();
+        let settings = crate::platform::settings::load_settings();
         let port = Self::normalize_port(settings.tgproxy_port);
         let secret = settings.tgproxy_secret.clone();
         let uptime_secs = self
@@ -577,7 +577,7 @@ impl TgProxyManager {
 
         // Ensure a valid secret exists (persisted via settings; DPAPI at rest
         // is handled transparently by the settings layer).
-        let settings = crate::win32::settings::load_settings();
+        let settings = crate::platform::settings::load_settings();
         let mut secret = settings.tgproxy_secret.clone();
         // A fresh counting run: handshakes from a previous run must not
         // combine with the new one. Rotation deliberately survives restarts.
@@ -588,10 +588,10 @@ impl TgProxyManager {
             // profile move); an absent value means the user never had one
             // and must not be scared with a rotation warning.
             let had_stored_secret =
-                crate::win32::settings::stored_tgproxy_secret_present();
+                crate::platform::settings::stored_tgproxy_secret_present();
             secret = Self::generate_secret();
             let secret_clone = secret.clone();
-            crate::win32::settings::update_settings(|s| {
+            crate::platform::settings::update_settings(|s| {
                 s.tgproxy_secret = secret_clone;
             })
             .map_err(|e| TgProxyError::Settings(e.to_string()))?;
@@ -619,7 +619,7 @@ impl TgProxyManager {
                 &format!("Порт {port} занят, мост использует {free}"),
             );
             port = free;
-            crate::win32::settings::update_settings(|s| {
+            crate::platform::settings::update_settings(|s| {
                 s.tgproxy_port = port;
             })
             .map_err(|e| TgProxyError::Settings(e.to_string()))?;
@@ -718,7 +718,7 @@ impl TgProxyManager {
         *self.bridge_task.lock() = Some(handle);
 
         // Persist the "enabled" intent so it survives app restarts.
-        let _ = crate::win32::settings::update_settings(|s| s.tgproxy_enabled = true);
+        let _ = crate::platform::settings::update_settings(|s| s.tgproxy_enabled = true);
         Ok(())
     }
 
@@ -779,7 +779,7 @@ impl TgProxyManager {
         self.health.reset_run();
 
         if persist_intent {
-            let _ = crate::win32::settings::update_settings(|s| s.tgproxy_enabled = false);
+            let _ = crate::platform::settings::update_settings(|s| s.tgproxy_enabled = false);
         }
         self.supervisor.log("info", "Telegram-мост остановлен");
         Ok(())
@@ -824,7 +824,7 @@ impl TgProxyManager {
         if !Self::is_valid_secret(&secret) {
             return Err(TgProxyError::BadSecret);
         }
-        crate::win32::settings::update_settings(|settings| {
+        crate::platform::settings::update_settings(|settings| {
             settings.tgproxy_port = port;
             settings.tgproxy_secret = secret.clone();
         })
@@ -841,7 +841,7 @@ impl TgProxyManager {
     pub fn set_mode(&self, mode: String) -> Result<(), TgProxyError> {
         self.ensure_config_change_allowed()?;
         let mode = validate_mode(&mode)?.to_string();
-        crate::win32::settings::update_settings(|settings| {
+        crate::platform::settings::update_settings(|settings| {
             settings.tgproxy_mode = mode.clone();
         })
         .map_err(|e| TgProxyError::Settings(e.to_string()))?;
@@ -852,7 +852,7 @@ impl TgProxyManager {
     /// can use the bridge). Refused while running.
     pub fn set_lan(&self, enabled: bool) -> Result<(), TgProxyError> {
         self.ensure_config_change_allowed()?;
-        crate::win32::settings::update_settings(|settings| {
+        crate::platform::settings::update_settings(|settings| {
             settings.tgproxy_lan = enabled;
         })
         .map_err(|e| TgProxyError::Settings(e.to_string()))?;
@@ -872,7 +872,7 @@ impl TgProxyManager {
                 "мост не запущен — сначала включите его".to_string(),
             ));
         }
-        let settings = crate::win32::settings::load_settings();
+        let settings = crate::platform::settings::load_settings();
         let port = Self::normalize_port(settings.tgproxy_port);
         let secret = settings.tgproxy_secret.clone();
         if !Self::is_valid_secret(&secret) {
@@ -914,7 +914,7 @@ impl TgProxyManager {
         self.ensure_config_change_allowed()?;
         let secret = Self::generate_secret();
         let secret_clone = secret.clone();
-        crate::win32::settings::update_settings(|settings| {
+        crate::platform::settings::update_settings(|settings| {
             settings.tgproxy_secret = secret_clone;
         })
         .map_err(|e| TgProxyError::Settings(e.to_string()))?;

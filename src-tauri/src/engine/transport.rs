@@ -27,12 +27,12 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::win32::process::ProcessError;
+use crate::platform::process::ProcessError;
 
 /// Unique transport identifier used in settings, IPC and logs.
 pub type TransportId = str;
 
-/// Serializable per-transport configuration stored in [`crate::win32::settings::AppSettings`].
+/// Serializable per-transport configuration stored in [`crate::platform::settings::AppSettings`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransportConfig {
     /// Transport this config belongs to.
@@ -664,7 +664,7 @@ pub fn validate_transport_config_json(
 pub fn apply_active_transport(
     args: Vec<String>,
 ) -> Result<(Vec<String>, Option<String>), TransportError> {
-    let settings = crate::win32::settings::load_settings();
+    let settings = crate::platform::settings::load_settings();
     let transport_id = settings
         .active_transport_id
         .clone()

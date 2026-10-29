@@ -5,7 +5,7 @@ mod commands;
 mod engine;
 mod svc_client;
 mod svc_ipc;
-mod win32;
+mod platform;
 
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
@@ -15,13 +15,13 @@ use tauri::Manager;
 use commands::AppState;
 use commands::CachedBinaries;
 use engine::supervisor::Supervisor;
-use win32::privileges::{ensure_elevated, is_elevated};
+use crate::platform::privileges::{ensure_elevated, is_elevated};
 
 #[tokio::main]
 async fn main() {
     // 0. WebView2 pre-flight: the UI cannot render without the system WebView2
     //    runtime. Show a plain-language dialog instead of a raw framework error.
-    crate::win32::webview_check::ensure_webview2();
+    crate::platform::webview_check::ensure_webview2();
 
     // 1. Enforce Administrator elevation for WinDivert driver registration.
     //    If the user declines the UAC prompt, the app still starts but the UI shows
@@ -123,7 +123,7 @@ async fn main() {
                 .clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                let enabled = crate::win32::settings::load_settings().tgproxy_enabled;
+                let enabled = crate::platform::settings::load_settings().tgproxy_enabled;
                 if enabled {
                     // Drop the parking_lot guard before .await: the guard is
                     // not Send, and spawn requires a Send future.

@@ -6,8 +6,8 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::win32::process::LuaStrategy;
-use crate::win32::settings::atomic_write;
+use crate::platform::process::LuaStrategy;
+use crate::platform::settings::atomic_write;
 
 /// Returns the path to the custom profiles JSON storage.
 pub fn get_custom_profiles_path() -> PathBuf {

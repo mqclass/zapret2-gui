@@ -29,8 +29,8 @@ use windows::Win32::System::Threading::{
 };
 use windows::core::PWSTR;
 
-use crate::win32::conflicts::stop_service_native;
-use crate::win32::job_object::{JobObject, JobObjectError};
+use crate::platform::conflicts::stop_service_native;
+use crate::platform::job_object::{JobObject, JobObjectError};
 
 /// Creation flags for spawning detached Windows background process groups
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
@@ -380,7 +380,7 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
     }
 
     // 3. Load user-defined custom profiles
-    let custom_profiles = crate::win32::custom_profiles::load_custom_profiles();
+    let custom_profiles = crate::platform::custom_profiles::load_custom_profiles();
     for custom in custom_profiles {
         if !list.iter().any(|s| s.id == custom.id) {
             list.push(custom);
@@ -463,7 +463,7 @@ pub async fn cleanup_windivert_driver() {
 
     for name in &service_names {
         stop_service_native(name);
-        let _ = Command::new(crate::win32::system32("sc.exe"))
+        let _ = Command::new(crate::platform::system32("sc.exe"))
             .args(["stop", name])
             .creation_flags(CREATE_NO_WINDOW)
             .output()

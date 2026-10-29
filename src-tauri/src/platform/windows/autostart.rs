@@ -39,7 +39,7 @@ fn xml_escape(s: &str) -> String {
 
 /// Checks whether autostart is currently enabled via Task Scheduler.
 pub fn is_autostart_enabled() -> bool {
-    let output = Command::new(crate::win32::system32("schtasks.exe"))
+    let output = Command::new(crate::platform::system32("schtasks.exe"))
         .args(["/query", "/tn", TASK_NAME])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
@@ -53,7 +53,7 @@ pub fn is_autostart_enabled() -> bool {
 /// Enables or disables autostart with Windows.
 pub fn set_autostart(enable: bool) -> Result<bool, String> {
     // 1. Terminate running task instance if any
-    let _ = Command::new(crate::win32::system32("schtasks.exe"))
+    let _ = Command::new(crate::platform::system32("schtasks.exe"))
         .args(["/end", "/tn", TASK_NAME])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
@@ -124,7 +124,7 @@ pub fn set_autostart(enable: bool) -> Result<bool, String> {
         std::fs::write(&temp_xml, &bytes)
             .map_err(|e| format!("Failed to create temporary task XML: {}", e))?;
 
-        let output = Command::new(crate::win32::system32("schtasks.exe"))
+        let output = Command::new(crate::platform::system32("schtasks.exe"))
             .args([
                 "/create",
                 "/tn",
@@ -144,7 +144,7 @@ pub fn set_autostart(enable: bool) -> Result<bool, String> {
                 // Fallback to interactive CLI command with /IT flag (never /NP)
                 let exe_str = exe_path.to_string_lossy().to_string();
                 let task_run_arg = format!("\"{}\" --autostart --minimized", exe_str);
-                let fallback = Command::new(crate::win32::system32("schtasks.exe"))
+                let fallback = Command::new(crate::platform::system32("schtasks.exe"))
                     .args([
                         "/create",
                         "/tn",
@@ -172,7 +172,7 @@ pub fn set_autostart(enable: bool) -> Result<bool, String> {
             Err(e) => Err(format!("Failed to execute schtasks.exe: {}", e)),
         }
     } else {
-        let output = Command::new(crate::win32::system32("schtasks.exe"))
+        let output = Command::new(crate::platform::system32("schtasks.exe"))
             .args(["/delete", "/tn", TASK_NAME, "/f"])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
