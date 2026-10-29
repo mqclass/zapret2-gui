@@ -126,11 +126,14 @@ const AppContent: React.FC = () => {
     }
   }, [isElevated]);
 
-  const handleModeChange = useCallback(async (mode: SplitTunnelMode) => {
+  const handleModeChange = useCallback(async (mode: SplitTunnelMode, opts?: { silent?: boolean }) => {
     try {
       const updated = await invoke<AppSettings>("set_split_tunnel_mode", { mode });
       setSplitTunnelMode(updated.split_tunnel_mode);
-      if (status.state === "running") {
+      // Silent saves come from the dashboard's restart confirmation:
+      // the engine is restarted right after, so the "restart to
+      // apply" alert would be stale on arrival.
+      if (!opts?.silent && status.state === "running") {
         setSuccessAlert(t.alerts.tunnelModeChanged);
       }
     } catch (err: any) {

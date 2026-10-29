@@ -7,6 +7,11 @@ interface SplitTunnelBarProps {
   currentMode: SplitTunnelMode;
   onModeChange: (mode: SplitTunnelMode) => void;
   isRunning: boolean;
+  /** Mode the running engine was launched with; null when the mode
+   * does not apply to the active strategy (Ultimate, custom args)
+   * or the backend did not report it. The restart hint is shown only
+   * when a restart would actually change something. */
+  appliedMode?: SplitTunnelMode | null;
   disabled?: boolean;
 }
 
@@ -14,9 +19,13 @@ export const SplitTunnelBar: React.FC<SplitTunnelBarProps> = ({
   currentMode,
   onModeChange,
   isRunning,
+  appliedMode = null,
   disabled = false,
 }) => {
   const { t } = useI18n();
+
+  const showRestartHint =
+    isRunning && appliedMode !== null && appliedMode !== currentMode;
 
   const modes: {
     id: SplitTunnelMode;
@@ -53,7 +62,7 @@ export const SplitTunnelBar: React.FC<SplitTunnelBarProps> = ({
             {t.splitTunnel.title}
           </span>
         </div>
-        {isRunning && (
+        {showRestartHint && (
           <span className="text-[10px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-chip font-medium">
             {t.splitTunnel.restartHint}
           </span>
@@ -97,6 +106,10 @@ export const SplitTunnelBar: React.FC<SplitTunnelBarProps> = ({
           );
         })}
       </div>
+
+      <p className="text-[10px] leading-snug text-ink5">
+        {t.splitTunnel.scopeNote}
+      </p>
     </div>
   );
 };

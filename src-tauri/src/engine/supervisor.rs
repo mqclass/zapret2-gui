@@ -94,6 +94,14 @@ pub struct SupervisorStatus {
     /// "flowseal" | "binary_missing" | "not_running". None when enforced.
     #[serde(default)]
     pub app_split_not_enforced_reason: Option<String>,
+    /// Split tunnel mode the running engine's arguments were built
+    /// with, in settings spelling ("full" | "strict" | "game_mode").
+    /// None while stopped, and None when the mode does not apply to
+    /// the launched strategy (flagship, custom-args launches): the UI
+    /// compares it against the selected mode to decide whether a
+    /// restart would change anything.
+    #[serde(default)]
+    pub split_tunnel_applied_mode: Option<String>,
 }
 
 /// App split outcome of the last launch, kept so get_status() can report
@@ -152,6 +160,11 @@ pub struct Supervisor {
     /// Reset on stop and when the monitored child dies, so a dead engine
     /// never keeps advertising an enforcement that no longer runs.
     app_split_launch: Arc<RwLock<AppSplitLaunchState>>,
+    /// Split tunnel mode of the last launch, in settings spelling;
+    /// None when the launched strategy does not consume the mode
+    /// (flagship, custom args) or nothing was launched. Reset in the
+    /// same places as app_split_launch.
+    split_tunnel_launch: Arc<RwLock<Option<String>>>,
     /// Set by the stderr reader when the child reports a WinDivert open-filter
     /// failure; reset on every start attempt. Read by the monitor task.
     windivert_open_error: Arc<AtomicBool>,
@@ -205,6 +218,7 @@ impl Supervisor {
             probes_started: Arc::new(AtomicBool::new(false)),
             last_engine_error: Arc::new(RwLock::new(None)),
             app_split_launch: Arc::new(RwLock::new(AppSplitLaunchState::default())),
+            split_tunnel_launch: Arc::new(RwLock::new(None)),
             windivert_open_error: Arc::new(AtomicBool::new(false)),
             windivert_recovery_done: Arc::new(AtomicBool::new(false)),
             last_start_params: Arc::new(RwLock::new((None, None))),
@@ -374,6 +388,15 @@ impl Supervisor {
                 (None, false, Some("not_running".to_string()))
             };
 
+        // Same gating as the app split applied side: the tunnel mode a
+        // launch was built with is meaningful only while that engine
+        // runs; a stopped engine applies no mode at all.
+        let split_tunnel_applied_mode = if state == SupervisorState::Running {
+            self.split_tunnel_launch.read().clone()
+        } else {
+            None
+        };
+
         SupervisorStatus {
             state,
             pid,
@@ -388,6 +411,7 @@ impl Supervisor {
             app_split_applied_mode,
             app_split_enforced,
             app_split_not_enforced_reason,
+            split_tunnel_applied_mode,
         }
     }
 
@@ -745,6 +769,31 @@ impl Supervisor {
         }
         *self.app_split_launch.write() = split_launch;
 
+        // Split tunnel mode of this launch. The mode is consumed by
+        // exactly two argument builders: Flowseal (branch 1) and the
+        // discovered-Lua presets (branch 4). The flagship's argument
+        // list is fixed and ignores the mode, and a custom profile (or
+        // a one-off custom_args launch) runs caller-supplied arguments:
+        // for those the honest applied value is None, matching the UI
+        // scope note. Written here, before build_arguments, from the
+        // same fresh settings the builders will read.
+        let tunnel_applied = if is_custom_args
+            || active_id == "zapret2-ru-ultimate"
+            || target_strat
+                .as_ref()
+                .map_or(false, |s| s.category == "custom")
+        {
+            None
+        } else {
+            Some(
+                Self::split_tunnel_mode_str(
+                    crate::win32::settings::load_settings().split_tunnel_mode,
+                )
+                .to_string(),
+            )
+        };
+        *self.split_tunnel_launch.write() = tunnel_applied;
+
         *self.binary_path.write() = Some(target_exe.to_string_lossy().to_string());
         self.log(
             "info",
@@ -1014,6 +1063,7 @@ impl Supervisor {
                     *supervisor_clone.binary_path.write() = None;
                     *supervisor_clone.app_split_launch.write() =
                         AppSplitLaunchState::default();
+                    *supervisor_clone.split_tunnel_launch.write() = None;
                 }
 
                 // Capture the generation and params BEFORE the grace poll: a
@@ -1143,6 +1193,7 @@ impl Supervisor {
             self.active_custom_args.store(false, Ordering::SeqCst);
             *self.active_transport.write() = None;
             *self.app_split_launch.write() = AppSplitLaunchState::default();
+            *self.split_tunnel_launch.write() = None;
         }
 
         self.emit_state_change(SupervisorState::Stopped);
@@ -1846,87 +1897,269 @@ impl Supervisor {
             }
         }
 
-        // 4. Otherwise, assemble Lua arguments for zapret2 (winws2)
-        let mut args = Vec::new();
-        args.push("--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into());
-        args.push("--wf-udp-out=443,19294-19344,50000-65535".into());
-        // UDP fake payloads, mirrored from the flagship's sections. Without
-        // them the UDP sections below would have no blob to send; the
-        // files live in bin/ next to the engine, same as the flagship.
-        args.push("--blob=discord_udp:@ACTIVE_DISCORD_UDP.bin".into());
-        args.push("--blob=quic_google:@quic_initial_www_google_com.bin".into());
-        args.push("--filter-tcp=80,443,2053,2083,2087,2096,8443".into());
-
+        // 4. Otherwise, assemble Lua arguments for zapret2 (winws2).
+        // The list itself is built by the pure helper
+        // build_lua_preset_args; this caller only resolves the
+        // filesystem-shaped inputs (lua-init lines, list paths) and
+        // reads the current settings, mirroring how
+        // build_flowseal_args resolves its l() paths.
         let lib_lua = strategies
             .iter()
             .find(|s| s.filename == "zapret-lib.lua")
             .map(|s| s.path.clone());
 
-        if binaries.bin_dir.join("zapret-lib.lua").is_file() {
-            args.push("--lua-init=@zapret-lib.lua".into());
-        } else if let Some(ref lib) = lib_lua {
-            args.push(format!("--lua-init=@{}", lib.to_string_lossy()));
+        let strat = match target_strategy {
+            Some(s) => s,
+            None => {
+                // No discovered strategy matches: fail loudly instead of
+                // starting the engine with generic args for an id nobody
+                // resolved (start() already rejects unknown ids, so this is
+                // defense in depth against future callers).
+                return Err(ProcessError::InvalidStrategy(format!(
+                    "Неизвестная стратегия: {}",
+                    strat_id
+                )));
+            }
+        };
+
+        // SECURITY (M-5): a custom profile without explicit custom_args has
+        // no trustworthy Lua script — its path/filename are server-generated
+        // placeholders (see save_custom_profile), never a real script.
+        // Refuse fail-closed instead of loading an IPC-supplied path into
+        // the privileged engine's command line.
+        if strat.category == "custom" {
+            return Err(ProcessError::InvalidStrategy(
+                "Кастомный профиль не содержит аргументов запуска".to_string(),
+            ));
         }
 
-        if let Some(strat) = target_strategy {
-            // SECURITY (M-5): a custom profile without explicit custom_args has
-            // no trustworthy Lua script — its path/filename are server-generated
-            // placeholders (see save_custom_profile), never a real script.
-            // Refuse fail-closed instead of loading an IPC-supplied path into
-            // the privileged engine's command line.
-            if strat.category == "custom" {
-                return Err(ProcessError::InvalidStrategy(
-                    "Кастомный профиль не содержит аргументов запуска".to_string(),
-                ));
-            }
+        // Lua library init line: the bin copy wins over the discovered
+        // path; absent entirely when neither exists (as before).
+        let lib_init: Option<String> =
+            if binaries.bin_dir.join("zapret-lib.lua").is_file() {
+                Some("--lua-init=@zapret-lib.lua".into())
+            } else if let Some(ref lib) = lib_lua {
+                Some(format!("--lua-init=@{}", lib.to_string_lossy()))
+            } else {
+                None
+            };
+
+        // Preset script init line: skipped when the preset IS the
+        // library (already loaded above, or not loaded at all).
+        let preset_init: Option<String> =
             if binaries.bin_dir.join(&strat.filename).is_file() {
                 if strat.filename != "zapret-lib.lua" {
-                    args.push(format!("--lua-init=@{}", strat.filename));
+                    Some(format!("--lua-init=@{}", strat.filename))
+                } else {
+                    None
                 }
             } else if Some(&strat.path) != lib_lua.as_ref() {
-                args.push(format!("--lua-init=@{}", strat.path.to_string_lossy()));
-            }
+                Some(format!("--lua-init=@{}", strat.path.to_string_lossy()))
+            } else {
+                None
+            };
 
+        // List resolution mirrors build_flowseal_args' l(): the bundled
+        // copy under bin/lists wins over the user lists directory.
+        let l = |file: &str| {
+            if binaries.bin_dir.join("lists").join(file).is_file() {
+                format!("lists/{}", file)
+            } else {
+                lists_dir.join(file).to_string_lossy().replace('\\', "/")
+            }
+        };
+
+        let settings = crate::win32::settings::load_settings();
+        let game_tcp = Self::sanitize_port_spec(&settings.game_filter_tcp);
+        let game_udp = Self::sanitize_port_spec(&settings.game_filter_udp);
+
+        Ok(Self::build_lua_preset_args(
+            settings.split_tunnel_mode,
+            &game_tcp,
+            &game_udp,
+            lib_init.as_deref(),
+            preset_init.as_deref(),
+            &l("list-google.txt"),
+            &l("ipset-all.txt"),
+        ))
+    }
+
+    /// Settings spelling of the split tunnel mode ("full" | "strict" |
+    /// "game_mode"), identical to the serde names the frontend sends
+    /// to set_split_tunnel_mode, so status values compare directly
+    /// against the selected mode.
+    fn split_tunnel_mode_str(
+        mode: crate::win32::settings::SplitTunnelMode,
+    ) -> &'static str {
+        use crate::win32::settings::SplitTunnelMode;
+        match mode {
+            SplitTunnelMode::Full => "full",
+            SplitTunnelMode::Strict => "strict",
+            SplitTunnelMode::GameMode => "game_mode",
+        }
+    }
+
+    /// Pure argument builder for the discovered-Lua branch (branch 4
+    /// of resolve_strategy_args). Everything filesystem-shaped is
+    /// resolved by the caller and passed in: the two --lua-init lines
+    /// (None when a script is not loaded), the resolved list paths
+    /// used by STRICT and GAME, and the already-sanitized game port
+    /// specs. FULL reproduces the historical branch-4 list byte for
+    /// byte; STRICT and GAME deviate from it exactly as documented on
+    /// each block below.
+    fn build_lua_preset_args(
+        mode: crate::win32::settings::SplitTunnelMode,
+        game_tcp: &str,
+        game_udp: &str,
+        lib_init: Option<&str>,
+        preset_init: Option<&str>,
+        google_list: &str,
+        ipset_all: &str,
+    ) -> Vec<String> {
+        use crate::win32::settings::SplitTunnelMode;
+        let is_strict = mode == SplitTunnelMode::Strict;
+        let is_game = mode == SplitTunnelMode::GameMode;
+
+        let mut args: Vec<String> = Vec::new();
+
+        // Root WinDivert capture filters. STRICT never narrows them
+        // (capture without desync is harmless; parity with Flowseal);
+        // GAME widens them by the game port specs.
+        if is_game {
+            args.push(format!(
+                "--wf-tcp-out=80,443,2053,2083,2087,2096,8443,{}",
+                game_tcp
+            ));
+            args.push(format!(
+                "--wf-udp-out=443,19294-19344,50000-65535,{}",
+                game_udp
+            ));
+        } else {
+            args.push("--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into());
+            args.push("--wf-udp-out=443,19294-19344,50000-65535".into());
+        }
+
+        // UDP fake payloads, mirrored from the flagship's sections. Without
+        // them the UDP sections below would have no blob to send; the
+        // files live in bin/ next to the engine, same as the flagship.
+        args.push("--blob=discord_udp:@ACTIVE_DISCORD_UDP.bin".into());
+        args.push("--blob=quic_google:@quic_initial_www_google_com.bin".into());
+        if is_game {
+            args.push("--blob=game_udp:@ACTIVE_GAME_UDP.bin".into());
+        }
+
+        // The preset's TLS desync pair: identical parameters in the
+        // FULL section and in both STRICT gated sections. The mode
+        // changes WHERE desync applies, never HOW it desyncs.
+        let fake_tls =
+            "--lua-desync=fake:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid";
+        let multisplit =
+            "--lua-desync=multisplit:pos=2:seqovl=5:seqovl_pattern=0x1603030000";
+
+        if is_strict {
+            // STRICT (design variant A): the ungated TCP section is
+            // replaced by two gated sections on port 443 only, so
+            // desync touches YouTube/Discord traffic and nothing
+            // else. No port 80, no http_req pair, no Cloudflare
+            // ports. The lua-init lines move in front of the sections:
+            // their FULL position was inside the unnamed first
+            // section, which STRICT does not have; the flagship
+            // places --lua-init before all sections, so this follows
+            // its proven layout.
+            if let Some(init) = lib_init {
+                args.push(init.into());
+            }
+            if let Some(init) = preset_init {
+                args.push(init.into());
+            }
+            args.push("--new=discord_tcp".into());
+            args.push("--filter-tcp=443".into());
+            args.push(format!(
+                "--hostlist-domains={}",
+                Self::DISCORD_MEDIA_DOMAINS
+            ));
             args.push("--payload=tls_client_hello".into());
-            args.push("--lua-desync=fake:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid".into());
+            args.push(fake_tls.into());
+            args.push("--payload=tls_client_hello".into());
+            args.push(multisplit.into());
+            args.push("--new=google_tcp".into());
+            args.push("--filter-tcp=443".into());
+            args.push(format!("--hostlist={}", google_list));
+            args.push("--payload=tls_client_hello".into());
+            args.push(fake_tls.into());
+            args.push("--payload=tls_client_hello".into());
+            args.push(multisplit.into());
+        } else {
+            // FULL (and the GAME base): the historical ungated TCP
+            // section, byte for byte.
+            args.push("--filter-tcp=80,443,2053,2083,2087,2096,8443".into());
+            if let Some(init) = lib_init {
+                args.push(init.into());
+            }
+            if let Some(init) = preset_init {
+                args.push(init.into());
+            }
+            args.push("--payload=tls_client_hello".into());
+            args.push(fake_tls.into());
             args.push("--payload=http_req".into());
             args.push("--lua-desync=fake:blob=fake_default_http:tcp_md5".into());
             args.push("--payload=tls_client_hello,http_req".into());
-            args.push("--lua-desync=multisplit:pos=2:seqovl=5:seqovl_pattern=0x1603030000".into());
+            args.push(multisplit.into());
+        }
 
-            // UDP sections. Previously branch 4 captured voice/QUIC UDP via
-            // --wf-udp-out but defined no --filter-udp section, so Discord
-            // voice and YouTube QUIC passed through untouched: voice did
-            // not work on any discovered preset. These two sections mirror
-            // the flagship's discord_voice and quic_youtube sections (same
-            // blobs, same repeats); the QUIC section is intentionally
-            // ungated like branch 4's TCP section. Caveat: presets whose
-            // fake() loops (yt4k, tspu-max) triple the UDP fakes too
-            // (voice: up to 72 in a burst at flow start, out-range
-            // n1-n4 x 18, ~86 KB; QUIC: 33 per Initial, vs the
-            // flagship's 6/11), and sites-light's pass-through fake()
-            // leaves UDP unprotected by design.
-            args.push("--new=discord_voice".into());
-            args.push("--filter-udp=19294-19344,50000-65535".into());
-            args.push("--payload=all".into());
-            args.push("--out-range=n1-n4".into());
-            args.push("--lua-desync=fake:blob=discord_udp:repeats=6".into());
+        // UDP sections. Previously branch 4 captured voice/QUIC UDP via
+        // --wf-udp-out but defined no --filter-udp section, so Discord
+        // voice and YouTube QUIC passed through untouched: voice did
+        // not work on any discovered preset. These two sections mirror
+        // the flagship's discord_voice and quic_youtube sections (same
+        // blobs, same repeats); the QUIC section is intentionally
+        // ungated like branch 4's TCP section. Caveat: presets whose
+        // fake() loops (yt4k, tspu-max) triple the UDP fakes too
+        // (voice: up to 72 in a burst at flow start, out-range
+        // n1-n4 x 18, ~86 KB; QUIC: 33 per Initial, vs the
+        // flagship's 6/11), and sites-light's pass-through fake()
+        // leaves UDP unprotected by design.
+        args.push("--new=discord_voice".into());
+        args.push("--filter-udp=19294-19344,50000-65535".into());
+        args.push("--payload=all".into());
+        args.push("--out-range=n1-n4".into());
+        args.push("--lua-desync=fake:blob=discord_udp:repeats=6".into());
+        if !is_strict {
+            // STRICT drops the quic section entirely (parity with
+            // Flowseal STRICT): YouTube over QUIC gets no desync and
+            // the browser is expected to fall back to TCP. The voice
+            // section above stays: voice is Discord.
             args.push("--new=quic".into());
             args.push("--filter-udp=443".into());
             args.push("--payload=quic_initial".into());
             args.push("--lua-desync=fake:blob=quic_google:repeats=11".into());
-        } else {
-            // No discovered strategy matches: fail loudly instead of
-            // starting the engine with generic args for an id nobody
-            // resolved (start() already rejects unknown ids, so this is
-            // defense in depth against future callers).
-            return Err(ProcessError::InvalidStrategy(format!(
-                "Неизвестная стратегия: {}",
-                strat_id
-            )));
         }
 
-        Ok(args)
+        if is_game {
+            // GAME sections go after the base sections (same order
+            // as Flowseal). The game range overlaps base ports
+            // (2053, 2083, 2087, 2096, 8443); which section the
+            // engine picks on overlap is an upstream assumption
+            // (first fully matching section), not a verified fact —
+            // see the design draft's open checks. Both sections call
+            // the neutral fake_plain() from zapret-lib.lua, never the
+            // preset's fake(): game behaviour stays identical on
+            // every preset (no yt4k triple send, no sites-light
+            // pass-through).
+            args.push("--new=game_tcp".into());
+            args.push(format!("--filter-tcp={}", game_tcp));
+            args.push(format!("--ipset={}", ipset_all));
+            args.push("--payload=tls_client_hello,http_req".into());
+            args.push("--lua-desync=fake_plain:blob=fake_default_tls".into());
+            args.push("--new=game_udp".into());
+            args.push(format!("--filter-udp={}", game_udp));
+            args.push(format!("--ipset={}", ipset_all));
+            args.push("--payload=all".into());
+            args.push("--out-range=n1-n3".into());
+            args.push("--lua-desync=fake_plain:blob=game_udp:repeats=12".into());
+        }
+
+        args
     }
 
     fn ensure_user_lists_exist(lists_dir: &Path) {
@@ -2009,6 +2242,161 @@ mod tests {
         assert!(!final_args.iter().any(|a| a.contains("list-general.txt")));
         assert!(final_args.iter().any(|a| a.contains("list-google.txt")));
         assert!(final_args.iter().any(|a| a.contains("50000-65535")));
+    }
+
+    /// Shared inputs for the branch-4 builder tests: the bin copies of
+    /// both scripts loaded relatively, default game port specs, and
+    /// bundled list paths (the l() relative form).
+    fn lua_test_args(
+        mode: crate::win32::settings::SplitTunnelMode,
+    ) -> Vec<String> {
+        Supervisor::build_lua_preset_args(
+            mode,
+            "1024-65535",
+            "1024-65535",
+            Some("--lua-init=@zapret-lib.lua"),
+            Some("--lua-init=@zapret-yt4k.lua"),
+            "lists/list-google.txt",
+            "lists/ipset-all.txt",
+        )
+    }
+
+    #[test]
+    fn test_lua_full_mode_matches_historical_branch4_args() {
+        // FULL is the anchor: byte for byte the list branch 4 built
+        // before the tunnel mode existed.
+        let expected: Vec<String> = [
+            "--wf-tcp-out=80,443,2053,2083,2087,2096,8443",
+            "--wf-udp-out=443,19294-19344,50000-65535",
+            "--blob=discord_udp:@ACTIVE_DISCORD_UDP.bin",
+            "--blob=quic_google:@quic_initial_www_google_com.bin",
+            "--filter-tcp=80,443,2053,2083,2087,2096,8443",
+            "--lua-init=@zapret-lib.lua",
+            "--lua-init=@zapret-yt4k.lua",
+            "--payload=tls_client_hello",
+            "--lua-desync=fake:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid",
+            "--payload=http_req",
+            "--lua-desync=fake:blob=fake_default_http:tcp_md5",
+            "--payload=tls_client_hello,http_req",
+            "--lua-desync=multisplit:pos=2:seqovl=5:seqovl_pattern=0x1603030000",
+            "--new=discord_voice",
+            "--filter-udp=19294-19344,50000-65535",
+            "--payload=all",
+            "--out-range=n1-n4",
+            "--lua-desync=fake:blob=discord_udp:repeats=6",
+            "--new=quic",
+            "--filter-udp=443",
+            "--payload=quic_initial",
+            "--lua-desync=fake:blob=quic_google:repeats=11",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        let args = lua_test_args(crate::win32::settings::SplitTunnelMode::Full);
+        assert_eq!(args, expected);
+    }
+
+    #[test]
+    fn test_lua_strict_mode_gates_tcp_and_drops_quic() {
+        let args = lua_test_args(crate::win32::settings::SplitTunnelMode::Strict);
+
+        // Root capture filters are NOT narrowed (Flowseal parity).
+        assert_eq!(args[0], "--wf-tcp-out=80,443,2053,2083,2087,2096,8443");
+        assert_eq!(args[1], "--wf-udp-out=443,19294-19344,50000-65535");
+
+        // No ungated TCP section survives: the only --filter-tcp
+        // values are the two gated 443 sections.
+        assert!(!args
+            .iter()
+            .any(|a| a == "--filter-tcp=80,443,2053,2083,2087,2096,8443"));
+        let tcp_filters: Vec<&String> = args
+            .iter()
+            .filter(|a| a.starts_with("--filter-tcp="))
+            .collect();
+        assert_eq!(tcp_filters.len(), 2);
+        assert!(tcp_filters.iter().all(|a| *a == "--filter-tcp=443"));
+
+        // No http_req pair anywhere (neither the standalone payload
+        // nor the combined one from FULL).
+        assert!(!args.iter().any(|a| a.contains("http_req")));
+
+        // Both gated sections exist with their gates.
+        assert!(args.iter().any(|a| a == "--new=discord_tcp"));
+        assert!(args.iter().any(|a| a
+            == &format!(
+                "--hostlist-domains={}",
+                Supervisor::DISCORD_MEDIA_DOMAINS
+            )));
+        assert!(args.iter().any(|a| a == "--new=google_tcp"));
+        assert!(args
+            .iter()
+            .any(|a| a == "--hostlist=lists/list-google.txt"));
+
+        // The lua-init lines precede the first gated section.
+        let lib_idx = args
+            .iter()
+            .position(|a| a == "--lua-init=@zapret-lib.lua")
+            .expect("lib init present");
+        let first_section_idx = args
+            .iter()
+            .position(|a| a == "--new=discord_tcp")
+            .expect("discord_tcp present");
+        assert!(lib_idx < first_section_idx);
+
+        // Voice stays; the quic section is gone entirely.
+        assert!(args.iter().any(|a| a == "--new=discord_voice"));
+        assert!(!args.iter().any(|a| a == "--new=quic"));
+        assert!(!args.iter().any(|a| a == "--payload=quic_initial"));
+    }
+
+    #[test]
+    fn test_lua_game_mode_extends_full_with_game_sections() {
+        let args =
+            lua_test_args(crate::win32::settings::SplitTunnelMode::GameMode);
+
+        // Capture filters widened by the game specs.
+        assert_eq!(
+            args[0],
+            "--wf-tcp-out=80,443,2053,2083,2087,2096,8443,1024-65535"
+        );
+        assert_eq!(
+            args[1],
+            "--wf-udp-out=443,19294-19344,50000-65535,1024-65535"
+        );
+
+        // Game blob defined; base sections untouched.
+        assert!(args
+            .iter()
+            .any(|a| a == "--blob=game_udp:@ACTIVE_GAME_UDP.bin"));
+        assert!(args
+            .iter()
+            .any(|a| a == "--filter-tcp=80,443,2053,2083,2087,2096,8443"));
+        assert!(args.iter().any(|a| a == "--new=discord_voice"));
+        assert!(args.iter().any(|a| a == "--new=quic"));
+
+        // Game sections present, with the neutral fake_plain and the
+        // ipset gate, after the base sections.
+        assert!(args.iter().any(|a| a == "--new=game_tcp"));
+        assert!(args.iter().any(|a| a == "--new=game_udp"));
+        assert!(args
+            .iter()
+            .any(|a| a == "--lua-desync=fake_plain:blob=fake_default_tls"));
+        assert!(args
+            .iter()
+            .any(|a| a == "--lua-desync=fake_plain:blob=game_udp:repeats=12"));
+        assert!(args
+            .iter()
+            .any(|a| a == "--ipset=lists/ipset-all.txt"));
+        let quic_idx = args
+            .iter()
+            .position(|a| a == "--new=quic")
+            .expect("quic present");
+        let game_idx = args
+            .iter()
+            .position(|a| a == "--new=game_tcp")
+            .expect("game_tcp present");
+        assert!(game_idx > quic_idx);
     }
 }
 

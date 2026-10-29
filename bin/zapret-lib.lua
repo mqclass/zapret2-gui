@@ -2728,3 +2728,39 @@ function tls_reconstruct(tdis)
 
 	return tls
 end
+
+
+-- Neutral fake sender for the GUI's split tunnel GAME MODE sections.
+-- Sends the section's blob exactly as-is: no tls_mod, no fooling of
+-- its own and no per-preset send loops, so game sections behave
+-- identically on every preset (a preset's own fake() may send three
+-- times, like zapret-yt4k, or nothing at all, like
+-- zapret-sites-light — this function never does either).
+-- Standard args are honoured the same way as in the presets' fake():
+-- direction and payload filters, blob, optional, and repeats (the
+-- repeats count is applied by the standard rawsend options, see
+-- rawsend_opts). Works for TCP and UDP alike.
+-- arg : blob=<blob> - fake payload
+-- arg : optional - skip if blob is absent
+-- arg : repeats=N - send the fake packet N times
+function fake_plain(ctx, desync)
+	direction_cutoff_opposite(ctx, desync)
+	-- by default process only outgoing known payloads. works only for tcp and udp
+	if (desync.dis.tcp or desync.dis.udp) and direction_check(desync) and payload_check(desync) then
+		if replay_first(desync) then
+			if not desync.arg.blob then
+				error("fake_plain: 'blob' arg required")
+			end
+			if desync.arg.optional and not blob_exist(desync, desync.arg.blob) then
+				DLOG("fake_plain: blob '"..desync.arg.blob.."' not found. skipped")
+				return
+			end
+			local fake_payload = blob(desync, desync.arg.blob)
+			-- check debug to save CPU
+			if b_debug then DLOG("fake_plain: "..hexdump_dlog(fake_payload)) end
+			rawsend_payload_segmented(desync,fake_payload)
+		else
+			DLOG("fake_plain: not acting on further replay pieces")
+		end
+	end
+end

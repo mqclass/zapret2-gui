@@ -268,6 +268,7 @@ export interface Translations {
     badgeStrict: string;
     badgeFull: string;
     restartHint: string;
+    scopeNote: string;
 
   };
   doctor: {

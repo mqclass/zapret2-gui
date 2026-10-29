@@ -262,15 +262,16 @@ export const ru: Translations = {
   splitTunnel: {
     title: "Режим туннелирования & Игровой фильтр",
     modeFull: "Полный обход (Все сервисы)",
-    modeFullDesc: "Перехватывает и обходит YouTube, Discord и все заблокированные сайты/ipsets.",
+    modeFullDesc: "Обычный режим: десинк на всех перехваченных портах, как у выбранного пресета.",
     modeStrict: "Строгий Split-Tunnel (Только YT + Discord)",
-    modeStrictDesc: "Перехватывает ИСКЛЮЧИТЕЛЬНО YouTube и Discord. Игры, банки, Госуслуги и торренты идут 100% напрямую без драйвера.",
+    modeStrictDesc: "Десинк только для YouTube и Discord, у Google — сервисы из его списка. Остальные сайты идут без изменений. YouTube по QUIC без десинка.",
     modeGame: "Игровой режим (Game Mode + Discord Voice)",
-    modeGameDesc: "Активирует Flowseal Game Filter на игровых портах (UDP 1024-65535, cutoff=n3) для разблокировки лобби и голосовых чатов (Apex, Steam, Roblox) без задержки.",
+    modeGameDesc: "Плюс десинк игровых портов поверх основного режима.",
     badgeGame: "GAME MODE",
     badgeStrict: "STRICT SPLIT",
     badgeFull: "FULL BYPASS",
     restartHint: "Перезапустите обход для применения",
+    scopeNote: "Действует на стратегии Flowseal и Lua-пресеты. Не действует на zapret2 Ultimate и свои конфиги.",
 
   },
   doctor: {

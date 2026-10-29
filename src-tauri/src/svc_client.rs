@@ -397,6 +397,7 @@ impl SupervisorBackend {
                         app_split_applied_mode: None,
                         app_split_enforced: false,
                         app_split_not_enforced_reason: None,
+                        split_tunnel_applied_mode: None,
                     })
                 }
             },

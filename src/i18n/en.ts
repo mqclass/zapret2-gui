@@ -262,15 +262,16 @@ export const en: Translations = {
   splitTunnel: {
     title: "Tunneling Mode & Game Filter",
     modeFull: "Full Bypass (All services)",
-    modeFullDesc: "Intercepts and bypasses YouTube, Discord, and all blocked websites / IP sets.",
+    modeFullDesc: "Normal mode: desync on all captured ports, as the selected preset does.",
     modeStrict: "Strict Split-Tunnel (Only YT + Discord)",
-    modeStrictDesc: "Intercepts ONLY YouTube and Discord. Games, banks, torrents, and domestic services go 100% direct without the driver.",
+    modeStrictDesc: "Desync only for YouTube and Discord; for Google, the services from its list. Other sites pass unchanged. YouTube over QUIC gets no desync.",
     modeGame: "Game Mode (Game Mode + Discord Voice)",
-    modeGameDesc: "Enables Flowseal Game Filter on UDP ports 1024-65535 (cutoff=n3) to unblock game lobbies and voice chats (Apex, Steam, Roblox) with zero lag.",
+    modeGameDesc: "Adds desync on game ports on top of the normal mode.",
     badgeGame: "GAME MODE",
     badgeStrict: "STRICT SPLIT",
     badgeFull: "FULL BYPASS",
     restartHint: "Restart bypass to apply",
+    scopeNote: "Applies to Flowseal strategies and Lua presets. Does not apply to zapret2 Ultimate or custom configs.",
 
   },
   doctor: {

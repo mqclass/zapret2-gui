@@ -66,6 +66,8 @@ export interface SupervisorStatus {
   app_split_enforced?: boolean;
   /** Why split is not enforced: "disabled" | "flowseal" | "binary_missing" | "not_running". */
   app_split_not_enforced_reason?: string | null;
+  /** Split tunnel mode the running engine was launched with ("full" | "strict" | "game_mode"); null when it does not apply to the active strategy. Absent from older backends. */
+  split_tunnel_applied_mode?: string | null;
 }
 
 export interface TgProxyStatus {
