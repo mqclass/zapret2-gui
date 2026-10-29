@@ -209,8 +209,17 @@ jobs:
         run: |
           echo "kernel: $(uname -r)"
           sudo modprobe nfnetlink_queue || echo "modprobe nfnetlink_queue failed (rc=$?)"
-          ls -la /proc/net/nfnetlink_queue || echo "/proc/net/nfnetlink_queue absent"
+          ls -la /proc/net/nfnetlink_queue || echo "/proc/net/nfnetlink_queue absent (not decisive by itself)"
           nft --version
+          # Decisive probe: a throwaway table with a real queue rule.
+          sudo nft add table inet smokeprobe
+          sudo nft add chain inet smokeprobe output '{ type filter hook output priority mangle; }'
+          if sudo nft add rule inet smokeprobe output queue num 200 bypass; then
+            echo "QUEUE-PROBE: OK (kernel accepted a queue rule)"
+          else
+            echo "QUEUE-PROBE: REJECTED (queue subsystem unavailable)"
+          fi
+          sudo nft delete table inet smokeprobe || true
 
       - name: Stage service next to bin and strategies
         run: |
@@ -222,20 +231,20 @@ jobs:
       - name: Start service
         run: |
           cd /tmp/stage
-          sudo -E env ZAPRET2_SVC_SOCKET=/tmp/smoke/svc.sock ./zapret2-svc > /tmp/smoke/svc.log 2>&1 &
+          sudo env ZAPRET2_SVC_SOCKET=/tmp/smoke/svc.sock ./zapret2-svc > /tmp/smoke/svc.log 2>&1 &
           for i in $(seq 1 30); do [ -S /tmp/smoke/svc.sock ] && break; sleep 1; done
           ls -la /tmp/smoke/svc.sock
 
       - name: Smoke start (engine must reach running, table must exist)
         run: |
-          python3 scripts/linux_smoke.py /tmp/smoke/svc.sock start
+          sudo python3 scripts/linux_smoke.py /tmp/smoke/svc.sock start
           echo "--- nfqws2 processes:"; pgrep -a nfqws2
           echo "--- nft tables:"; sudo nft list tables
           echo "--- zapret2 table:"; sudo nft list table inet zapret2
 
       - name: Smoke stop (table must be gone)
         run: |
-          python3 scripts/linux_smoke.py /tmp/smoke/svc.sock stop
+          sudo python3 scripts/linux_smoke.py /tmp/smoke/svc.sock stop
           sleep 2
           echo "--- nft tables after stop:"; sudo nft list tables
           if sudo nft list table inet zapret2 2>/dev/null; then
