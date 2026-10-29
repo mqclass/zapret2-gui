@@ -804,7 +804,11 @@ impl Supervisor {
             ),
         );
 
-        // 2. Fast pre-launch setup: enable TCP timestamps asynchronously without blocking
+        // 2. Fast pre-launch setup: enable TCP timestamps asynchronously without blocking.
+        //    Windows-only: netsh is the Windows TCP-stack knob, and winws.exe
+        //    (use_winws1) is itself a Windows engine — Linux defaults TCP
+        //    timestamps on and nfqws2 needs no equivalent tweak.
+        #[cfg(windows)]
         if use_winws1 {
             tokio::spawn(async {
                 let _ = tokio::process::Command::new(crate::platform::system32("netsh.exe"))

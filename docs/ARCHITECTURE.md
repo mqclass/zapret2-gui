@@ -50,7 +50,7 @@ zapret2/
 │   ├── src/
 │   │   ├── commands/             # Команды Tauri IPC (supervisor, autostart, dns, etc.)
 │   │   ├── engine/               # Супервизор процессов, логгер, DNS-резолвер
-│   │   └── win32/                # Интеграция с Win32 API (Job Objects, UAC, WinDivert)
+│   │   └── platform/windows/   # Интеграция с Win32 API (Job Objects, UAC, WinDivert)
 │   ├── capabilities/             # Права доступа Tauri v2 (window dragging, shell, etc.)
 │   ├── icons/                    # Иконки приложения
 │   ├── app.manifest              # UAC-манифест уровня Administrator (RT_MANIFEST)
@@ -87,7 +87,7 @@ zapret2/
 
 2. **Изоляция стороннего кода (`vendor/`):**
    - Все распакованные исходники и релизы сторонних проектов изолированы в `vendor/`.
-   - `scripts/setup_binaries.ps1` и Rust-супервизор в `src-tauri/src/win32/process.rs` поддерживают автопоиск как в `vendor/`, так и в `bin/`.
+   - `scripts/setup_binaries.ps1` и Rust-супервизор в `src-tauri/src/platform/windows/process.rs` поддерживают автопоиск как в `vendor/`, так и в `bin/`.
 
 3. **Разрешение путей во время работы:**
    - `winws2.exe` и `winws.exe` всегда запускаются с рабочим каталогом (`current_dir`), установленным в `bin/`.

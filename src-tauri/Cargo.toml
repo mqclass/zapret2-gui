@@ -39,7 +39,13 @@ clap = { version = "4", features = ["derive"] }
 # Funnel the bridge library's tracing diagnostics into our log buffer.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["registry"] }
-[dependencies.windows]
+
+# Linux-only: process-group kills (job_object/process), flock single-instance
+# (zapret2-svc), geteuid (privileges). Already in the tree via tokio on unix.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies.windows]
 version = "0.58"
 features = [
     "Win32_Foundation",

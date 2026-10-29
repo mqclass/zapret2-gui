@@ -22,8 +22,11 @@ use std::sync::Arc;
 
 use clap::Parser;
 use tokio::sync::broadcast;
+#[cfg(windows)]
 use windows::core::w;
+#[cfg(windows)]
 use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+#[cfg(windows)]
 use windows::Win32::System::Threading::CreateMutexW;
 
 use crate::engine::{EventSink, Supervisor, TgProxyManager};
@@ -38,6 +41,7 @@ struct Args {
 }
 
 /// Returns false when another svc instance already holds the mutex.
+#[cfg(windows)]
 fn claim_single_instance() -> bool {
     unsafe {
         // NOTE: w! requires a string literal, so the mutex name is inlined
@@ -47,6 +51,43 @@ fn claim_single_instance() -> bool {
             Err(_) => false,
         }
     }
+}
+
+/// Holds the single-instance lock fd for the process lifetime (Linux).
+#[cfg(target_os = "linux")]
+static INSTANCE_LOCK_FD: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+
+/// Returns false when another svc instance already holds the lock.
+///
+/// Linux form of the named-mutex claim: an exclusive non-blocking
+/// `flock` on a lock file. The fd is kept open for the whole process
+/// lifetime; the kernel releases the lock when the process dies in any
+/// way, so a crashed svc never leaves a stale "already running" claim
+/// (unlike a PID file). The svc runs as root under systemd, so the lock
+/// lives in /run; /tmp is the fallback for unprivileged dev runs.
+#[cfg(target_os = "linux")]
+fn claim_single_instance() -> bool {
+    let lock_path = if std::path::Path::new("/run").is_dir() {
+        "/run/zapret2-svc.lock"
+    } else {
+        "/tmp/zapret2-svc.lock"
+    };
+    let c_path = match std::ffi::CString::new(lock_path) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    unsafe {
+        let fd = libc::open(c_path.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o644);
+        if fd < 0 {
+            return false;
+        }
+        if libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) != 0 {
+            libc::close(fd);
+            return false;
+        }
+        let _ = INSTANCE_LOCK_FD.set(fd);
+    }
+    true
 }
 
 #[tokio::main]
@@ -98,7 +139,10 @@ async fn main() {
         }
     });
 
+    #[cfg(windows)]
     println!("zapret2-svc started, listening on the named pipe.");
+    #[cfg(target_os = "linux")]
+    println!("zapret2-svc started (IPC transport arrives in phase 1 step 2).");
 
     // Serve GUI clients until Ctrl+C.
     let server_task = tokio::spawn(run_pipe_server(

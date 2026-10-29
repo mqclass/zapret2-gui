@@ -11,18 +11,59 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
+#[cfg(windows)]
+use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(windows)]
 use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::Mutex;
 
 use crate::engine::{LogEntry, Supervisor, SupervisorStatus, TgProxyManager, TgProxyStatus};
-use crate::svc_ipc::{ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION, SVC_PIPE_NAME};
+use crate::svc_ipc::{ClientMessage, ServerMessage, PROTOCOL_VERSION};
+#[cfg(windows)]
+use crate::svc_ipc::{SvcEvent, SVC_PIPE_NAME};
+
+/// The byte-stream transport to the svc: a named pipe on Windows, a Unix
+/// stream on Linux. The protocol logic in this module is written against
+/// the alias and shared; only opening the stream is platform-specific
+/// (`open_svc_stream`). The Linux socket listener arrives with the
+/// transport step of the port (phase 1, step 2); until then
+/// `SvcClient::connect` on Linux reports the transport as unavailable
+/// and the GUI stays on its in-process Local backend — the designed
+/// fallback for a missing svc, not an error path.
+// `#[allow(dead_code)]` on the transport pieces below: both binaries
+// include this module, but the svc binary itself never acts as a client,
+// so in that binary's build they read as dead — same idiom as the
+// platform layer's own allow(dead_code) markers.
+#[cfg(windows)]
+#[allow(dead_code)]
+type SvcStream = tokio::net::windows::named_pipe::NamedPipeClient;
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+type SvcStream = tokio::net::UnixStream;
+
+/// Opens the svc byte stream (see [`SvcStream`]).
+#[cfg(windows)]
+#[allow(dead_code)]
+async fn open_svc_stream() -> io::Result<SvcStream> {
+    ClientOptions::new().open(SVC_PIPE_NAME)
+}
+
+/// Opens the svc byte stream (see [`SvcStream`]).
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+async fn open_svc_stream() -> io::Result<SvcStream> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "svc transport is not available on Linux yet (phase 1 step 2 adds the Unix-socket transport)",
+    ))
+}
 
 /// Connected client to a running svc instance. Commands are serialized
 /// through a mutex: one in-flight request at a time.
 pub struct SvcClient {
-    io: Mutex<BufReader<tokio::net::windows::named_pipe::NamedPipeClient>>,
+    io: Mutex<BufReader<SvcStream>>,
     /// Set when a roundtrip times out: the connection may still deliver the
     /// late response, which would be misread as the answer to the NEXT
     /// request. A desynchronized client refuses further roundtrips instead
@@ -37,7 +78,7 @@ pub struct SvcClient {
 
 impl SvcClient {
     pub async fn connect() -> io::Result<Self> {
-        let client = ClientOptions::new().open(SVC_PIPE_NAME)?;
+        let client = open_svc_stream().await?;
         Ok(Self {
             io: Mutex::new(BufReader::new(client)),
             desynced: AtomicBool::new(false),
@@ -110,7 +151,7 @@ impl SvcClient {
 
     async fn exchange(
         &self,
-        io: &mut BufReader<tokio::net::windows::named_pipe::NamedPipeClient>,
+        io: &mut BufReader<SvcStream>,
         msg: &ClientMessage,
     ) -> io::Result<ServerMessage> {
         let mut line = serde_json::to_string(msg)
@@ -313,6 +354,7 @@ impl SvcClient {
         FORWARDER_RUNNING.store(false, Ordering::SeqCst);
     }
 
+    #[cfg(windows)]
     async fn forward_events_inner(app: AppHandle) {
         let client = match ClientOptions::new().open(SVC_PIPE_NAME) {
             Ok(c) => c,
@@ -358,6 +400,13 @@ impl SvcClient {
             }
         }
     }
+
+    /// Linux: no svc transport exists yet (phase 1, step 2), so there is
+    /// nothing to subscribe to. Returns immediately; the caller's
+    /// single-flight guard resets and a later attach can retry once the
+    /// Unix-socket transport lands.
+    #[cfg(target_os = "linux")]
+    async fn forward_events_inner(_app: AppHandle) {}
 }
 
 /// Process-wide guard: only one event-forwarder task may run at a time.
@@ -590,14 +639,23 @@ impl TgproxyBackend {
     }
 }
 
-/// Locate `zapret2-svc.exe`: next to the current executable, in the Tauri
-/// resources dir, or (dev) next to it via the target dir layout.
+/// The svc executable's file name on this platform.
+#[cfg(windows)]
+#[allow(dead_code)]
+const SVC_EXE_NAME: &str = "zapret2-svc.exe";
+/// The svc executable's file name on this platform.
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+const SVC_EXE_NAME: &str = "zapret2-svc";
+
+/// Locate the svc executable: next to the current executable, or in the
+/// Tauri resources dir.
 pub fn find_svc_exe() -> Option<PathBuf> {
     let current = std::env::current_exe().ok()?;
     let dir = current.parent()?;
     for candidate in [
-        dir.join("zapret2-svc.exe"),
-        dir.join("resources").join("zapret2-svc.exe"),
+        dir.join(SVC_EXE_NAME),
+        dir.join("resources").join(SVC_EXE_NAME),
     ] {
         if candidate.is_file() {
             return Some(candidate);
@@ -608,22 +666,42 @@ pub fn find_svc_exe() -> Option<PathBuf> {
 
 /// Spawn the svc detached so it outlives this GUI process.
 ///
-/// `CREATE_BREAKAWAY_FROM_JOB` is the critical flag: if this GUI ever runs
-/// inside a Job Object, the child must not inherit it — otherwise killing the
-/// GUI's job would take the svc (and the bypass) down with it, defeating the
-/// entire split. No-op when no job is present.
+/// Windows: `CREATE_BREAKAWAY_FROM_JOB` is the critical flag: if this GUI
+/// ever runs inside a Job Object, the child must not inherit it —
+/// otherwise killing the GUI's job would take the svc (and the bypass)
+/// down with it, defeating the entire split. No-op when no job is present.
+///
+/// Linux: the equivalent detachment is a new session (`process_group(0)`
+/// → setsid in the child) plus closed stdio: the svc keeps no controlling
+/// terminal and no process-group ties to the GUI, so a GUI death cannot
+/// take it down — and the svc's own supervisor keeps the engine safe via
+/// its process-group registry.
 pub fn spawn_svc_detached(path: &PathBuf) -> io::Result<()> {
-    use std::os::windows::process::CommandExt;
-    const DETACHED_PROCESS: u32 = 0x00000008;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
-    std::process::Command::new(path)
-        .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()?;
-    Ok(())
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
+        std::process::Command::new(path)
+            .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
+        Ok(())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        std::process::Command::new(path)
+            .process_group(0)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
+        Ok(())
+    }
 }
 
 /// Synchronously asks a running svc to shut down, then waits for its pipe

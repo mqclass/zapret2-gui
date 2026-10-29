@@ -10,6 +10,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,6 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use parking_lot::Mutex;
 
 /// Creation flag to spawn helper processes without a console window.
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// Maximum log file size before rotation (5 MB).
@@ -91,23 +93,34 @@ impl FileLogger {
         tmp
     }
 
-    /// Restricts a log directory ACL to the current user, SYSTEM and
-    /// Administrators (inheritance removed). Best-effort: failures are ignored
+    /// Restricts a log directory to the current user (plus SYSTEM and
+    /// Administrators on Windows). Best-effort: failures are ignored
     /// and the directory remains usable.
+    ///
+    /// Windows: ACL rewrite via icacls (inheritance removed).
+    /// Unix: mode 0700 — the owner-only directory is the direct analog.
     fn harden_log_dir_acl(dir: &Path) {
-        let username = std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string());
-        let dir_str = dir.to_string_lossy().to_string();
-        let _ = std::process::Command::new(crate::platform::system32("icacls.exe"))
-            .args([
-                dir_str.as_str(),
-                "/inheritance:r",
-                "/grant:r",
-                "*S-1-5-18:(OI)(CI)F", // SYSTEM
-                "*S-1-5-32-544:(OI)(CI)F", // Administrators
-                &format!("{}:(OI)(CI)F", username),
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
+        #[cfg(windows)]
+        {
+            let username = std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string());
+            let dir_str = dir.to_string_lossy().to_string();
+            let _ = std::process::Command::new(crate::platform::system32("icacls.exe"))
+                .args([
+                    dir_str.as_str(),
+                    "/inheritance:r",
+                    "/grant:r",
+                    "*S-1-5-18:(OI)(CI)F", // SYSTEM
+                    "*S-1-5-32-544:(OI)(CI)F", // Administrators
+                    &format!("{}:(OI)(CI)F", username),
+                ])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+        }
     }
 
     /// Formats current time into readable string `YYYY-MM-DD HH:MM:SS.mmm` (UTC).

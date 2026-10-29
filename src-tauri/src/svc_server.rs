@@ -10,22 +10,34 @@
 
 use std::sync::Arc;
 
+#[cfg(windows)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(windows)]
 use tokio::net::windows::named_pipe::NamedPipeServer;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::broadcast;
+#[cfg(windows)]
+use tokio::sync::Mutex;
+#[cfg(windows)]
 use windows::core::PCWSTR;
+#[cfg(windows)]
 use windows::Win32::Foundation::{LocalFree, INVALID_HANDLE_VALUE};
+#[cfg(windows)]
 use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+#[cfg(windows)]
 use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+#[cfg(windows)]
 use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
+#[cfg(windows)]
 use windows::Win32::System::Pipes::{
     CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 
 use crate::engine::{EventSink, LogEntry, Supervisor, SupervisorState, TgProxyManager};
+#[cfg(windows)]
 use crate::svc_ipc::{
-    ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION, SVC_PIPE_NAME,
+    ClientMessage, ServerMessage, PROTOCOL_VERSION, SVC_PIPE_NAME,
 };
+use crate::svc_ipc::SvcEvent;
 use crate::engine::DiagnosticsReport;
 
 /// Broadcasts engine events to subscribed pipe clients.
@@ -63,6 +75,11 @@ impl EventSink for PipeSink {
 
 /// Per-connection handler: JSON-lines request/response, plus an optional
 /// event subscription streaming [`SvcEvent`]s back.
+///
+/// Windows transport (named pipe). The protocol handling is stream-
+/// generic; the Linux Unix-socket listener reuses it when the transport
+/// step of the port (phase 1, step 2) lands.
+#[cfg(windows)]
 async fn handle_client(
     server: NamedPipeServer,
     supervisor: Arc<Supervisor>,
@@ -276,6 +293,7 @@ async fn handle_client(
     }
 }
 
+#[cfg(windows)]
 async fn write_msg(
     writer: &Arc<Mutex<tokio::io::WriteHalf<NamedPipeServer>>>,
     msg: &ServerMessage,
@@ -294,6 +312,7 @@ async fn write_msg(
 ///
 /// The SDDL is deliberately small and auditable:
 /// `D:P` (protected DACL) + full access for SY / BA / OW.
+#[cfg(windows)]
 fn create_secure_pipe() -> std::io::Result<NamedPipeServer> {
     unsafe {
         // SDDL: D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)
@@ -344,6 +363,7 @@ fn create_secure_pipe() -> std::io::Result<NamedPipeServer> {
 /// Runs the pipe server until the process exits. Each loop iteration creates a
 /// fresh pipe instance, waits for one client, and hands it to its own task —
 /// the standard multi-client named-pipe pattern.
+#[cfg(windows)]
 pub async fn run_pipe_server(
     supervisor: Arc<Supervisor>,
     tgproxy: Arc<TgProxyManager>,
@@ -375,4 +395,26 @@ pub async fn run_pipe_server(
             }
         }
     }
+}
+
+/// Linux: the IPC transport does not exist yet — the Unix-socket listener
+/// is phase 1, step 2, and will reuse the Windows handler's protocol
+/// logic over `tokio::net::UnixStream`. Until then the svc has no way to
+/// accept GUI clients, so this parks forever (the svc's other duties in
+/// `main` — signal handling, the Telegram bridge autostart — still run)
+/// after printing exactly why. It must NOT pretend to listen: a GUI
+/// attach attempt fails on the client side (`SvcClient::connect`), which
+/// is the honest signal.
+#[cfg(target_os = "linux")]
+pub async fn run_pipe_server(
+    _supervisor: Arc<Supervisor>,
+    _tgproxy: Arc<TgProxyManager>,
+    _event_tx: broadcast::Sender<SvcEvent>,
+) {
+    eprintln!(
+        "svc: IPC transport is not available on Linux yet \
+         (phase 1 step 2 adds the Unix-socket listener); \
+         GUI clients cannot attach to this svc instance"
+    );
+    std::future::pending::<()>().await;
 }
