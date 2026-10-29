@@ -426,6 +426,31 @@ pub fn atomic_write(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Atomic write for the settings file specifically: permissions are
+/// forced to 0600 on the TEMP file, BEFORE the rename.
+///
+/// The settings file carries the Telegram bridge secret in plaintext
+/// (see the L-3 note in `save_settings`), so it must never exist at
+/// its final path with looser permissions — not even for the window
+/// between rename and a post-hoc chmod. A chmod failure fails the
+/// write (and removes the temp file) instead of being swallowed:
+/// silently leaving a world-readable secret on disk is worse than a
+/// failed save the user can see.
+fn atomic_write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let id = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp_path = path.with_extension(format!("tmp-{}-{id}", std::process::id()));
+    let result = (|| -> std::io::Result<()> {
+        fs::write(&tmp_path, contents)?;
+        fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o600))?;
+        fs::rename(&tmp_path, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
+    }
+    result
+}
+
 pub fn save_settings(new_settings: AppSettings) -> Result<(), String> {
     let path = get_settings_file_path();
     if let Some(parent) = path.parent() {
@@ -437,12 +462,13 @@ pub fn save_settings(new_settings: AppSettings) -> Result<(), String> {
     // `TgWsProxy_data/config.json` has always used, since the bridge reads
     // its config directly and cannot consume wrapped blobs on any platform.
     // The at-rest mitigation on Linux is file permissions: the settings
-    // file is forced to 0600 (owner-only) after every save.
+    // file is forced to 0600 (owner-only) on the temp file before the
+    // rename, so the final path never exists with looser permissions
+    // (see atomic_write_private).
     let json = serde_json::to_string_pretty(&new_settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
 
-    atomic_write(&path, json.as_bytes()).map_err(|e| format!("Failed to save settings to disk: {}", e))?;
-    let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    atomic_write_private(&path, json.as_bytes()).map_err(|e| format!("Failed to save settings to disk: {}", e))?;
 
     *CACHED_SETTINGS.write() = Some(new_settings);
     *CACHED_FILE_STAMP.write() = settings_file_stamp(&path);

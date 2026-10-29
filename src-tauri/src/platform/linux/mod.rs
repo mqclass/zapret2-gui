@@ -8,6 +8,7 @@ pub mod dns;
 pub mod doctor;
 pub mod job_object;
 pub mod lists;
+pub mod nftables;
 pub mod privileges;
 pub mod process;
 pub mod settings;

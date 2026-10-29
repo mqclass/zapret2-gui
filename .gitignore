@@ -26,6 +26,8 @@ src-tauri/target/
 *.lib
 *.a
 *.zip
+# Linux engine binary has no extension; fetched by scripts/setup_binaries.sh
+bin/nfqws2
 release-pkg/
 *-release/
 v*-release/

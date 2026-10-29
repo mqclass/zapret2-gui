@@ -624,6 +624,14 @@ impl Supervisor {
         // If another child process is active, stop it cleanly before spawning the new strategy
         let old_pid_opt = *self.active_pid.read();
         let maybe_child = self.active_child.lock().take();
+        // Linux: remember whether the switch above actually took (and
+        // stops below) a previous engine. Its monitor task exits
+        // silently once the child is taken, so if this start then
+        // fails before the nftables apply step further down, nobody
+        // else removes the old launch's rules — the early error paths
+        // below do it when this is set.
+        #[cfg(target_os = "linux")]
+        let stopped_previous_engine = maybe_child.is_some();
         if let Some(mut old_child) = maybe_child {
             if let Some(old_pid) = old_pid_opt {
                 self.log("info", &format!("Switching config: stopping previous engine (PID {})", old_pid));
@@ -639,6 +647,10 @@ impl Supervisor {
             Ok(b) => b,
             Err(e) => {
                 self.log("error", &format!("Binary discovery failure: {}", e));
+                #[cfg(target_os = "linux")]
+                if stopped_previous_engine {
+                    let _ = crate::platform::nftables::remove_rules();
+                }
                 *self.state.write() = SupervisorState::Error;
                 self.emit_state_change(SupervisorState::Error);
                 return Err(e);
@@ -683,6 +695,10 @@ impl Supervisor {
         // pre-check rejects unknown ids; this closes the remaining race
         // window before last_strategy_id is overwritten below.
         if strategy_id.is_some() && target_strat.is_none() {
+            #[cfg(target_os = "linux")]
+            if stopped_previous_engine {
+                let _ = crate::platform::nftables::remove_rules();
+            }
             return Err(ProcessError::InvalidStrategy(format!(
                 "Неизвестная стратегия: {}",
                 strategy_id.as_deref().unwrap_or_default()
@@ -710,6 +726,29 @@ impl Supervisor {
         } else {
             binaries.winws2_exe.clone()
         };
+
+        // Linux: Flowseal strategies are winws argument lists built
+        // entirely on --dpi-desync-*, and the pinned Linux engine
+        // (nfqws2 v1.0.6) accepts none of them — its desync is
+        // Lua-only, verified against the binary's own --help and
+        // --dry-run ("unrecognized option: dpi-desync"). There is no
+        // honest way to run them here, so refuse with the reason
+        // instead of spawning an engine that dies on its first
+        // argument and looks like a random crash.
+        #[cfg(target_os = "linux")]
+        if use_winws1 {
+            let msg = format!(
+                "Стратегия '{}' — пресет Flowseal для winws (--dpi-desync), а движок Linux (nfqws2) эти флаги не поддерживает: desync у него только через Lua. Выберите Lua-стратегию zapret2.",
+                active_id
+            );
+            self.log("error", &msg);
+            if stopped_previous_engine {
+                let _ = crate::platform::nftables::remove_rules();
+            }
+            *self.state.write() = SupervisorState::Error;
+            self.emit_state_change(SupervisorState::Error);
+            return Err(ProcessError::EngineUnavailable(msg));
+        }
 
         // App split binary selection. The split build is a winws2 fork, so
         // it can only replace winws2.exe: Flowseal strategies run on
@@ -756,13 +795,27 @@ impl Supervisor {
                 ),
             );
         } else {
-            // Fork not built yet: fall back to plain winws2.exe rather
-            // than failing the start the user asked for.
+            // Fork binary absent: fall back to the plain engine rather
+            // than failing the start the user asked for. On Windows the
+            // fork build may simply not be installed yet; on Linux it
+            // can never exist (winws2-split is a Windows build), so the
+            // log says exactly that instead of "not installed yet".
+            // The status reason code stays "binary_missing" on both:
+            // it is part of the fixed UI vocabulary.
             split_launch.reason = Some("binary_missing".to_string());
+            #[cfg(windows)]
             self.log(
                 "info",
                 &format!(
                     "App split '{}' configured but winws2-split.exe is not installed yet: falling back to winws2.exe without app split",
+                    split_mode_str
+                ),
+            );
+            #[cfg(target_os = "linux")]
+            self.log(
+                "info",
+                &format!(
+                    "App split '{}' configured but per-app split is not available on Linux (winws2-split is a Windows build of the fork): running nfqws2 without app split",
                     split_mode_str
                 ),
             );
@@ -825,6 +878,10 @@ impl Supervisor {
             Ok(args) => args,
             Err(e) => {
                 self.log("error", &format!("Failed to build engine arguments: {}", e));
+                #[cfg(target_os = "linux")]
+                if stopped_previous_engine {
+                    let _ = crate::platform::nftables::remove_rules();
+                }
                 *self.state.write() = SupervisorState::Error;
                 self.emit_state_change(SupervisorState::Error);
                 return Err(e);
@@ -839,6 +896,10 @@ impl Supervisor {
             Ok(result) => result,
             Err(e) => {
                 self.log("error", &format!("Transport refused engine start: {}", e));
+                #[cfg(target_os = "linux")]
+                if stopped_previous_engine {
+                    let _ = crate::platform::nftables::remove_rules();
+                }
                 *self.state.write() = SupervisorState::Error;
                 self.emit_state_change(SupervisorState::Error);
                 return Err(e.into());
@@ -878,6 +939,52 @@ impl Supervisor {
                 ));
             }
         }
+
+        // Linux: translate the Windows root capture into NFQUEUE +
+        // nftables before spawning (and before the parameter log below,
+        // so the log shows the command line nfqws2 actually receives).
+        // nfqws2 rejects every --wf-* argument, so the list is
+        // rewritten — root filters out, --qnum in — and the exact port
+        // sets those filters carried become queue rules in our own
+        // nftables table. Installing the rules is part of the start:
+        // if nft refuses them, the engine must not run capturing only
+        // half the intended traffic, so the start fails with the
+        // reason. Between here and the spawn there is no other early
+        // return, so installed rules can only outlive this start via
+        // the spawn-failure path, which removes them (see below).
+        #[cfg(target_os = "linux")]
+        let args = {
+            let rewritten = crate::platform::nftables::rewrite_args_for_nfqws2(args);
+            if rewritten.port_sets.is_empty() {
+                self.log(
+                    "info",
+                    "Linux: в аргументах нет корневых --wf-фильтров, правила nftables не устанавливаются (перехватывать нечего)",
+                );
+            }
+            if let Err(e) = crate::platform::nftables::apply_rules(
+                &rewritten.port_sets,
+                rewritten.queue_num,
+            ) {
+                let msg = format!(
+                    "Не удалось установить правила nftables для движка: {}",
+                    e
+                );
+                self.log("error", &msg);
+                *self.state.write() = SupervisorState::Error;
+                self.emit_state_change(SupervisorState::Error);
+                return Err(ProcessError::EngineUnavailable(msg));
+            }
+            if !rewritten.port_sets.is_empty() {
+                self.log(
+                    "info",
+                    &format!(
+                        "Linux: перехват через NFQUEUE {}, правила nftables установлены (таблица inet zapret2)",
+                        rewritten.queue_num
+                    ),
+                );
+            }
+            rewritten.args
+        };
 
         // Log the launch line with app-split paths masked: full paths
         // (including the user profile directory) must not land in engine
@@ -940,6 +1047,13 @@ impl Supervisor {
                     Ok(proc) => proc,
                     Err(e) => {
                         self.log("error", &format!("Failed to spawn {}: {}", target_exe.display(), e));
+                        // Linux: the engine never came up, so the
+                        // nftables queue rules installed for it above
+                        // must not outlive the failed start.
+                        #[cfg(target_os = "linux")]
+                        {
+                            let _ = crate::platform::nftables::remove_rules();
+                        }
                         *self.state.write() = SupervisorState::Error;
                         self.emit_state_change(SupervisorState::Error);
                         return Err(e);
@@ -1126,6 +1240,24 @@ impl Supervisor {
                     }
                 }
 
+                // Linux: the engine died on its own, so the nftables
+                // queue rules installed for it are removed here. When
+                // the death was superseded, a newer start already owns
+                // the table (its apply deleted and recreated it) and
+                // must not lose it; a scheduled recovery restart
+                // manages the table itself. The generation is rechecked
+                // immediately before the removal as well: a start that
+                // began after the `superseded` snapshot above (during
+                // the grace poll or the recovery dispatch) may already
+                // have installed its own fresh table, and removing the
+                // rules now would strip capture from that engine.
+                #[cfg(target_os = "linux")]
+                if !superseded && !recovery_requested {
+                    if *supervisor_clone.generation.read() == generation_before {
+                        let _ = crate::platform::nftables::remove_rules();
+                    }
+                }
+
                 // The detached driver cleanup runs on every death except when
                 // a recovery restart is scheduled (the worker cleans up itself
                 // right before relaunching, and a detached `sc stop` racing
@@ -1185,6 +1317,16 @@ impl Supervisor {
 
         // Clean WinDivert driver service registrations to guarantee clean kernel state
         cleanup_windivert_driver().await;
+
+        // Linux: remove our nftables table so no queue rules outlive
+        // the stopped engine. The rules carry the bypass verdict, so a
+        // stale table would not break traffic — but it is our state,
+        // and leaving it behind would make the next start's stale
+        // cleanup guess whether it is ours.
+        #[cfg(target_os = "linux")]
+        {
+            let _ = crate::platform::nftables::remove_rules();
+        }
 
         // Persist any buffered log data before reporting the stopped state.
         self.file_logger.flush();
@@ -2352,6 +2494,64 @@ mod tests {
         assert!(args.iter().any(|a| a == "--new=discord_voice"));
         assert!(!args.iter().any(|a| a == "--new=quic"));
         assert!(!args.iter().any(|a| a == "--payload=quic_initial"));
+    }
+
+    /// Linux wiring (phase 1, step 3): the port sets translated to
+    /// nftables rules must be EXACTLY the wf capture sets the builders
+    /// emit for every tunnel mode — no wider (foreign traffic would be
+    /// queued), no narrower (the mode would silently under-capture).
+    /// Compared token for token against the wf specs as written.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_linux_nft_sets_equal_builder_wf_sets() {
+        use crate::platform::nftables;
+        use crate::platform::settings::SplitTunnelMode;
+
+        let cases = [
+            (SplitTunnelMode::Full, "80,443,2053,2083,2087,2096,8443", "443,19294-19344,50000-65535"),
+            (SplitTunnelMode::Strict, "80,443,2053,2083,2087,2096,8443", "443,19294-19344,50000-65535"),
+            (
+                SplitTunnelMode::GameMode,
+                "80,443,2053,2083,2087,2096,8443,1024-65535",
+                "443,19294-19344,50000-65535,1024-65535",
+            ),
+        ];
+        for (mode, wf_tcp, wf_udp) in cases {
+            let args = lua_test_args(mode);
+            let original_sets = nftables::extract_wf_port_sets(&args);
+            assert_eq!(original_sets.tcp.join(","), wf_tcp, "wf source drifted for {:?}", mode);
+            assert_eq!(original_sets.udp.join(","), wf_udp, "wf source drifted for {:?}", mode);
+
+            let rewritten = nftables::rewrite_args_for_nfqws2(args);
+            assert_eq!(rewritten.port_sets, original_sets, "translation changed the sets for {:?}", mode);
+            assert!(!rewritten.args.iter().any(|a| a.starts_with("--wf-")));
+            assert_eq!(
+                rewritten.args.iter().filter(|a| a.starts_with("--qnum=")).count(),
+                1
+            );
+            // The install commands queue exactly those ports.
+            let cmds = nftables::build_install_commands(&rewritten.port_sets, rewritten.queue_num);
+            let joined: Vec<String> = cmds.iter().flatten().cloned().collect();
+            for token in original_sets.tcp.iter().chain(original_sets.udp.iter()) {
+                assert!(
+                    joined.iter().any(|a| a.contains(token.as_str())),
+                    "port token {} missing from nft commands for {:?}",
+                    token,
+                    mode
+                );
+            }
+        }
+
+        // The flagship builder takes the same path (its wf pair is at
+        // the head of the list).
+        let ultimate = Supervisor::build_zapret2_ru_ultimate_args(
+            std::path::Path::new("bin"),
+            std::path::Path::new("lists"),
+        );
+        let rewritten = nftables::rewrite_args_for_nfqws2(ultimate);
+        assert_eq!(rewritten.port_sets.tcp.join(","), "80,443,2053,2083,2087,2096,8443");
+        assert_eq!(rewritten.port_sets.udp.join(","), "443,19294-19344,50000-65535");
+        assert!(!rewritten.args.iter().any(|a| a.starts_with("--wf-")));
     }
 
     #[test]

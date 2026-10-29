@@ -165,9 +165,13 @@ async fn main() {
 
     #[cfg(windows)]
     println!("zapret2-svc started, listening on the named pipe.");
+    // Linux: do NOT claim "listening" here — the server task below binds
+    // the socket asynchronously and may still fail (e.g. another live
+    // listener). svc_server prints the authoritative "listening on unix
+    // socket" line only after the bind succeeds.
     #[cfg(target_os = "linux")]
     println!(
-        "zapret2-svc started, listening on unix socket {}.",
+        "zapret2-svc started, unix socket endpoint {}.",
         crate::svc_ipc::svc_socket_path().display()
     );
 

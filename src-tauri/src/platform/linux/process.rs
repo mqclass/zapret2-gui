@@ -5,7 +5,8 @@
 //! 2. Hybrid strategy discovery: Flowseal presets + zapret2 Lua strategies
 //!    (the preset/strategy metadata is platform-independent; which engines
 //!    can actually launch on Linux is decided by binary resolution and by
-//!    the nftables wiring that arrives with the engine step of the port).
+//!    the supervisor's engine wiring: Lua strategies run on nfqws2,
+//!    Flowseal presets cannot — nfqws2 has no `--dpi-desync`).
 //! 3. Process execution in its own session (`setsid` via `pre_exec`) with
 //!    `PR_SET_PDEATHSIG`, so a dead supervisor takes the engine with it.
 //! 4. Binding to the process-group registry ([`JobObject`]) — the Linux
@@ -56,6 +57,13 @@ pub enum ProcessError {
 
     #[error("ADMIN_REQUIRED: для запуска движка нужны права root. Движок работает в службе zapret2-svc (systemd), а не из интерфейса.")]
     NotElevated,
+
+    /// The engine cannot run on this platform as requested (e.g. a
+    /// Flowseal strategy, whose `--dpi-desync` flags nfqws2 does not
+    /// accept, or the nftables capture could not be installed). The
+    /// message is the honest, user-facing reason.
+    #[error("{0}")]
+    EngineUnavailable(String),
 
     #[error("Некорректная стратегия: {0}")]
     InvalidStrategy(String),
@@ -428,7 +436,13 @@ pub fn spawn_process(
     let pid = child.id().ok_or(ProcessError::MissingProcessId)?;
 
     // Register the new process group with the supervisor's registry.
-    job.assign_pid(pid)?;
+    // On failure the just-spawned engine must not be left running
+    // unsupervised (a dropped tokio Child is NOT killed), so kill and
+    // reap it before propagating the assignment error.
+    if let Err(e) = job.assign_pid(pid) {
+        kill_and_reap_spawned_child(&mut child, pid);
+        return Err(e.into());
+    }
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -440,6 +454,36 @@ pub fn spawn_process(
         stdout,
         stderr,
     })
+}
+
+/// Kills and reaps a just-spawned child after a failed registry
+/// assignment (see the call site in [`spawn_process`]).
+///
+/// The child already ran `setsid`, so it leads its own group: the
+/// group SIGKILL takes any helper it managed to fork in the short
+/// window, the direct SIGKILL covers the leader itself. Reaping is
+/// done with a bounded `waitpid` poll — this runs on a synchronous
+/// error path inside an async caller, and tokio's own reaper may win
+/// the race (ECHILD), which is treated as success: either way no
+/// zombie and no unsupervised engine survives.
+fn kill_and_reap_spawned_child(child: &mut Child, pid: u32) {
+    unsafe {
+        libc::kill(-(pid as i32), libc::SIGKILL);
+        libc::kill(pid as i32, libc::SIGKILL);
+    }
+    let _ = child.start_kill();
+    unsafe {
+        let mut status: libc::c_int = 0;
+        for _ in 0..200 {
+            let rc = libc::waitpid(pid as i32, &mut status, libc::WNOHANG);
+            if rc != 0 {
+                // rc == pid: reaped by us. rc == -1 (e.g. ECHILD):
+                // tokio's reaper got it first. Both are done.
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
 }
 
 /// Helper wrapper preserving backward compatibility.
@@ -471,12 +515,13 @@ pub async fn stop_winws2_gracefully(
 
 /// Driver cleanup hook (Windows: WinDivert service reset).
 ///
-/// On Linux there is no loadable driver service to reset: interception is
-/// NFQUEUE bound by the engine process itself plus nftables rules owned by
-/// the supervisor. Rule installation/removal arrives with the engine step
-/// of the port (phase 1, step 3); until then there is no driver state for
-/// this hook to clean, so it is an explicit no-op — callers use it as a
-/// best-effort reset before a spawn retry, which stays safe.
+/// On Linux there is no loadable driver service to reset: interception
+/// is NFQUEUE bound by the engine process itself plus nftables rules
+/// owned by the supervisor. Those rules have their own lifecycle in
+/// the supervisor (installed before spawn, removed on stop, engine
+/// death and failed starts — see `platform::nftables`), so this
+/// best-effort pre-retry reset hook has no Linux state to clean and
+/// stays an explicit no-op.
 pub async fn cleanup_windivert_driver() {}
 
 /// Verifies through `/proc/<pid>/exe` that the process image file name
