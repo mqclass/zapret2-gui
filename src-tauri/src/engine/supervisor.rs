@@ -2493,6 +2493,7 @@ impl Supervisor {
             &l("list-google.txt"),
             &l("ipset-all.txt"),
             auto_lists.as_ref(),
+            strat.id == "syndata",
         ))
     }
 
@@ -2526,6 +2527,17 @@ impl Supervisor {
     /// ungated and the list is byte for byte the historical one.
     /// STRICT never takes the gate (its sections are narrow by
     /// construction), so the parameter is ignored there.
+    ///
+    /// `syndata`: only the syndata preset (id "syndata") passes true.
+    /// Its technique lives in a desync instance of its own (it must
+    /// see SYN packets, so it cannot ride the payload-bound fake /
+    /// multisplit instances like every other preset variation): the
+    /// builder adds one `--lua-desync=syndata:...` line per gated TCP
+    /// section, before the section's payload lines, so the instance
+    /// inherits the section filters and the auto gate but no payload
+    /// restriction. With false the output is unchanged for all
+    /// existing presets. The GAME extra sections never get it: game
+    /// behaviour stays identical on every preset (fake_plain).
     fn build_lua_preset_args(
         mode: crate::platform::settings::SplitTunnelMode,
         game_tcp: &str,
@@ -2535,6 +2547,7 @@ impl Supervisor {
         google_list: &str,
         ipset_all: &str,
         auto: Option<&AutoLists>,
+        syndata: bool,
     ) -> Vec<String> {
         use crate::platform::settings::SplitTunnelMode;
         let is_strict = mode == SplitTunnelMode::Strict;
@@ -2575,6 +2588,12 @@ impl Supervisor {
             "--lua-desync=fake:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid";
         let multisplit =
             "--lua-desync=multisplit:pos=2:seqovl=5:seqovl_pattern=0x1603030000";
+        // The syndata preset's extra instance: same fake blob and
+        // mutation as fake_tls, but delivered inside the SYN packet.
+        // Placed before the section's payload lines (see below), so
+        // no --payload restriction applies to it.
+        let syndata_spec =
+            "--lua-desync=syndata:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid";
 
         if is_strict {
             // STRICT (design variant A): the ungated TCP section is
@@ -2598,6 +2617,9 @@ impl Supervisor {
                 "--hostlist-domains={}",
                 Self::DISCORD_MEDIA_DOMAINS
             ));
+            if syndata {
+                args.push(syndata_spec.into());
+            }
             args.push("--payload=tls_client_hello".into());
             args.push(fake_tls.into());
             args.push("--payload=tls_client_hello".into());
@@ -2605,6 +2627,9 @@ impl Supervisor {
             args.push("--new=google_tcp".into());
             args.push("--filter-tcp=443".into());
             args.push(format!("--hostlist={}", google_list));
+            if syndata {
+                args.push(syndata_spec.into());
+            }
             args.push("--payload=tls_client_hello".into());
             args.push(fake_tls.into());
             args.push("--payload=tls_client_hello".into());
@@ -2636,6 +2661,9 @@ impl Supervisor {
             }
             if let Some(init) = preset_init {
                 args.push(init.into());
+            }
+            if syndata {
+                args.push(syndata_spec.into());
             }
             args.push("--payload=tls_client_hello".into());
             args.push(fake_tls.into());
@@ -2809,6 +2837,7 @@ mod tests {
             "lists/list-google.txt",
             "lists/ipset-all.txt",
             None,
+            false,
         )
     }
 
@@ -2846,6 +2875,116 @@ mod tests {
 
         let args = lua_test_args(crate::platform::settings::SplitTunnelMode::Full);
         assert_eq!(args, expected);
+    }
+
+    #[test]
+    fn test_lua_syndata_preset_adds_syn_instance_before_payloads() {
+        use crate::platform::settings::SplitTunnelMode;
+        const SYNDATA_SPEC: &str =
+            "--lua-desync=syndata:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid";
+        let build = |mode: SplitTunnelMode| {
+            Supervisor::build_lua_preset_args(
+                mode,
+                "1024-65535",
+                "1024-65535",
+                Some("--lua-init=@zapret-lib.lua"),
+                Some("--lua-init=@zapret-syndata.lua"),
+                "lists/list-google.txt",
+                "lists/ipset-all.txt",
+                None,
+                true,
+            )
+        };
+        let count = |args: &[String]| args.iter().filter(|a| a.as_str() == SYNDATA_SPEC).count();
+
+        // FULL: exactly one instance, after the preset init and
+        // before the first payload-bound instance (no --payload
+        // restriction may precede it, or it would never see a SYN).
+        let full = build(SplitTunnelMode::Full);
+        assert_eq!(count(&full), 1);
+        let syn_idx = full.iter().position(|a| a == SYNDATA_SPEC).unwrap();
+        let init_idx = full
+            .iter()
+            .position(|a| a == "--lua-init=@zapret-syndata.lua")
+            .unwrap();
+        let payload_idx = full
+            .iter()
+            .position(|a| a.starts_with("--payload="))
+            .unwrap();
+        assert!(init_idx < syn_idx && syn_idx < payload_idx);
+        // Without the flag the instance is absent (existing presets
+        // are byte-identical, as pinned by the FULL test above).
+        assert_eq!(count(&lua_test_args(SplitTunnelMode::Full)), 0);
+
+        // STRICT: one instance per gated TCP section.
+        let strict = build(SplitTunnelMode::Strict);
+        assert_eq!(count(&strict), 2);
+
+        // GAME: still exactly one (the main section); the game
+        // sections keep fake_plain and get no syndata.
+        let game = build(SplitTunnelMode::GameMode);
+        assert_eq!(count(&game), 1);
+        assert!(game
+            .iter()
+            .any(|a| a == "--lua-desync=fake_plain:blob=fake_default_tls"));
+    }
+
+    #[test]
+    fn test_lua_syndata_preset_stays_behind_auto_gate() {
+        use crate::platform::settings::SplitTunnelMode;
+        const SYNDATA_SPEC: &str =
+            "--lua-desync=syndata:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid";
+        // With auto-hostlist on (FULL and GAME share the gated main
+        // section), the instance must stay behind the WHOLE gate —
+        // all six lines — and still ahead of the first payload line,
+        // so no hostlist restriction applies to it either.
+        let auto = lua_test_auto();
+        let gate: Vec<String> = vec![
+            format!("--hostlist={}", auto.general),
+            format!("--hostlist={}", auto.general_user),
+            "--hostlist=lists/list-google.txt".to_string(),
+            format!("--hostlist-exclude={}", auto.exclude),
+            format!("--hostlist-exclude={}", auto.exclude_user),
+            format!("--hostlist-auto={}", auto.auto_path),
+        ];
+        for mode in [SplitTunnelMode::Full, SplitTunnelMode::GameMode] {
+            let args = Supervisor::build_lua_preset_args(
+                mode,
+                "1024-65535",
+                "1024-65535",
+                Some("--lua-init=@zapret-lib.lua"),
+                Some("--lua-init=@zapret-syndata.lua"),
+                "lists/list-google.txt",
+                "lists/ipset-all.txt",
+                Some(&auto),
+                true,
+            );
+            assert_eq!(
+                args.iter().filter(|a| a.as_str() == SYNDATA_SPEC).count(),
+                1,
+                "{:?}: syndata count with auto",
+                mode
+            );
+            let syn_idx = args.iter().position(|a| a == SYNDATA_SPEC).unwrap();
+            let last_gate_idx = gate
+                .iter()
+                .map(|g| {
+                    args.iter()
+                        .position(|a| a == g)
+                        .unwrap_or_else(|| panic!("{:?}: gate line {} missing", mode, g))
+                })
+                .max()
+                .unwrap();
+            let payload_idx = args
+                .iter()
+                .position(|a| a.starts_with("--payload="))
+                .unwrap();
+            assert!(
+                last_gate_idx < syn_idx && syn_idx < payload_idx,
+                "{:?}: syndata must sit after the whole auto gate and before the first payload line",
+                mode
+            );
+        }
     }
 
     #[test]
@@ -3033,6 +3172,7 @@ mod tests {
             "lists/list-google.txt",
             "lists/ipset-all.txt",
             Some(&auto),
+            false,
         )
     }
 

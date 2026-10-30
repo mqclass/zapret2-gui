@@ -46,6 +46,10 @@ export const AUTO_TUNE_CANDIDATES = [
   "yt4k",
   "discord-light",
   "tspu-max",
+  "extsplit",
+  "firstbyte",
+  "syndata",
+  "ipfrag",
 ];
 
 interface DiagnosticsCardProps {
