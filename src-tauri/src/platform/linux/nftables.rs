@@ -145,22 +145,53 @@ pub struct RewrittenArgs {
     pub queue_num: u16,
 }
 
+/// Is this token a real option, as opposed to a would-be `--qnum`
+/// value? Real options start with `-` (or `--`) followed by a
+/// letter: `--filter-tcp=443`, `--version`, `-h`. Everything else in
+/// the value slot after a bare `--qnum` is a value that failed to
+/// parse as a queue number: a bare word (`abc`, `300abc`), an
+/// out-of-range number (`65536`), or a negative number (`-1` — a
+/// dash followed by digits, not a letter). The distinction matters
+/// because a real option must survive for its own handling, while a
+/// leaked negative value is read by nfqws2's getopt as bundled short
+/// options and aborts the start ("unrecognized option: 1").
+fn looks_like_option(token: &str) -> bool {
+    let rest = token
+        .strip_prefix("--")
+        .or_else(|| token.strip_prefix('-'));
+    match rest {
+        Some(rest) => rest
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic()),
+        None => false,
+    }
+}
+
 /// Strips the root `--wf-*` arguments nfqws2 would reject and makes
 /// sure exactly one `--qnum` reaches the engine. If the list already
-/// carries `--qnum` arguments, the first parsable one is kept (in
-/// place) as the only one and its value is reported back so the rules
-/// target the same queue; every other `--qnum` token — duplicates and
-/// unparsable values alike — is dropped. If no parsable `--qnum` is
-/// present, ours ([`NFQUEUE_NUM`]) is inserted where the first removed
-/// filter stood (root parameters belong before the first section,
-/// where the wf filters used to be).
+/// carries `--qnum` arguments, the first parsable one wins and is the
+/// only survivor; every other `--qnum` — duplicates and unparsable
+/// values alike — is dropped. Both spellings count: `--qnum=<n>` and
+/// the getopt space form `--qnum <n>` (what a hand-copied .bat line
+/// tokenizes to), the latter normalized to the `=` form. A bare
+/// `--qnum` takes with it the token that can only be its would-be
+/// value (a junk word, an out-of-range or a negative number): passed
+/// through alone it would abort nfqws2 ("option requires an
+/// argument"), and a leaked negative value would be read as bundled
+/// short options and kill the start the same way. A following real
+/// option is not a value and is handled on its own. If no parsable
+/// `--qnum` is present, ours ([`NFQUEUE_NUM`]) is
+/// inserted where the first removed filter stood (root parameters
+/// belong before the first section, where the wf filters used to be).
 pub fn rewrite_args_for_nfqws2(args: Vec<String>) -> RewrittenArgs {
     let port_sets = extract_wf_port_sets(&args);
 
     let mut out: Vec<String> = Vec::with_capacity(args.len() + 1);
     let mut insert_at: Option<usize> = None;
     let mut queue_num: Option<u16> = None;
-    for arg in args {
+    let mut iter = args.into_iter().peekable();
+    while let Some(arg) = iter.next() {
         if arg.starts_with("--wf-") {
             if insert_at.is_none() {
                 insert_at = Some(out.len());
@@ -172,6 +203,31 @@ pub fn rewrite_args_for_nfqws2(args: Vec<String>) -> RewrittenArgs {
                 if let Ok(n) = value.parse::<u16>() {
                     queue_num = Some(n);
                     out.push(arg);
+                }
+            }
+            continue;
+        }
+        if arg == "--qnum" {
+            // Space spelling: nfqws2 (getopt) reads the next token as
+            // the value. Adopt it when it parses, under the same
+            // first-parsable-wins rule. A next token that can only be
+            // a would-be value (see `looks_like_option`) is consumed
+            // and dropped together with the bare token, for parity
+            // with the `=` spelling, whose junk values are dropped
+            // whole: left behind, such a token is at best a stray
+            // positional and at worst (`-1`) a fatal pseudo-option.
+            // A real option is NOT consumed: it is an argument in
+            // its own right and is left for its own iteration
+            // instead of being swallowed the way nfqws2 would.
+            if let Some(next) = iter.peek() {
+                if let Ok(n) = next.parse::<u16>() {
+                    iter.next();
+                    if queue_num.is_none() {
+                        queue_num = Some(n);
+                        out.push(format!("--qnum={}", n));
+                    }
+                } else if !looks_like_option(next) {
+                    iter.next();
                 }
             }
             continue;
@@ -517,6 +573,194 @@ mod tests {
             .filter(|a| a.starts_with("--qnum="))
             .collect();
         assert_eq!(qnums, vec!["--qnum=200"]);
+    }
+
+    /// The getopt space spelling `--qnum 300` — what a hand-copied
+    /// .bat line tokenizes to — is a caller-supplied queue like the
+    /// `=` form: adopted, normalized to `--qnum=300`, and its value
+    /// token does not leak through as a stray positional argument.
+    /// Before the fix both tokens passed through verbatim AND the
+    /// default was inserted as well (at the position of the first
+    /// stripped `--wf-*` token, which in this input stands after
+    /// the 300, or at position 0 when there are no filters): the
+    /// queue the engine ended up on then depended on the accidental
+    /// order of those tokens, and at input orders where the default
+    /// landed ahead of the space form, the engine (last `--qnum`
+    /// wins in getopt) desynced from the queue the rules targeted.
+    #[test]
+    fn rewrite_space_form_qnum_is_adopted() {
+        let args = v(&["--qnum", "300", "--wf-tcp-out=443", "--filter-tcp=443"]);
+        let out = rewrite_args_for_nfqws2(args);
+        assert_eq!(out.queue_num, 300);
+        assert_eq!(
+            out.args,
+            v(&["--qnum=300", "--filter-tcp=443"]),
+            "exactly the normalized qnum and the section args may survive"
+        );
+        assert_eq!(out.port_sets.tcp, v(&["443"]));
+    }
+
+    /// A bare `--qnum` as the last token has no value at all. Passed
+    /// through, nfqws2 aborts with "option requires an argument"
+    /// (exit 1, verified against the pinned binary), so the token is
+    /// dropped and the default is pinned instead.
+    #[test]
+    fn rewrite_bare_qnum_at_end_is_dropped() {
+        let args = v(&["--wf-tcp-out=443", "--filter-tcp=443", "--qnum"]);
+        let out = rewrite_args_for_nfqws2(args);
+        assert_eq!(out.queue_num, 200);
+        assert!(!out.args.iter().any(|a| a == "--qnum"));
+        let qnums: Vec<&String> = out
+            .args
+            .iter()
+            .filter(|a| a.starts_with("--qnum="))
+            .collect();
+        assert_eq!(qnums, vec!["--qnum=200"]);
+    }
+
+    /// A bare `--qnum` in front of another option must not swallow
+    /// that option the way nfqws2's getopt would. Getopt hands the
+    /// next token to `--qnum` as its value unconditionally, and on
+    /// the pinned binary atoi("--filter-tcp=443") is 0 — a perfectly
+    /// valid queue number — so the engine would NOT die: it would
+    /// silently run on queue 0, desynced from the nft rules, with
+    /// the filter argument lost to the value slot. The rewrite
+    /// drops only the bare token, so the filter survives and the
+    /// queue is the honest default.
+    #[test]
+    fn rewrite_bare_qnum_does_not_swallow_next_option() {
+        let args = v(&["--qnum", "--filter-tcp=443"]);
+        let out = rewrite_args_for_nfqws2(args);
+        assert_eq!(out.queue_num, 200);
+        assert!(out.args.iter().any(|a| a == "--filter-tcp=443"));
+        assert!(!out.args.iter().any(|a| a == "--qnum"));
+        assert_eq!(
+            out.args.iter().filter(|a| a.starts_with("--qnum=")).count(),
+            1
+        );
+    }
+
+    /// A token that can only be a would-be value of the bare
+    /// `--qnum` — here a junk word — is dropped together with it,
+    /// for parity with the `=` spelling, where `--qnum=abc` is
+    /// dropped whole: as a surviving stray positional it is garbage
+    /// the engine does not need. (Real options are the exception;
+    /// see `rewrite_bare_qnum_does_not_swallow_next_option`.)
+    #[test]
+    fn rewrite_bare_qnum_drops_junk_value_token() {
+        let args = v(&["--qnum", "abc", "--filter-tcp=443"]);
+        let out = rewrite_args_for_nfqws2(args);
+        assert_eq!(out.queue_num, 200);
+        assert_eq!(out.args, v(&["--qnum=200", "--filter-tcp=443"]));
+    }
+
+    /// Boundary values of the space form: 0 and 65535 both fit a
+    /// u16 (and 0 is a queue nfqws2 accepts), so both are adopted
+    /// like any other parsable value.
+    #[test]
+    fn rewrite_space_form_qnum_adopts_boundary_values() {
+        for (token, want) in [("0", 0u16), ("65535", 65535u16)] {
+            let args = v(&["--qnum", token, "--filter-tcp=443"]);
+            let out = rewrite_args_for_nfqws2(args);
+            assert_eq!(out.queue_num, want);
+            assert_eq!(
+                out.args,
+                v(&[&format!("--qnum={}", want), "--filter-tcp=443"])
+            );
+        }
+    }
+
+    /// 65536 does not fit a u16 queue number: the space form is
+    /// sanitized like the `=` form — both tokens dropped, default
+    /// pinned, and no stray `65536` positional reaches the engine.
+    #[test]
+    fn rewrite_space_form_qnum_out_of_range_is_dropped() {
+        let args = v(&["--qnum", "65536", "--filter-tcp=443"]);
+        let out = rewrite_args_for_nfqws2(args);
+        assert_eq!(out.queue_num, 200);
+        assert_eq!(out.args, v(&["--qnum=200", "--filter-tcp=443"]));
+    }
+
+    /// A negative value in the space form is dropped together with
+    /// the bare `--qnum`. Passed through on its own, `-1` is read
+    /// by nfqws2's getopt as bundled short options and aborts the
+    /// start (exit 1, "unrecognized option: 1", verified against
+    /// the pinned binary) — while `--qnum=-1` is dropped whole by
+    /// the `=` branch. Exactly one queue survives: the default.
+    #[test]
+    fn rewrite_bare_qnum_drops_negative_value() {
+        for token in ["-1", "-300"] {
+            let args = v(&["--qnum", token, "--filter-tcp=443"]);
+            let out = rewrite_args_for_nfqws2(args);
+            assert_eq!(out.queue_num, 200);
+            assert_eq!(out.args, v(&["--qnum=200", "--filter-tcp=443"]));
+            assert!(!out.args.iter().any(|a| a == token));
+        }
+    }
+
+    /// A bare `--qnum` directly in front of the `=` form does not
+    /// eat it: `--qnum=300` starts with a dash and a letter, so it
+    /// is a real option, processed on its own iteration — and
+    /// adopted.
+    #[test]
+    fn rewrite_bare_qnum_before_equals_form_lets_it_win() {
+        let args = v(&["--qnum", "--qnum=300", "--filter-tcp=443"]);
+        let out = rewrite_args_for_nfqws2(args);
+        assert_eq!(out.queue_num, 300);
+        assert_eq!(out.args, v(&["--qnum=300", "--filter-tcp=443"]));
+    }
+
+    /// A bare `--qnum` trailing an already accepted value has
+    /// nothing to adopt and nothing to eat: it is dropped, and the
+    /// accepted value stays the only queue.
+    #[test]
+    fn rewrite_bare_qnum_after_accepted_value_is_dropped() {
+        let args = v(&["--qnum=300", "--filter-tcp=443", "--qnum"]);
+        let out = rewrite_args_for_nfqws2(args);
+        assert_eq!(out.queue_num, 300);
+        assert_eq!(out.args, v(&["--qnum=300", "--filter-tcp=443"]));
+    }
+
+    /// An empty `=` value does not parse and does not count as
+    /// caller-supplied: the token is dropped and the default is
+    /// pinned.
+    #[test]
+    fn rewrite_empty_qnum_value_falls_back_to_default() {
+        let args = v(&["--qnum=", "--filter-tcp=443"]);
+        let out = rewrite_args_for_nfqws2(args);
+        assert_eq!(out.queue_num, 200);
+        assert_eq!(out.args, v(&["--qnum=200", "--filter-tcp=443"]));
+    }
+
+    /// First parsable wins across spellings: an unparsable `=` value
+    /// does not block a later space form, and neither a later `=`
+    /// duplicate nor a later space duplicate (whose value token is
+    /// consumed too) survives.
+    #[test]
+    fn rewrite_qnum_first_parsable_wins_across_spellings() {
+        let args = v(&[
+            "--qnum=oops",
+            "--qnum",
+            "300",
+            "--qnum=400",
+            "--qnum",
+            "500",
+            "--filter-tcp=443",
+        ]);
+        let out = rewrite_args_for_nfqws2(args);
+        assert_eq!(out.queue_num, 300);
+        assert_eq!(out.args, v(&["--qnum=300", "--filter-tcp=443"]));
+    }
+
+    /// A space-form duplicate after a kept `=` value loses together
+    /// with its value token: no second queue reaches nfqws2 (its
+    /// getopt would let the last one win, desyncing the rules).
+    #[test]
+    fn rewrite_space_duplicate_after_equals_form_is_dropped() {
+        let args = v(&["--qnum=300", "--qnum", "400", "--filter-tcp=443"]);
+        let out = rewrite_args_for_nfqws2(args);
+        assert_eq!(out.queue_num, 300);
+        assert_eq!(out.args, v(&["--qnum=300", "--filter-tcp=443"]));
     }
 
     #[test]
