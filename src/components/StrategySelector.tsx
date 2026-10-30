@@ -314,8 +314,12 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                 >
                   {/* Top Content: Title, Badges, Description, Filename */}
                   <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-start gap-2.5 min-w-0">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div
+                        className={`flex flex-1 items-start gap-2.5 ${
+                          isActive ? "min-w-[170px]" : "min-w-0"
+                        }`}
+                      >
                         <div
                           className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-control border ${
                             isActive
@@ -371,7 +375,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                       </div>
 
                       {/* Status indicator on top right */}
-                      <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                      <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                         {isActive && (
                           <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
                             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -412,11 +416,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
-                      ) : (
-                        <span className="text-[10px] text-ink4 font-mono truncate min-w-0 bg-raise border t-divider px-1.5 py-0.5 rounded-chip" title={strat.id}>
-                          {strat.id}
-                        </span>
-                      )}
+                      ) : null}
                     </div>
 
                     {/* Right: 1-Click Action Buttons */}
