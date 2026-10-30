@@ -169,6 +169,8 @@ export interface AppSettings {
   watchdog_enabled?: boolean;
   /** Watchdog check interval in minutes. */
   watchdog_interval_minutes?: number;
+  /** Auto-hostlist: the engine learns newly blocked domains itself. */
+  auto_hostlist_enabled?: boolean;
   /** UI accent color override ("#RRGGBB"); null/undefined = built-in violet. */
   accent_color?: string | null;
   /** Active camouflage transport id (`null`/`undefined` = direct launch). */

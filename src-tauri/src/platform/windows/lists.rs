@@ -211,6 +211,26 @@ pub fn remove_domain_from_list(filename: &str, raw_domain: &str) -> Result<Vec<S
     read_domains(filename)
 }
 
+/// Removes a domain from the auto-hostlist AND records it in
+/// list-exclude-user.txt ("never learn this again"). This pair is
+/// the only supported way to delete from list-auto.txt (design
+/// §4): a bare removal would be undone by the engine's failure
+/// detector within minutes, while an exclude entry is checked
+/// before both the include lists and the detector, so the domain
+/// stays out for good. Returns the remaining auto-list entries.
+// GUI-binary only; the svc binary links this module but never
+// calls it (same arrangement as the other list editors).
+#[allow(dead_code)]
+pub fn remove_auto_domain(raw_domain: &str) -> Result<Vec<String>, String> {
+    let domain = sanitize_domain(raw_domain)
+        .ok_or_else(|| "Некорректный домен (например, google.com или rutracker.org)".to_string())?;
+    let remaining = remove_domain_from_list("list-auto.txt", &domain)?;
+    let excluded = read_domains("list-exclude-user.txt")?;
+    if !excluded.iter().any(|d| d.eq_ignore_ascii_case(&domain)) {
+        add_domain_to_list("list-exclude-user.txt", &domain)?;
+    }
+    Ok(remaining)
+}
 
 /// Flushes Windows DNS client cache via ipconfig /flushdns.
 pub fn flush_dns_cache() -> Result<String, String> {

@@ -257,6 +257,8 @@ export const uk: Translations = {
     tip: "Підказка: після додавання нового сайту рекомендується очистити кеш DNS або перезапустити браузер.",
     loadError: "Не вдалося завантажити список файлів: ",
     loadingDomains: "Завантаження доменів...",
+    autoListNote:
+      "Сайти, які програма додала сама. Видалення сайту звідси додасть його до винятків, щоб програма не додавала його знову.",
 
   },
   splitTunnel: {
@@ -439,6 +441,13 @@ export const uk: Translations = {
     watchdogBtnDisable: "Вимкнути сторожа",
     watchdogIntervalLabel: "Перевіряти кожні",
     watchdogMinutes: "хв",
+    autoHostlistTitle: "Сама додає заблоковані сайти",
+    autoHostlistDesc:
+      "Програма помічає сайти, які перестали відкриватися, і сама додає їх до обходу. Зібрані сайти лежать у вкладці «Домени» у файлі list-auto.txt.",
+    autoHostlistOn: "Увімкнено",
+    autoHostlistOff: "Вимкнено",
+    autoHostlistBtnEnable: "Увімкнути авто-додавання",
+    autoHostlistBtnDisable: "Вимкнути авто-додавання",
     accentTitle: "Колір застосунку",
     accentDesc:
       "Змінює колір усього застосунку: фони, скло та акценти. Застосунок лишається темним.",

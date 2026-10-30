@@ -125,10 +125,17 @@ export const ListsView: React.FC = React.memo(() => {
 
   const handleRemoveDomain = async (domainToRemove: string) => {
     try {
-      await invoke("remove_domain_from_list", {
-        filename: selectedFile,
-        domain: domainToRemove,
-      });
+      if (selectedFile === "list-auto.txt") {
+        // Pair operation (design §4): removal from the auto list
+        // also pins the domain into list-exclude-user.txt, or the
+        // engine would simply learn it again.
+        await invoke("remove_auto_domain", { domain: domainToRemove });
+      } else {
+        await invoke("remove_domain_from_list", {
+          filename: selectedFile,
+          domain: domainToRemove,
+        });
+      }
       setFeedback({ type: "success", text: `${t.domainManager.domainRemoved}: ${domainToRemove}` });
       await loadDomains(selectedFile);
     } catch (err) {
@@ -271,6 +278,13 @@ export const ListsView: React.FC = React.memo(() => {
             );
           })}
         </div>
+
+        {/* Auto-list explainer: shown only for the learned list */}
+        {selectedFile === "list-auto.txt" && (
+          <div className="border-b t-divider bg-accent-wash/40 px-4 py-2.5">
+            <p className="text-[11px] leading-relaxed text-ink3">{t.domainManager.autoListNote}</p>
+          </div>
+        )}
 
         {/* Search & Add Domain Bar */}
         <div className="p-4 border-b t-divider grid grid-cols-1 md:grid-cols-2 gap-3 bg-cardin/20">

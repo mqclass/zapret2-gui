@@ -330,6 +330,14 @@ pub async fn remove_domain_from_list(filename: String, domain: String) -> Result
     crate::platform::lists::remove_domain_from_list(&filename, &domain)
 }
 
+/// Removes a domain from the auto-hostlist (list-auto.txt) and pins
+/// it into list-exclude-user.txt, so the engine never learns it
+/// again (design §4). Returns the remaining auto-list entries.
+#[tauri::command]
+pub async fn remove_auto_domain(domain: String) -> Result<Vec<String>, String> {
+    crate::platform::lists::remove_auto_domain(&domain)
+}
+
 /// Flushes Windows DNS client cache via ipconfig /flushdns.
 #[tauri::command]
 pub async fn flush_dns_cache() -> Result<String, String> {
@@ -539,6 +547,17 @@ pub async fn set_notifications_enabled(enable: bool) -> Result<bool, String> {
 #[tauri::command]
 pub async fn set_watchdog_enabled(enable: bool) -> Result<bool, String> {
     crate::platform::settings::update_settings(|s| s.watchdog_enabled = enable)
+        .map_err(|e| e.to_string())?;
+    Ok(enable)
+}
+
+/// Toggles the auto-hostlist: the engine learns newly blocked
+/// domains into list-auto.txt by itself. The setting is consumed
+/// at engine start (it shapes the argument list), so the frontend
+/// restarts a running engine after flipping it.
+#[tauri::command]
+pub async fn set_auto_hostlist_enabled(enable: bool) -> Result<bool, String> {
+    crate::platform::settings::update_settings(|s| s.auto_hostlist_enabled = enable)
         .map_err(|e| e.to_string())?;
     Ok(enable)
 }
@@ -1154,7 +1173,27 @@ pub async fn benchmark_youtube_speed() -> Result<crate::engine::speedtest::Speed
 /// Updates domain lists and ipsets from remote repository.
 #[tauri::command]
 pub async fn sync_remote_lists() -> Result<crate::platform::lists::ListSyncReport, String> {
-    crate::platform::lists::update_remote_lists().await
+    let report = crate::platform::lists::update_remote_lists().await?;
+    // Auto-hostlist hygiene (design §4): freshly updated static
+    // lists graduate learned domains out of list-auto.txt. The
+    // engine-start cleanup point is race-free (the engine is not
+    // running yet); this sync point is only best-effort — with the
+    // engine running, an append landing between the cleanup's read
+    // and rename is lost. Design §4 accepts that price: one lost
+    // append costs one re-learn of a single domain. Best effort
+    // also in that a cleanup failure must not fail the sync the
+    // user asked for.
+    if let Ok(lists_dir) = crate::platform::lists::get_lists_dir() {
+        let bundle_lists = crate::platform::process::resolve_binaries()
+            .map(|b| b.bin_dir.join("lists"))
+            .unwrap_or_default();
+        if let Err(e) =
+            crate::engine::supervisor::cleanup_auto_hostlist(&lists_dir, &bundle_lists)
+        {
+            eprintln!("sync_remote_lists: auto-hostlist cleanup failed: {}", e);
+        }
+    }
+    Ok(report)
 }
 
 /// Checks GitHub for a newer release and compares it with the running version.

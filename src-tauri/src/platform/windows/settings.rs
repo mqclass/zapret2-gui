@@ -157,6 +157,13 @@ pub struct AppSettings {
     /// Watchdog check interval in minutes.
     #[serde(default = "default_watchdog_interval")]
     pub watchdog_interval_minutes: u64,
+    /// Auto-hostlist: the engine itself learns newly blocked domains
+    /// into lists/list-auto.txt via the core `--hostlist-auto` on the
+    /// gated strategy sections, so a site blocked tomorrow starts
+    /// getting desync without a manual list edit. On by default; off
+    /// restores the pre-feature argument lists byte for byte.
+    #[serde(default = "default_true")]
+    pub auto_hostlist_enabled: bool,
     /// UI accent color override as a hex string ("#RRGGBB"). None means the
     /// built-in violet accent from index.css. Only the accent family is
     /// overridden; the dark glass base theme is never changed.
@@ -215,6 +222,7 @@ impl Default for AppSettings {
             smart_hosts_entry_count: 0,
             watchdog_enabled: true,
             watchdog_interval_minutes: 15,
+            auto_hostlist_enabled: true,
             accent_color: None,
         }
     }

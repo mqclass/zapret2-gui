@@ -584,6 +584,10 @@ fn restore_user_data(backup: &Path, install: &Path) -> Result<(), String> {
     }
 
     // 2. Personal domain additions follow the `*-user.txt` convention.
+    //    The learned auto-hostlist (list-auto.txt) is user data in the
+    //    same sense and is carried over too: without it an update
+    //    would forget everything the engine learned about the user's
+    //    provider (auto-hostlist design §9 step 3).
     let backup_lists = backup.join("lists");
     if backup_lists.is_dir() {
         let install_lists = install.join("lists");
@@ -592,7 +596,9 @@ fn restore_user_data(backup: &Path, install: &Path) -> Result<(), String> {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
-            if name_str.ends_with("-user.txt") && entry.path().is_file() {
+            if (name_str.ends_with("-user.txt") || name_str == "list-auto.txt")
+                && entry.path().is_file()
+            {
                 let dst = install_lists.join(&name);
                 if let Some(parent) = dst.parent() {
                     let _ = fs::create_dir_all(parent);

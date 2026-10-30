@@ -254,7 +254,7 @@ export interface Translations {
     tip: string;
     loadError: string;
     loadingDomains: string;
-
+    autoListNote: string;
   };
   splitTunnel: {
     title: string;
@@ -433,6 +433,12 @@ export interface Translations {
     watchdogBtnDisable: string;
     watchdogIntervalLabel: string;
     watchdogMinutes: string;
+    autoHostlistTitle: string;
+    autoHostlistDesc: string;
+    autoHostlistOn: string;
+    autoHostlistOff: string;
+    autoHostlistBtnEnable: string;
+    autoHostlistBtnDisable: string;
     accentTitle: string;
     accentDesc: string;
     accentCustom: string;

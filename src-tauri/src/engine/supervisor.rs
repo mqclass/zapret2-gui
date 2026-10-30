@@ -35,6 +35,167 @@ use crate::platform::process::{
 /// Maximum log capacity in RAM to ensure memory consumption stays well below 20 MB.
 const MAX_LOG_CAPACITY: usize = 1_000;
 
+/// Auto-hostlist file name inside the user lists directory. One file
+/// shared by every strategy: what was learned about the user's
+/// provider stays learned across strategy switches.
+pub(crate) const AUTO_HOSTLIST_FILE: &str = "list-auto.txt";
+
+/// Ceiling for the auto-hostlist, enforced by the supervisor cleanup
+/// (design §4): past this many entries the oldest (head of file —
+/// the engine appends at the end) are dropped.
+pub(crate) const AUTO_HOSTLIST_CEILING: usize = 2_000;
+
+/// Header written into a freshly created list-auto.txt. Comment lines
+/// are ignored by the engine's list loader and by the lists UI; they
+/// explain the file to a human who opens the folder.
+#[cfg(windows)]
+pub(crate) const AUTO_HOSTLIST_HEADER: &str = "# zapret2-gui: сайты, которые программа сама добавила в обход.\r\n# Движок дописывает сюда домены, похожие на заблокированные, чтобы дальше открывать их через обход.\r\n# Строки можно удалять: удалённый отсюда домен программа заносит в исключения и больше не добавляет.\r\n";
+#[cfg(not(windows))]
+pub(crate) const AUTO_HOSTLIST_HEADER: &str = "# zapret2-gui: сайты, которые программа сама добавила в обход.\n# Движок дописывает сюда домены, похожие на заблокированные, чтобы дальше открывать их через обход.\n# Строки можно удалять: удалённый отсюда домен программа заносит в исключения и больше не добавляет.\n";
+
+/// List paths for the auto-hostlist gating of the Lua branch
+/// (branch 4), resolved by the caller exactly like the static lists
+/// it mirrors; `auto_path` is the one absolute path (the engine
+/// writes to the file, so it must land in the user lists directory,
+/// never in the bundled bin/lists copy).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AutoLists {
+    pub general: String,
+    pub general_user: String,
+    pub exclude: String,
+    pub exclude_user: String,
+    pub auto_path: String,
+}
+
+/// Absolute, slash-normalized path of the auto-hostlist inside the
+/// user lists directory — the form builders pass to `--hostlist-auto`.
+pub(crate) fn auto_hostlist_path(lists_dir: &Path) -> String {
+    lists_dir
+        .join(AUTO_HOSTLIST_FILE)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// Reads a hostlist file into a normalized domain set (lowercase,
+/// `^` prefix stripped, comments and blanks skipped). A missing or
+/// unreadable file yields an empty set: coverage checks must never
+/// fail the cleanup that uses them.
+fn read_list_domain_set(path: &Path) -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    if let Ok(content) = std::fs::read_to_string(path) {
+        for line in content.lines() {
+            let t = line.trim();
+            if t.is_empty() || t.starts_with('#') {
+                continue;
+            }
+            set.insert(t.trim_start_matches('^').to_lowercase());
+        }
+    }
+    set
+}
+
+/// True when `entry` adds nothing over `set`: the set holds the
+/// entry itself or any of its parent domains (the engine matches
+/// subdomains automatically, so a static `example.com` already
+/// covers a learned `cdn.example.com`).
+fn domain_covered_by(entry: &str, set: &std::collections::HashSet<String>) -> bool {
+    let mut candidate = entry;
+    loop {
+        if set.contains(candidate) {
+            return true;
+        }
+        match candidate.split_once('.') {
+            Some((_, rest)) if rest.contains('.') => candidate = rest,
+            _ => return false,
+        }
+    }
+}
+
+/// Supervisor-side hygiene for list-auto.txt (design §4): dedupe,
+/// drop entries already covered by the static include lists or by
+/// the exclude lists (graduation — once upstream ships a domain in
+/// list-general/list-google the learned copy is dead weight), and
+/// enforce the FIFO ceiling. Runs only where the engine is stopped
+/// or where a lost fresh append costs at most one re-learn (engine
+/// start, after a remote-lists sync); the file is never rewritten
+/// while nothing changed, so a no-op cleanup does not even bump
+/// the mtime the engine watches for list reloads.
+pub(crate) fn cleanup_auto_hostlist(
+    lists_dir: &Path,
+    bundle_lists_dir: &Path,
+) -> Result<(), String> {
+    let auto_path = lists_dir.join(AUTO_HOSTLIST_FILE);
+    if !auto_path.is_file() {
+        return Ok(());
+    }
+    let content = std::fs::read_to_string(&auto_path)
+        .map_err(|e| format!("cannot read {}: {}", auto_path.display(), e))?;
+
+    let mut comments: Vec<String> = Vec::new();
+    let mut entries: Vec<String> = Vec::new();
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with('#') {
+            comments.push(t.to_string());
+        } else if !t.is_empty() {
+            entries.push(t.to_string());
+        }
+    }
+
+    // Coverage: the union of the static include lists and the
+    // exclude lists, from both the user lists directory and the
+    // bundled bin/lists copies (builders prefer the bundle, so a
+    // domain shipped there has graduated too).
+    let mut covered = std::collections::HashSet::new();
+    for dir in [lists_dir, bundle_lists_dir] {
+        for file in [
+            "list-general.txt",
+            "list-general-user.txt",
+            "list-google.txt",
+            "list-exclude.txt",
+            "list-exclude-user.txt",
+        ] {
+            covered.extend(read_list_domain_set(&dir.join(file)));
+        }
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    let mut kept: Vec<String> = Vec::new();
+    for entry in &entries {
+        let key = entry.trim_start_matches('^').to_lowercase();
+        if !seen.insert(key.clone()) {
+            continue; // exact duplicate (modulo case/^)
+        }
+        if domain_covered_by(&key, &covered) {
+            continue; // graduated into statics, or excluded by the user
+        }
+        kept.push(entry.clone());
+    }
+    // FIFO ceiling: the engine appends at the end, so the tail of
+    // the file is the newest learning; drop from the head.
+    if kept.len() > AUTO_HOSTLIST_CEILING {
+        kept.drain(..kept.len() - AUTO_HOSTLIST_CEILING);
+    }
+
+    if kept == entries {
+        return Ok(()); // nothing to do — leave the file untouched
+    }
+
+    let eol = if cfg!(windows) { "\r\n" } else { "\n" };
+    let mut out = String::new();
+    for comment in &comments {
+        out.push_str(comment);
+        out.push_str(eol);
+    }
+    for entry in &kept {
+        out.push_str(entry);
+        out.push_str(eol);
+    }
+    crate::platform::settings::atomic_write(&auto_path, out.as_bytes())
+        .map_err(|e| format!("cannot rewrite {}: {}", auto_path.display(), e))?;
+    Ok(())
+}
+
 /// Micro-batching flush interval for frontend IPC (150 ms).
 const BATCH_FLUSH_INTERVAL_MS: u64 = 150;
 
@@ -1368,11 +1529,36 @@ impl Supervisor {
 
     fn build_flowseal_args(preset_id: &str, bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
         let settings = crate::platform::settings::load_settings();
-        let is_game = settings.split_tunnel_mode == crate::platform::settings::SplitTunnelMode::GameMode;
-        let is_strict = settings.split_tunnel_mode == crate::platform::settings::SplitTunnelMode::Strict;
+        let auto = if settings.auto_hostlist_enabled {
+            Some(auto_hostlist_path(lists_dir))
+        } else {
+            None
+        };
+        Self::build_flowseal_args_inner(
+            preset_id,
+            bin_dir,
+            lists_dir,
+            settings.split_tunnel_mode,
+            &settings.game_filter_tcp,
+            &settings.game_filter_udp,
+            auto.as_deref(),
+        )
+    }
 
-        let game_tcp = Self::sanitize_port_spec(&settings.game_filter_tcp);
-        let game_udp = Self::sanitize_port_spec(&settings.game_filter_udp);
+    fn build_flowseal_args_inner(
+        preset_id: &str,
+        bin_dir: &Path,
+        lists_dir: &Path,
+        mode: crate::platform::settings::SplitTunnelMode,
+        game_filter_tcp: &str,
+        game_filter_udp: &str,
+        auto: Option<&str>,
+    ) -> Vec<String> {
+        let is_game = mode == crate::platform::settings::SplitTunnelMode::GameMode;
+        let is_strict = mode == crate::platform::settings::SplitTunnelMode::Strict;
+
+        let game_tcp = Self::sanitize_port_spec(game_filter_tcp);
+        let game_udp = Self::sanitize_port_spec(game_filter_udp);
 
         let wf_tcp = if is_game {
             format!("--wf-tcp=80,443,2053,2083,2087,2096,8443,{}", game_tcp)
@@ -1798,11 +1984,21 @@ impl Supervisor {
             ],
         };
 
+        // Auto-hostlist (design §3): into every TCP section gated
+        // on list-general, after its exclude lines. Runs before the
+        // game extension (its sections are ipset-based — out of
+        // scope) and before the STRICT filter below, which drops
+        // general blocks whole, auto lines included: STRICT stays
+        // free of auto by construction, as the design requires.
+        if let Some(auto_path) = auto {
+            args = Self::inject_auto_hostlist(args, auto_path);
+        }
+
         // 1. If Game Mode is active, attach game port filtering and ACTIVE_GAME_UDP desync
         // SECURITY (L-4): game port specs come from user settings — sanitize them
         // like everywhere else so a malformed value cannot break engine startup.
-        let game_tcp = Self::sanitize_port_spec(&settings.game_filter_tcp);
-        let game_udp = Self::sanitize_port_spec(&settings.game_filter_udp);
+        let game_tcp = Self::sanitize_port_spec(game_filter_tcp);
+        let game_udp = Self::sanitize_port_spec(game_filter_udp);
         if is_game {
             args.extend([
                 "--new".into(),
@@ -1880,9 +2076,23 @@ impl Supervisor {
     }
 
     /// Builds zapret2 Ultimate configuration for Russia on winws2 v2.
-    /// Builds zapret2 Ultimate configuration for Russia on winws2 v2.
-    fn build_zapret2_ru_ultimate_args(_bin_dir: &Path, _lists_dir: &Path) -> Vec<String> {
-        vec![
+    /// Thin wrapper: reads the auto-hostlist setting and resolves
+    /// the absolute auto path from the user lists directory (the
+    /// parameter this builder historically ignored); the argument
+    /// list itself is built by the pure inner function so tests can
+    /// pin both states.
+    fn build_zapret2_ru_ultimate_args(_bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
+        let settings = crate::platform::settings::load_settings();
+        let auto = if settings.auto_hostlist_enabled {
+            Some(auto_hostlist_path(lists_dir))
+        } else {
+            None
+        };
+        Self::build_ultimate_args_with_auto(auto.as_deref())
+    }
+
+    fn build_ultimate_args_with_auto(auto: Option<&str>) -> Vec<String> {
+        let mut args = vec![
             "--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into(),
             "--wf-udp-out=443,19294-19344,50000-65535".into(),
 
@@ -1959,7 +2169,127 @@ impl Supervisor {
             "--out-range=n1-n4".into(),
             "--lua-desync=fake:blob=tls_max_ru:repeats=8:tcp_ts=1000".into(),
             "--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max_ru:tcp_ts=1000".into(),
-        ]
+        ];
+
+        if let Some(auto_path) = auto {
+            // Auto-hostlist (design §3): only the two general
+            // sections learn — youtube_4k/discord_media are gated on
+            // their own narrow sets and must not apply their
+            // specialized handling to random learned domains, and
+            // ipset_fallback is an IP filter, not a domain one. The
+            // auto path is the only absolute path in this builder
+            // (everything else is "lists/..." relative to the engine
+            // cwd): the engine WRITES to this file, so it must land
+            // in the user lists directory. At the same time — and
+            // only with the setting on — the general sections gain
+            // the exclude pairs they historically lacked, because
+            // the invariant "exclude always wins" must hold in every
+            // section that carries auto: general_https gets the user
+            // exclude next to its static one; general_http gets the
+            // whole pair (its include side is NOT extended —
+            // list-general-user stays out of this section, as
+            // before). With the setting off the argument list above
+            // is byte for byte the historical one.
+            Self::insert_after_in_section(
+                &mut args,
+                "general_https",
+                "--hostlist-exclude=lists/list-exclude.txt",
+                &[
+                    "--hostlist-exclude=lists/list-exclude-user.txt".to_string(),
+                    format!("--hostlist-auto={}", auto_path),
+                ],
+            );
+            Self::insert_after_in_section(
+                &mut args,
+                "general_http",
+                "--hostlist=lists/list-general.txt",
+                &[
+                    "--hostlist-exclude=lists/list-exclude.txt".to_string(),
+                    "--hostlist-exclude=lists/list-exclude-user.txt".to_string(),
+                    format!("--hostlist-auto={}", auto_path),
+                ],
+            );
+        }
+
+        args
+    }
+
+    /// Inserts `new_lines` right after `anchor` inside the named
+    /// `--new=<section>` span of an argument list. A missing section
+    /// or anchor leaves the list untouched (the builders' tests pin
+    /// the shapes this is used with).
+    fn insert_after_in_section(
+        args: &mut Vec<String>,
+        section: &str,
+        anchor: &str,
+        new_lines: &[String],
+    ) {
+        let marker = format!("--new={}", section);
+        let Some(start) = args.iter().position(|a| a == &marker) else {
+            return;
+        };
+        let end = args
+            .iter()
+            .skip(start + 1)
+            .position(|a| a.starts_with("--new="))
+            .map(|p| start + 1 + p)
+            .unwrap_or(args.len());
+        if let Some(rel) = args[start..end].iter().position(|a| a == anchor) {
+            let at = start + rel + 1;
+            for (i, line) in new_lines.iter().enumerate() {
+                args.insert(at + i, line.clone());
+            }
+        }
+    }
+
+    /// Inserts `--hostlist-auto=<auto_path>` into every section of
+    /// a Flowseal argument list that is (a) TCP (`--filter-tcp`)
+    /// and (b) gated on list-general.txt, right after the section's
+    /// last `--hostlist-exclude` line (design §3). UDP sections
+    /// carrying list-general (the QUIC sections at the head of each
+    /// preset) are deliberately skipped: the UDP failure detector
+    /// is out of phase-1 scope, and google-only / ipset-only /
+    /// domains-only sections are not general sections.
+    fn inject_auto_hostlist(args: Vec<String>, auto_path: &str) -> Vec<String> {
+        let auto_arg = format!("--hostlist-auto={}", auto_path);
+        let mut out: Vec<String> = Vec::with_capacity(args.len() + 4);
+        let mut block: Vec<String> = Vec::new();
+        for arg in args {
+            if arg == "--new" {
+                Self::inject_auto_into_block(&mut block, &auto_arg);
+                out.append(&mut block);
+                out.push(arg);
+            } else {
+                block.push(arg);
+            }
+        }
+        Self::inject_auto_into_block(&mut block, &auto_arg);
+        out.append(&mut block);
+        out
+    }
+
+    fn inject_auto_into_block(block: &mut Vec<String>, auto_arg: &str) {
+        let is_tcp = block.iter().any(|a| a.starts_with("--filter-tcp"));
+        let has_general = block.iter().any(|a| {
+            a.strip_prefix("--hostlist=")
+                .map_or(false, |v| v.rsplit('/').next() == Some("list-general.txt"))
+        });
+        if !is_tcp || !has_general {
+            return;
+        }
+        let insert_at = block
+            .iter()
+            .rposition(|a| a.starts_with("--hostlist-exclude="))
+            .map(|i| i + 1)
+            .or_else(|| {
+                block
+                    .iter()
+                    .rposition(|a| a.starts_with("--hostlist="))
+                    .map(|i| i + 1)
+            });
+        if let Some(at) = insert_at {
+            block.insert(at, auto_arg.to_string());
+        }
     }
 
     /// Builds command arguments based on selected strategy or custom parameters.
@@ -1969,6 +2299,25 @@ impl Supervisor {
         strategy_id: Option<&str>,
         custom_args: Option<Vec<String>>,
     ) -> Result<Vec<String>, ProcessError> {
+        // Auto-hostlist lifecycle (design §3/§4): every start path —
+        // preset or one-off custom args — funnels through here, so
+        // the ensure and the cleanup live here and not only in
+        // resolve_strategy_args. The auto file must exist before any
+        // spawn that could pass --hostlist-auto, and this point of
+        // start_locked is guaranteed to run with the previous engine
+        // already stopped, which is what makes the cleanup race-free.
+        let lists_dir = binaries
+            .lists_dir
+            .clone()
+            .unwrap_or_else(|| binaries.bin_dir.join("../lists"));
+        Self::ensure_user_lists_exist(&lists_dir);
+        if let Err(e) = cleanup_auto_hostlist(&lists_dir, &binaries.bin_dir.join("lists")) {
+            self.log(
+                "warn",
+                &format!("Auto-hostlist cleanup failed, continuing start: {}", e),
+            );
+        }
+
         let mut final_args = if let Some(args) = custom_args {
             if !args.is_empty() {
                 args
@@ -2119,6 +2468,22 @@ impl Supervisor {
         let game_tcp = Self::sanitize_port_spec(&settings.game_filter_tcp);
         let game_udp = Self::sanitize_port_spec(&settings.game_filter_udp);
 
+        // Auto-hostlist paths (design §3): the static lists resolve
+        // through the same l() as everywhere else; the auto path is
+        // absolute in the user lists directory — the engine writes
+        // to it, so the bundled bin/lists copy must never be used.
+        let auto_lists = if settings.auto_hostlist_enabled {
+            Some(AutoLists {
+                general: l("list-general.txt"),
+                general_user: l("list-general-user.txt"),
+                exclude: l("list-exclude.txt"),
+                exclude_user: l("list-exclude-user.txt"),
+                auto_path: auto_hostlist_path(&lists_dir),
+            })
+        } else {
+            None
+        };
+
         Ok(Self::build_lua_preset_args(
             settings.split_tunnel_mode,
             &game_tcp,
@@ -2127,6 +2492,7 @@ impl Supervisor {
             preset_init.as_deref(),
             &l("list-google.txt"),
             &l("ipset-all.txt"),
+            auto_lists.as_ref(),
         ))
     }
 
@@ -2153,6 +2519,13 @@ impl Supervisor {
     /// specs. FULL reproduces the historical branch-4 list byte for
     /// byte; STRICT and GAME deviate from it exactly as documented on
     /// each block below.
+    ///
+    /// `auto` (design §3): when Some, the FULL/GAME main TCP section
+    /// gains hostlist gating plus `--hostlist-auto` and stops being
+    /// "desync everything captured"; when None the section stays
+    /// ungated and the list is byte for byte the historical one.
+    /// STRICT never takes the gate (its sections are narrow by
+    /// construction), so the parameter is ignored there.
     fn build_lua_preset_args(
         mode: crate::platform::settings::SplitTunnelMode,
         game_tcp: &str,
@@ -2161,6 +2534,7 @@ impl Supervisor {
         preset_init: Option<&str>,
         google_list: &str,
         ipset_all: &str,
+        auto: Option<&AutoLists>,
     ) -> Vec<String> {
         use crate::platform::settings::SplitTunnelMode;
         let is_strict = mode == SplitTunnelMode::Strict;
@@ -2237,8 +2611,26 @@ impl Supervisor {
             args.push(multisplit.into());
         } else {
             // FULL (and the GAME base): the historical ungated TCP
-            // section, byte for byte.
+            // section, byte for byte when auto is None.
             args.push("--filter-tcp=80,443,2053,2083,2087,2096,8443".into());
+            if let Some(auto) = auto {
+                // Auto-hostlist gating (design §3), right after the
+                // filter, before the payload lines: listed hosts get
+                // desync immediately, unlisted ones go through the
+                // engine's failure detector and are learned into the
+                // auto file. list-google is part of the gate on
+                // purpose, not an option: youtube/googlevideo live
+                // only in list-google, and without it a YouTube
+                // preset would route its own traffic through the
+                // failure detector (and the auto-tune probes with
+                // it) instead of the immediate include.
+                args.push(format!("--hostlist={}", auto.general));
+                args.push(format!("--hostlist={}", auto.general_user));
+                args.push(format!("--hostlist={}", google_list));
+                args.push(format!("--hostlist-exclude={}", auto.exclude));
+                args.push(format!("--hostlist-exclude={}", auto.exclude_user));
+                args.push(format!("--hostlist-auto={}", auto.auto_path));
+            }
             if let Some(init) = lib_init {
                 args.push(init.into());
             }
@@ -2323,6 +2715,18 @@ impl Supervisor {
                 let _ = std::fs::write(&file_path, default_content);
             }
         }
+        // Auto-hostlist (design §3, critical invariant): the file
+        // must exist before any engine start that passes
+        // --hostlist-auto. Plain hostlists are fatal to the engine
+        // when missing ("failed to register hostlist" on the pinned
+        // binary), and the Windows builds' behavior for a missing
+        // auto file is not something to discover in production, so
+        // the app creates the file itself — empty apart from the
+        // explanatory header — and never overwrites an existing one.
+        let auto_path = lists_dir.join(AUTO_HOSTLIST_FILE);
+        if !auto_path.exists() {
+            let _ = std::fs::write(&auto_path, AUTO_HOSTLIST_HEADER);
+        }
     }
 
     fn emit_state_change(&self, state: SupervisorState) {
@@ -2404,6 +2808,7 @@ mod tests {
             Some("--lua-init=@zapret-yt4k.lua"),
             "lists/list-google.txt",
             "lists/ipset-all.txt",
+            None,
         )
     }
 
@@ -2601,6 +3006,498 @@ mod tests {
             .position(|a| a == "--new=game_tcp")
             .expect("game_tcp present");
         assert!(game_idx > quic_idx);
+    }
+
+    // ---- Auto-hostlist (design: AUTO-HOSTLIST-DESIGN-DRAFT) ----
+
+    fn lua_test_auto() -> AutoLists {
+        AutoLists {
+            general: "lists/list-general.txt".into(),
+            general_user: "lists/list-general-user.txt".into(),
+            exclude: "lists/list-exclude.txt".into(),
+            exclude_user: "lists/list-exclude-user.txt".into(),
+            auto_path: "/user/lists/list-auto.txt".into(),
+        }
+    }
+
+    fn lua_args_with_auto(
+        mode: crate::platform::settings::SplitTunnelMode,
+    ) -> Vec<String> {
+        let auto = lua_test_auto();
+        Supervisor::build_lua_preset_args(
+            mode,
+            "1024-65535",
+            "1024-65535",
+            Some("--lua-init=@zapret-lib.lua"),
+            Some("--lua-init=@zapret-yt4k.lua"),
+            "lists/list-google.txt",
+            "lists/ipset-all.txt",
+            Some(&auto),
+        )
+    }
+
+    #[test]
+    fn test_lua_full_auto_gates_main_section_in_design_order() {
+        use crate::platform::settings::SplitTunnelMode;
+        let with_auto = lua_args_with_auto(SplitTunnelMode::Full);
+        let without = lua_test_args(SplitTunnelMode::Full);
+
+        // The gate sits right after the main TCP filter, before the
+        // lua-init and payload lines, in the design's exact order.
+        let filter_idx = with_auto
+            .iter()
+            .position(|a| a == "--filter-tcp=80,443,2053,2083,2087,2096,8443")
+            .expect("main filter present");
+        let gate: Vec<&str> = [
+            "--hostlist=lists/list-general.txt",
+            "--hostlist=lists/list-general-user.txt",
+            "--hostlist=lists/list-google.txt",
+            "--hostlist-exclude=lists/list-exclude.txt",
+            "--hostlist-exclude=lists/list-exclude-user.txt",
+            "--hostlist-auto=/user/lists/list-auto.txt",
+        ]
+        .to_vec();
+        for (i, want) in gate.iter().enumerate() {
+            assert_eq!(&with_auto[filter_idx + 1 + i], want, "gate line {} misplaced", i);
+        }
+
+        // Removing the six gate lines reproduces the historical
+        // FULL list byte for byte: auto changes nothing else.
+        let stripped: Vec<String> = with_auto
+            .iter()
+            .filter(|a| !gate.contains(&a.as_str()))
+            .cloned()
+            .collect();
+        assert_eq!(stripped, without);
+    }
+
+    #[test]
+    fn test_lua_game_auto_gates_only_the_main_section() {
+        use crate::platform::settings::SplitTunnelMode;
+        let args = lua_args_with_auto(SplitTunnelMode::GameMode);
+        assert_eq!(
+            args.iter().filter(|a| a.starts_with("--hostlist-auto=")).count(),
+            1
+        );
+        // The game sections stay ipset-gated, no hostlists at all.
+        let game_idx = args
+            .iter()
+            .position(|a| a == "--new=game_tcp")
+            .expect("game_tcp present");
+        assert!(!args[game_idx..].iter().any(|a| a.starts_with("--hostlist")));
+    }
+
+    #[test]
+    fn test_lua_strict_ignores_auto() {
+        use crate::platform::settings::SplitTunnelMode;
+        // STRICT takes no gate by construction: Some and None are
+        // byte-identical.
+        assert_eq!(
+            lua_args_with_auto(SplitTunnelMode::Strict),
+            lua_test_args(SplitTunnelMode::Strict)
+        );
+    }
+
+    /// Splits an argument list into sections on a separator token
+    /// ("--new" for Flowseal, "--new=<name>" handling is the
+    /// caller's — flagship sections are checked by span instead).
+    fn split_on_new(args: &[String]) -> Vec<Vec<String>> {
+        let mut blocks: Vec<Vec<String>> = vec![Vec::new()];
+        for a in args {
+            if a == "--new" {
+                blocks.push(Vec::new());
+            } else {
+                blocks.last_mut().unwrap().push(a.clone());
+            }
+        }
+        blocks
+    }
+
+    fn flowseal_inner(
+        preset: &str,
+        mode: crate::platform::settings::SplitTunnelMode,
+        auto: Option<&str>,
+    ) -> Vec<String> {
+        Supervisor::build_flowseal_args_inner(
+            preset,
+            std::path::Path::new("bin-test"),
+            std::path::Path::new("lists-test"),
+            mode,
+            "1024-65535",
+            "1024-65535",
+            auto,
+        )
+    }
+
+    #[test]
+    fn test_flowseal_simple_fake_without_auto_matches_historical_args() {
+        use crate::platform::settings::SplitTunnelMode;
+        // OFF pin: byte for byte the list this preset built before
+        // the auto-hostlist feature (bin-test/lists-test stand in
+        // for bin_dir/lists_dir; neither exists, so b()/l() take
+        // their path forms deterministically).
+        let b = |f: &str| format!("bin-test/{}", f);
+        let l = |f: &str| format!("lists-test/{}", f);
+        let expected: Vec<String> = vec![
+            "--wf-tcp=80,443,2053,2083,2087,2096,8443".into(),
+            "--wf-udp=443,19294-19344,50000-65535".into(),
+            "--filter-udp=443".into(),
+            format!("--hostlist={}", l("list-general.txt")),
+            format!("--hostlist={}", l("list-general-user.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude-user.txt")),
+            format!("--ipset-exclude={}", l("ipset-exclude.txt")),
+            format!("--ipset-exclude={}", l("ipset-exclude-user.txt")),
+            "--dpi-desync=fake".into(),
+            "--dpi-desync-repeats=6".into(),
+            format!("--dpi-desync-fake-quic={}", b("quic_initial_www_google_com.bin")),
+            "--new".into(),
+            "--filter-udp=19294-19344,50000-65535".into(),
+            "--dpi-desync=fake".into(),
+            "--dpi-desync-any-protocol=1".into(),
+            "--dpi-desync-cutoff=n4".into(),
+            format!("--dpi-desync-fake-discord={}", b("ACTIVE_DISCORD_UDP.bin")),
+            format!("--dpi-desync-fake-stun={}", b("ACTIVE_DISCORD_UDP.bin")),
+            format!("--dpi-desync-fake-unknown-udp={}", b("ACTIVE_DISCORD_UDP.bin")),
+            "--dpi-desync-repeats=6".into(),
+            "--new".into(),
+            "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
+            format!("--hostlist-domains={}", Supervisor::DISCORD_MEDIA_DOMAINS),
+            "--dpi-desync=fake".into(),
+            "--dpi-desync-repeats=6".into(),
+            "--dpi-desync-fooling=ts".into(),
+            format!("--dpi-desync-fake-tls={}", b("tls_clienthello_www_google_com.bin")),
+            "--new".into(),
+            "--filter-tcp=443".into(),
+            format!("--hostlist={}", l("list-google.txt")),
+            "--ip-id=zero".into(),
+            "--dpi-desync=hostfakesplit".into(),
+            "--dpi-desync-fooling=ts".into(),
+            "--dpi-desync-hostfakesplit-mod=host=www.google.com".into(),
+            "--new".into(),
+            "--filter-tcp=80,443".into(),
+            format!("--hostlist={}", l("list-general.txt")),
+            format!("--hostlist={}", l("list-general-user.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude-user.txt")),
+            format!("--ipset-exclude={}", l("ipset-exclude.txt")),
+            format!("--ipset-exclude={}", l("ipset-exclude-user.txt")),
+            "--dpi-desync=fake".into(),
+            "--dpi-desync-repeats=6".into(),
+            "--dpi-desync-fooling=ts".into(),
+            format!("--dpi-desync-fake-tls={}", b("tls_clienthello_www_google_com.bin")),
+            format!("--dpi-desync-fake-http={}", b("tls_clienthello_max_ru.bin")),
+            "--new".into(),
+            "--filter-udp=443".into(),
+            format!("--ipset={}", l("ipset-all.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude-user.txt")),
+            format!("--ipset-exclude={}", l("ipset-exclude.txt")),
+            format!("--ipset-exclude={}", l("ipset-exclude-user.txt")),
+            "--dpi-desync=fake".into(),
+            "--dpi-desync-repeats=6".into(),
+            format!("--dpi-desync-fake-quic={}", b("quic_initial_www_google_com.bin")),
+            "--new".into(),
+            "--filter-tcp=80,443,8443".into(),
+            format!("--ipset={}", l("ipset-all.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude-user.txt")),
+            format!("--ipset-exclude={}", l("ipset-exclude.txt")),
+            format!("--ipset-exclude={}", l("ipset-exclude-user.txt")),
+            "--dpi-desync=fake".into(),
+            "--dpi-desync-repeats=6".into(),
+            "--dpi-desync-fooling=ts".into(),
+            format!("--dpi-desync-fake-tls={}", b("tls_clienthello_www_google_com.bin")),
+            format!("--dpi-desync-fake-http={}", b("tls_clienthello_max_ru.bin")),
+        ];
+        let args = flowseal_inner("flowseal-simple-fake", SplitTunnelMode::Full, None);
+        assert_eq!(args, expected);
+    }
+
+    #[test]
+    fn test_flowseal_auto_lands_only_in_tcp_general_sections() {
+        use crate::platform::settings::SplitTunnelMode;
+        const AUTO: &str = "/user/lists/list-auto.txt";
+        for preset in [
+            "flowseal-alt",
+            "flowseal-alt11",
+            "flowseal-general",
+            "flowseal-fake-tls-auto",
+            "flowseal-simple-fake",
+        ] {
+            for mode in [SplitTunnelMode::Full, SplitTunnelMode::GameMode] {
+                let args = flowseal_inner(preset, mode, Some(AUTO));
+                let mut auto_total = 0;
+                for block in split_on_new(&args) {
+                    let is_tcp = block.iter().any(|a| a.starts_with("--filter-tcp"));
+                    let has_general = block.iter().any(|a| {
+                        a.strip_prefix("--hostlist=")
+                            .map_or(false, |v| v.rsplit('/').next() == Some("list-general.txt"))
+                    });
+                    let auto_at: Vec<usize> = block
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, a)| a.starts_with("--hostlist-auto="))
+                        .map(|(i, _)| i)
+                        .collect();
+                    if is_tcp && has_general {
+                        assert_eq!(
+                            auto_at.len(),
+                            1,
+                            "{} {:?}: TCP general section must carry exactly one auto line",
+                            preset,
+                            mode
+                        );
+                        // ... right after the section's last exclude line.
+                        let at = auto_at[0];
+                        assert!(
+                            block[at - 1].starts_with("--hostlist-exclude="),
+                            "{} {:?}: auto line must follow the exclude lines",
+                            preset,
+                            mode
+                        );
+                        assert_eq!(block[at], format!("--hostlist-auto={}", AUTO));
+                        auto_total += 1;
+                    } else {
+                        assert!(
+                            auto_at.is_empty(),
+                            "{} {:?}: non-target section gained an auto line",
+                            preset,
+                            mode
+                        );
+                    }
+                }
+                assert!(auto_total >= 1, "{} {:?}: no section learned", preset, mode);
+            }
+
+            // STRICT drops the general blocks whole — auto with them.
+            let strict_args = flowseal_inner(preset, SplitTunnelMode::Strict, Some(AUTO));
+            assert!(
+                !strict_args.iter().any(|a| a.starts_with("--hostlist-auto=")),
+                "{}: STRICT must not carry auto",
+                preset
+            );
+        }
+    }
+
+    #[test]
+    fn test_ultimate_without_auto_matches_historical_args() {
+        // OFF pin: byte for byte the flagship list before the
+        // auto-hostlist feature.
+        let expected: Vec<String> = vec![
+            "--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into(),
+            "--wf-udp-out=443,19294-19344,50000-65535".into(),
+            "--lua-init=@zapret-lib.lua".into(),
+            "--lua-init=@zapret-antidpi.lua".into(),
+            "--blob=quic_google:@quic_initial_www_google_com.bin".into(),
+            "--blob=discord_udp:@ACTIVE_DISCORD_UDP.bin".into(),
+            "--blob=tls_google:@tls_clienthello_www_google_com.bin".into(),
+            "--blob=tls_max_ru:@tls_clienthello_max_ru.bin".into(),
+            "--blob=stun2:@stun2.bin".into(),
+            "--new=quic_youtube".into(),
+            "--filter-udp=443".into(),
+            "--hostlist=lists/list-general.txt".into(),
+            "--hostlist=lists/list-general-user.txt".into(),
+            "--hostlist-exclude=lists/list-exclude.txt".into(),
+            "--payload=quic_initial".into(),
+            "--lua-desync=fake:blob=quic_google:repeats=11".into(),
+            "--new=discord_voice".into(),
+            "--filter-udp=19294-19344,50000-65535".into(),
+            "--payload=all".into(),
+            "--out-range=n1-n4".into(),
+            "--lua-desync=fake:blob=discord_udp:repeats=6".into(),
+            "--new=discord_media".into(),
+            "--filter-tcp=443,2053,2083,2087,2096,8443".into(),
+            format!("--hostlist-domains={}", Supervisor::DISCORD_MEDIA_DOMAINS),
+            "--payload=tls_client_hello".into(),
+            "--out-range=n1-n4".into(),
+            "--lua-desync=fake:blob=tls_google:repeats=8:tcp_ts=1000".into(),
+            "--lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:tcp_ts=1000".into(),
+            "--new=youtube_4k".into(),
+            "--filter-tcp=443".into(),
+            "--hostlist=lists/list-google.txt".into(),
+            "--payload=tls_client_hello".into(),
+            "--out-range=n1-n4".into(),
+            "--lua-desync=fake:blob=tls_google:repeats=8:tcp_ts=1000:ip_id=zero".into(),
+            "--lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:tcp_ts=1000:ip_id=zero".into(),
+            "--new=general_https".into(),
+            "--filter-tcp=80,443".into(),
+            "--hostlist=lists/list-general.txt".into(),
+            "--hostlist=lists/list-general-user.txt".into(),
+            "--hostlist-exclude=lists/list-exclude.txt".into(),
+            "--payload=tls_client_hello".into(),
+            "--out-range=n1-n4".into(),
+            "--lua-desync=fake:blob=tls_max_ru:repeats=8:tcp_ts=1000".into(),
+            "--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max_ru:tcp_ts=1000".into(),
+            "--new=general_http".into(),
+            "--filter-tcp=80".into(),
+            "--hostlist=lists/list-general.txt".into(),
+            "--payload=http_req".into(),
+            "--lua-desync=fake:blob=tls_max_ru:tcp_ts=1000".into(),
+            "--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max_ru:tcp_ts=1000".into(),
+            "--new=ipset_fallback".into(),
+            "--filter-tcp=80,443,8443".into(),
+            "--ipset=lists/ipset-all.txt".into(),
+            "--hostlist-exclude=lists/list-exclude.txt".into(),
+            "--payload=tls_client_hello".into(),
+            "--out-range=n1-n4".into(),
+            "--lua-desync=fake:blob=tls_max_ru:repeats=8:tcp_ts=1000".into(),
+            "--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max_ru:tcp_ts=1000".into(),
+        ];
+        assert_eq!(Supervisor::build_ultimate_args_with_auto(None), expected);
+    }
+
+    #[test]
+    fn test_ultimate_with_auto_extends_only_general_sections() {
+        const AUTO: &str = "/user/lists/list-auto.txt";
+        let base = Supervisor::build_ultimate_args_with_auto(None);
+        let with_auto = Supervisor::build_ultimate_args_with_auto(Some(AUTO));
+
+        // Reconstruct the expected list from the pinned base: the
+        // ONLY differences are the two insertion points.
+        let mut expected = base.clone();
+        let https_anchor = expected
+            .iter()
+            .position(|a| a == "--new=general_https")
+            .unwrap()
+            + 5; // marker, filter, hostlist, hostlist-user, exclude → insert after exclude
+        expected.insert(https_anchor, format!("--hostlist-auto={}", AUTO));
+        expected.insert(
+            https_anchor,
+            "--hostlist-exclude=lists/list-exclude-user.txt".into(),
+        );
+        let http_hostlist = expected
+            .iter()
+            .position(|a| a == "--new=general_http")
+            .unwrap()
+            + 2; // marker, filter → the --hostlist line; insert after it
+        expected.insert(http_hostlist + 1, format!("--hostlist-auto={}", AUTO));
+        expected.insert(
+            http_hostlist + 1,
+            "--hostlist-exclude=lists/list-exclude-user.txt".into(),
+        );
+        expected.insert(
+            http_hostlist + 1,
+            "--hostlist-exclude=lists/list-exclude.txt".into(),
+        );
+        assert_eq!(with_auto, expected);
+        assert_eq!(
+            with_auto.iter().filter(|a| a.starts_with("--hostlist-auto=")).count(),
+            2
+        );
+        // general_http did NOT gain list-general-user (design §3:
+        // its include side is unchanged).
+        let http_idx = with_auto.iter().position(|a| a == "--new=general_http").unwrap();
+        let ipset_idx = with_auto.iter().position(|a| a == "--new=ipset_fallback").unwrap();
+        assert!(!with_auto[http_idx..ipset_idx]
+            .iter()
+            .any(|a| a.contains("list-general-user")));
+    }
+
+    fn temp_lists_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "zapret2-auto-hostlist-test-{}-{}",
+            tag,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn test_ensure_creates_auto_file_with_header_and_never_overwrites() {
+        let dir = temp_lists_dir("ensure");
+        Supervisor::ensure_user_lists_exist(&dir);
+        let auto_path = dir.join(AUTO_HOSTLIST_FILE);
+        assert!(auto_path.is_file(), "ensure must create list-auto.txt");
+        let content = std::fs::read_to_string(&auto_path).unwrap();
+        assert!(content.starts_with('#'), "fresh auto file carries the header");
+
+        std::fs::write(&auto_path, "learned.example\n").unwrap();
+        Supervisor::ensure_user_lists_exist(&dir);
+        assert_eq!(
+            std::fs::read_to_string(&auto_path).unwrap(),
+            "learned.example\n",
+            "ensure must not overwrite an existing auto file"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_cleanup_auto_hostlist_dedups_and_graduates() {
+        let dir = temp_lists_dir("cleanup");
+        let bundle = temp_lists_dir("cleanup-bundle");
+        std::fs::write(dir.join("list-general.txt"), "example.com\n").unwrap();
+        std::fs::write(dir.join("list-google.txt"), "googlevideo.com\n").unwrap();
+        std::fs::write(dir.join("list-exclude-user.txt"), "banned.org\n").unwrap();
+        let header = "# zapret2-gui: header line\n# second header line\n";
+        let body = [
+            "example.com",        // graduated: exact static include
+            "cdn.example.com",    // graduated: parent in list-general
+            "sub.googlevideo.com", // graduated: parent in list-google
+            "banned.org",         // covered by exclude-user
+            "sub.banned.org",     // covered by exclude parent
+            "fresh-site.net",     // kept
+            "FRESH-site.net",     // duplicate modulo case
+            "fresh-site.net",     // exact duplicate
+            "other.example.org",  // kept
+        ];
+        std::fs::write(
+            dir.join(AUTO_HOSTLIST_FILE),
+            format!("{}{}\n", header, body.join("\n")),
+        )
+        .unwrap();
+
+        cleanup_auto_hostlist(&dir, &bundle).expect("cleanup must succeed");
+        let result = std::fs::read_to_string(dir.join(AUTO_HOSTLIST_FILE)).unwrap();
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines[0], "# zapret2-gui: header line");
+        assert_eq!(lines[1], "# second header line");
+        assert_eq!(lines[2..], ["fresh-site.net", "other.example.org"]);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bundle);
+    }
+
+    #[test]
+    fn test_cleanup_auto_hostlist_fifo_ceiling() {
+        let dir = temp_lists_dir("ceiling");
+        let bundle = temp_lists_dir("ceiling-bundle");
+        let total = AUTO_HOSTLIST_CEILING + 5;
+        let mut content = String::new();
+        for i in 0..total {
+            content.push_str(&format!("e{}.example\n", i));
+        }
+        std::fs::write(dir.join(AUTO_HOSTLIST_FILE), &content).unwrap();
+
+        cleanup_auto_hostlist(&dir, &bundle).expect("cleanup must succeed");
+        let result = std::fs::read_to_string(dir.join(AUTO_HOSTLIST_FILE)).unwrap();
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), AUTO_HOSTLIST_CEILING);
+        assert_eq!(lines[0], "e5.example", "oldest five dropped from the head");
+        assert_eq!(lines[lines.len() - 1], format!("e{}.example", total - 1));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bundle);
+    }
+
+    #[test]
+    fn test_cleanup_auto_hostlist_no_change_leaves_file_untouched() {
+        let dir = temp_lists_dir("nochange");
+        let bundle = temp_lists_dir("nochange-bundle");
+        let original = "# header\nfresh-site.net\nother.example.org\n";
+        std::fs::write(dir.join(AUTO_HOSTLIST_FILE), original).unwrap();
+        cleanup_auto_hostlist(&dir, &bundle).expect("cleanup must succeed");
+        assert_eq!(
+            std::fs::read_to_string(dir.join(AUTO_HOSTLIST_FILE)).unwrap(),
+            original,
+            "a no-op cleanup must not rewrite the file"
+        );
+        // Missing file is a no-op, not an error.
+        let empty = temp_lists_dir("missing");
+        cleanup_auto_hostlist(&empty, &bundle).expect("missing auto file is fine");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bundle);
+        let _ = std::fs::remove_dir_all(&empty);
     }
 }
 

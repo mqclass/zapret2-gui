@@ -98,6 +98,8 @@ const AppContent: React.FC = () => {
   // Strategy watchdog (defaults match the backend serde defaults).
   const [watchdogOn, setWatchdogOn] = useState<boolean>(true);
   const [isTogglingWatchdog, setIsTogglingWatchdog] = useState<boolean>(false);
+  const [autoHostlistOn, setAutoHostlistOn] = useState<boolean>(true);
+  const [isTogglingAutoHostlist, setIsTogglingAutoHostlist] = useState<boolean>(false);
   const [watchdogInterval, setWatchdogInterval] = useState<number>(15);
   // Accent override ("#RRGGBB"); null means the built-in violet.
   const [accentColor, setAccentColor] = useState<string | null>(null);
@@ -550,6 +552,7 @@ const AppContent: React.FC = () => {
           setNotificationsEnabled(notifEnabled);
           setWatchdogOn(cfg.watchdog_enabled ?? true);
           setWatchdogInterval(cfg.watchdog_interval_minutes ?? 15);
+          setAutoHostlistOn(cfg.auto_hostlist_enabled ?? true);
           const accent = cfg.accent_color ?? null;
           setAccentColor(accent);
           applyAccent(accent);
@@ -803,6 +806,39 @@ const AppContent: React.FC = () => {
       engineTransitionRef.current = false;
     }
   }, [handleRefreshProbes, t]);
+
+  // Auto-hostlist toggle: the setting shapes the engine's argument
+  // list, so it only takes effect at engine start. When the engine
+  // is running, restart it on the active strategy right away —
+  // otherwise the switch would look dead until the next manual
+  // start (auto-hostlist design §5). Exception: a run started with
+  // one-off custom arguments reports a stand-in active_strategy, so
+  // restarting would silently swap the user's custom config for
+  // that preset — there the setting is only saved and applies at
+  // the next manual start.
+  const handleToggleAutoHostlist = useCallback(async () => {
+    setIsTogglingAutoHostlist(true);
+    try {
+      const res = await invoke<boolean>("set_auto_hostlist_enabled", {
+        enable: !autoHostlistOn,
+      });
+      setAutoHostlistOn(res);
+      if (
+        status.state === "running" &&
+        status.active_strategy &&
+        !status.active_custom_args
+      ) {
+        const restartTarget = status.active_strategy;
+        await handleStop();
+        await handleStartStrategy(restartTarget, { silent: true });
+      }
+    } catch (err: any) {
+      console.error("Failed to toggle auto-hostlist:", err);
+      setErrorAlert(formatErrorMessage(err));
+    } finally {
+      setIsTogglingAutoHostlist(false);
+    }
+  }, [autoHostlistOn, status.state, status.active_strategy, status.active_custom_args, handleStop, handleStartStrategy]);
 
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
 
@@ -1080,6 +1116,9 @@ const AppContent: React.FC = () => {
               watchdogOn={watchdogOn}
               onToggleWatchdog={handleToggleWatchdog}
               isTogglingWatchdog={isTogglingWatchdog}
+              autoHostlistOn={autoHostlistOn}
+              onToggleAutoHostlist={handleToggleAutoHostlist}
+              isTogglingAutoHostlist={isTogglingAutoHostlist}
               watchdogInterval={watchdogInterval}
               onWatchdogInterval={handleWatchdogInterval}
               accentColor={accentColor}

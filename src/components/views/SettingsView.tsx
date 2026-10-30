@@ -17,6 +17,7 @@ import {
   ArrowDownToLine,
   BadgeCheck,
   AppWindow,
+  ListPlus,
 } from "lucide-react";
 import { ZapretLogo } from "../ZapretLogo";
 import { useI18n } from "../../i18n";
@@ -59,6 +60,9 @@ interface SettingsViewProps {
   watchdogOn: boolean;
   onToggleWatchdog: () => void;
   isTogglingWatchdog: boolean;
+  autoHostlistOn: boolean;
+  onToggleAutoHostlist: () => void;
+  isTogglingAutoHostlist: boolean;
   watchdogInterval: number;
   onWatchdogInterval: (minutes: number) => void;
   accentColor: string | null;
@@ -90,6 +94,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     watchdogOn,
     onToggleWatchdog,
     isTogglingWatchdog,
+    autoHostlistOn,
+    onToggleAutoHostlist,
+    isTogglingAutoHostlist,
     watchdogInterval,
     onWatchdogInterval,
     accentColor,
@@ -408,6 +415,46 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                   {watchdogOn
                     ? t.settingsTab.watchdogBtnDisable
                     : t.settingsTab.watchdogBtnEnable}
+                </span>
+              </button>
+            </div>
+
+            {/* Auto-Hostlist Card */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-3.5">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <ListPlus className="h-4 w-4 text-accent" />
+                  <span className="text-xs font-semibold text-ink">{t.settingsTab.autoHostlistTitle}</span>
+                  <span
+                    className={`rounded-chip px-1.5 py-0.5 text-[10px] font-medium ${
+                      autoHostlistOn
+                        ? "bg-accent-wash text-accent-soft border border-accent-line"
+                        : "bg-hovert text-ink4"
+                    }`}
+                  >
+                    {autoHostlistOn ? t.settingsTab.autoHostlistOn : t.settingsTab.autoHostlistOff}
+                  </span>
+                </div>
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
+                  {t.settingsTab.autoHostlistDesc}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onToggleAutoHostlist}
+                disabled={isTogglingAutoHostlist}
+                className="flex items-center justify-center gap-2 rounded-control px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 border border-line bg-hovert hover:bg-raise text-ink2"
+              >
+                {isTogglingAutoHostlist ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent" />
+                ) : (
+                  <ListPlus className="h-3.5 w-3.5 text-accent" />
+                )}
+                <span>
+                  {autoHostlistOn
+                    ? t.settingsTab.autoHostlistBtnDisable
+                    : t.settingsTab.autoHostlistBtnEnable}
                 </span>
               </button>
             </div>

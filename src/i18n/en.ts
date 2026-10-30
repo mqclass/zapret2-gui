@@ -257,6 +257,8 @@ export const en: Translations = {
     tip: "Tip: after adding a new domain, flushing DNS or restarting your browser is recommended.",
     loadError: "Failed to load file list: ",
     loadingDomains: "Loading domains...",
+    autoListNote:
+      "Sites the app added by itself. Removing a site here also adds it to the exclusions, so the app will not add it again.",
 
   },
   splitTunnel: {
@@ -439,6 +441,13 @@ export const en: Translations = {
     watchdogBtnDisable: "Disable watchdog",
     watchdogIntervalLabel: "Check every",
     watchdogMinutes: "min",
+    autoHostlistTitle: "Adds blocked sites by itself",
+    autoHostlistDesc:
+      "The app notices sites that stopped opening and adds them to the bypass on its own. Collected sites live in the Domains tab, in list-auto.txt.",
+    autoHostlistOn: "Enabled",
+    autoHostlistOff: "Disabled",
+    autoHostlistBtnEnable: "Enable auto-add",
+    autoHostlistBtnDisable: "Disable auto-add",
     accentTitle: "App color",
     accentDesc:
       "Recolors the whole app: backgrounds, glass and accents. The app stays dark.",
