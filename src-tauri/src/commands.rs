@@ -1109,7 +1109,7 @@ pub async fn set_smart_hosts_sources(
     }
     crate::platform::settings::update_settings(|s| {
         s.smart_hosts_sources = filtered;
-    });
+    })?;
     // Re-apply with the new source set if currently enabled.
     if crate::platform::settings::load_settings().smart_hosts_enabled {
         crate::platform::smart_hosts::refresh_smart_hosts().await
@@ -1125,7 +1125,7 @@ pub async fn set_smart_hosts_adblock(
 ) -> Result<crate::platform::smart_hosts::SmartHostsStatus, String> {
     crate::platform::settings::update_settings(|s| {
         s.smart_hosts_include_adblock = include;
-    });
+    })?;
     if crate::platform::settings::load_settings().smart_hosts_enabled {
         crate::platform::smart_hosts::refresh_smart_hosts().await
     } else {

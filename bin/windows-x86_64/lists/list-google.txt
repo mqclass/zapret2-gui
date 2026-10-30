@@ -3,7 +3,6 @@ yt4.ggpht.com
 yt3.googleusercontent.com
 googlevideo.com
 jnn-pa.googleapis.com
-stable.dl2.discordapp.net
 wide-youtube.l.google.com
 youtube-nocookie.com
 youtube-ui.l.google.com
@@ -20,3 +19,4 @@ play.google.com
 fonts.googleapis.com
 www.gstatic.com
 google.ru
+dl.google.com

@@ -398,10 +398,14 @@ pub async fn refresh_smart_hosts() -> Result<SmartHostsStatus, String> {
     apply_entries(&merged)?;
 
     let now = unix_now();
-    update_settings(|s| {
+    // Bookkeeping only: the hosts file is already updated at this point,
+    // so a failed save must not turn a successful refresh into an error.
+    if let Err(e) = update_settings(|s| {
         s.smart_hosts_last_update = Some(now);
         s.smart_hosts_entry_count = merged.len();
-    });
+    }) {
+        eprintln!("smart-hosts: applied, but failed to persist refresh state: {}", e);
+    }
 
     if !errors.is_empty() {
         // Partial success: some sources failed, but we applied the rest.
@@ -455,7 +459,7 @@ pub fn disable_smart_hosts() -> Result<SmartHostsStatus, String> {
         s.smart_hosts_enabled = false;
         s.smart_hosts_last_update = None;
         s.smart_hosts_entry_count = 0;
-    });
+    })?;
     Ok(status())
 }
 
@@ -463,14 +467,17 @@ pub fn disable_smart_hosts() -> Result<SmartHostsStatus, String> {
 pub async fn enable_smart_hosts() -> Result<SmartHostsStatus, String> {
     update_settings(|s| {
         s.smart_hosts_enabled = true;
-    });
+    })?;
     match refresh_smart_hosts().await {
         Ok(st) => Ok(st),
         Err(e) => {
-            // Roll back the flag so UI and reality agree.
-            update_settings(|s| {
+            // Roll back the flag so UI and reality agree. A failed rollback
+            // save is only logged: the refresh error is the one to surface.
+            if let Err(save_err) = update_settings(|s| {
                 s.smart_hosts_enabled = false;
-            });
+            }) {
+                eprintln!("smart-hosts: failed to roll back the enabled flag: {}", save_err);
+            }
             Err(e)
         }
     }
