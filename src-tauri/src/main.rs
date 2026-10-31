@@ -85,6 +85,17 @@ async fn main() {
             classifier_restored: Arc::new(parking_lot::Mutex::new(None)),
         })
         .setup(move |app| {
+            // One-shot repair for the 1.2.1 -> 1.3.0 transition: that
+            // upgrade ran under the old app's defective restore, which
+            // never carried the live *-user.txt files into the new
+            // bin/lists. Rescue them from the backup slot (the old tree,
+            // still on disk) before anything reads or writes the lists
+            // — the supervisor resolves its hostlist paths from the
+            // working lists directory on first engine use. Synchronous
+            // and best-effort:
+            // a couple of directory reads, errors only logged.
+            crate::platform::updater::rescue_user_lists_at_startup();
+
             let handle = app.handle().clone();
             // If a svc instance is already running (e.g. the GUI was restarted
             // while the bypass stayed up), attach to it instead of the local

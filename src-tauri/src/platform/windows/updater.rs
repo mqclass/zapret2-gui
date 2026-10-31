@@ -27,6 +27,7 @@
 //!   before the swap. A same-user process that tampered with the staging area
 //!   between download and install only triggers a clean refusal.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -563,6 +564,34 @@ pub async fn download_update(app: AppHandle) -> Result<PathBuf, String> {
     Ok(staging)
 }
 
+/// Directories inside an installation (or backup) tree that can hold
+/// user-owned list files, in priority order.
+///
+/// The lists the running program actually reads and writes live next to
+/// the engine binaries: `resolve_binaries` anchors at `<exe_dir>/bin`,
+/// so the working directory is `bin/lists` (that is where the supervisor
+/// passes `--hostlist`/`--hostlist-auto` paths from and where the list
+/// editor writes). The tree-root `lists/` is a mirror the release zip
+/// ships; in a tree backed up by an older version it may be the only
+/// place user files were ever restored to, so it stays as a fallback
+/// source — but never as the restore target.
+fn user_list_source_dirs(tree: &Path) -> Vec<PathBuf> {
+    vec![tree.join("bin").join("lists"), tree.join("lists")]
+}
+
+/// The directory user list files are restored INTO: the working lists
+/// directory of the fresh installation (see `user_list_source_dirs`).
+fn user_list_dest_dir(install: &Path) -> PathBuf {
+    install.join("bin").join("lists")
+}
+
+/// Whether `name` is a user-owned list file: personal domain additions
+/// follow the `*-user.txt` convention, and the learned auto-hostlist
+/// (`list-auto.txt`) is user data in the same sense.
+fn is_user_list_file(name: &str) -> bool {
+    name.ends_with("-user.txt") || name == "list-auto.txt"
+}
+
 /// Copies user-owned data from the backup into the fresh installation tree.
 ///
 /// The release zip ships *default* configs and lists; without this step an
@@ -588,27 +617,131 @@ fn restore_user_data(backup: &Path, install: &Path) -> Result<(), String> {
     //    same sense and is carried over too: without it an update
     //    would forget everything the engine learned about the user's
     //    provider (auto-hostlist design §9 step 3).
-    let backup_lists = backup.join("lists");
-    if backup_lists.is_dir() {
-        let install_lists = install.join("lists");
+    //
+    //    Both the source and the destination are the *working* lists
+    //    directory (`bin/lists`): that is the directory the new version
+    //    will actually read. The backup's tree-root `lists/` is scanned
+    //    afterwards as a fallback for backups written by older versions,
+    //    but a file already taken from `bin/lists` wins over its
+    //    same-named root copy.
+    let install_lists = user_list_dest_dir(install);
+    let mut restored: HashSet<String> = HashSet::new();
+    for backup_lists in user_list_source_dirs(backup) {
+        if !backup_lists.is_dir() {
+            continue;
+        }
         let entries = fs::read_dir(&backup_lists)
             .map_err(|e| format!("Cannot read {}: {e}", backup_lists.display()))?;
         for entry in entries.flatten() {
             let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if (name_str.ends_with("-user.txt") || name_str == "list-auto.txt")
-                && entry.path().is_file()
-            {
-                let dst = install_lists.join(&name);
-                if let Some(parent) = dst.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-                fs::copy(entry.path(), &dst)
-                    .map_err(|e| format!("Cannot restore {}: {e}", name_str))?;
+            let name_str = name.to_string_lossy().into_owned();
+            if !is_user_list_file(&name_str) || !entry.path().is_file() {
+                continue;
             }
+            if !restored.insert(name_str.clone()) {
+                continue;
+            }
+            let dst = install_lists.join(&name);
+            if let Some(parent) = dst.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            fs::copy(entry.path(), &dst)
+                .map_err(|e| format!("Cannot restore {}: {e}", name_str))?;
         }
     }
     Ok(())
+}
+
+/// The single backup slot next to the installation directory:
+/// `<install name>.bak`. The slot holds the previous installation tree
+/// verbatim (the swap renames the whole tree into it) and is cleared
+/// only at the start of the NEXT update — so between an update and its
+/// successor, the previous version's files still live there.
+fn backup_slot_dir(install_dir: &Path) -> PathBuf {
+    let backup_name = match install_dir.file_name() {
+        Some(n) => format!("{}.bak", n.to_string_lossy()),
+        None => "zapret2.bak".to_string(),
+    };
+    install_dir.with_file_name(backup_name)
+}
+
+/// One-shot repair for the 1.2.1 -> 1.3.0 transition.
+///
+/// `install_update` is a command of the *running* (old) app, so that
+/// particular upgrade is performed by 1.2.1's defective restore, which
+/// restored user lists into the tree-root `lists/` nobody reads and
+/// read them from there too — the live `*-user.txt` files were never
+/// carried into the new `bin/lists`. The fixed restore protects
+/// upgrades starting from 1.3.0, but not this one. The files are not
+/// lost, though: the backup slot is the old tree renamed wholesale, so
+/// the live copies still sit in `backup/bin/lists`. On startup, copy
+/// any user list file that the new working directory lacks from the
+/// backup slot into it.
+///
+/// Existing working files are NEVER overwritten — the working copy is
+/// by definition at least as fresh as the backup one. That same rule
+/// is what makes the repair idempotent without a "done" flag: once a
+/// file has been rescued it exists in the working directory, so every
+/// later launch finds nothing to do. A missing backup slot (fresh
+/// installs, manual zip updates) is a quiet no-op, as is any I/O
+/// error — this runs on the startup path and must never block it.
+pub fn rescue_user_lists_from_backup(install_dir: &Path, backup_dir: &Path) -> usize {
+    if !backup_dir.is_dir() {
+        return 0;
+    }
+    let dest = user_list_dest_dir(install_dir);
+    let mut rescued = 0;
+    for backup_lists in user_list_source_dirs(backup_dir) {
+        if !backup_lists.is_dir() {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&backup_lists) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy().into_owned();
+            if !is_user_list_file(&name_str) || !entry.path().is_file() {
+                continue;
+            }
+            // Sources are visited in priority order; after a successful
+            // copy the destination exists, so a same-named file from a
+            // lower-priority source is skipped by this very check (and
+            // a failed copy simply falls through to the next source).
+            let dst = dest.join(&name);
+            if dst.exists() {
+                continue;
+            }
+            if let Some(parent) = dst.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if fs::copy(entry.path(), &dst).is_ok() {
+                rescued += 1;
+            }
+        }
+    }
+    rescued
+}
+
+/// Startup entry point for `rescue_user_lists_from_backup`: resolves
+/// this installation and its backup slot from the running executable,
+/// mirroring how `install_update` derives them. Best-effort by design
+/// (see the repair's docs) — failures are logged, never propagated.
+pub fn rescue_user_lists_at_startup() {
+    let Some(install_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    else {
+        return;
+    };
+    let backup_dir = backup_slot_dir(&install_dir);
+    let rescued = rescue_user_lists_from_backup(&install_dir, &backup_dir);
+    if rescued > 0 {
+        eprintln!(
+            "Rescued {rescued} user list file(s) from the pre-update backup {}",
+            backup_dir.display()
+        );
+    }
 }
 
 /// Recursively copies a directory tree.
@@ -806,11 +939,7 @@ pub fn install_update(
     // kills a healthy svc (and the bypass it serves) for nothing.
     crate::svc_client::shutdown_svc_blocking();
 
-    let backup_name = match install_dir.file_name() {
-        Some(n) => format!("{}.bak", n.to_string_lossy()),
-        None => "zapret2.bak".to_string(),
-    };
-    let backup_dir = install_dir.with_file_name(backup_name);
+    let backup_dir = backup_slot_dir(&install_dir);
 
     // Single backup slot: drop the previous one so a stale backup can never
     // be mistaken for the current version during manual recovery.
@@ -876,7 +1005,12 @@ pub fn set_auto_update_enabled(enable: bool) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_semver;
+    use super::{
+        backup_slot_dir, is_user_list_file, parse_semver, rescue_user_lists_from_backup,
+        restore_user_data, user_list_dest_dir, user_list_source_dirs,
+    };
+    use std::fs;
+    use std::path::Path;
 
     #[test]
     fn semver_parses_v_prefixed_tags() {
@@ -897,5 +1031,243 @@ mod tests {
         assert!(parse_semver("v1.0.11").unwrap() > parse_semver("v1.0.10").unwrap());
         assert!(parse_semver("v1.0.9").unwrap() < parse_semver("v1.0.10").unwrap());
         assert!(parse_semver("v2.0.0").unwrap() > parse_semver("v1.99.99").unwrap());
+    }
+
+    #[test]
+    fn user_list_dirs_target_the_working_bin_lists() {
+        let tree = Path::new("tree");
+        // bin/lists is the working directory (resolve_binaries anchors
+        // there) and must be both the restore target and the first
+        // source; the tree-root lists/ is only a fallback source for
+        // backups written by older versions.
+        assert_eq!(user_list_dest_dir(tree), tree.join("bin").join("lists"));
+        assert_eq!(
+            user_list_source_dirs(tree),
+            vec![tree.join("bin").join("lists"), tree.join("lists")]
+        );
+    }
+
+    #[test]
+    fn user_list_file_names_match_the_convention() {
+        assert!(is_user_list_file("list-general-user.txt"));
+        assert!(is_user_list_file("list-exclude-user.txt"));
+        assert!(is_user_list_file("ipset-exclude-user.txt"));
+        assert!(is_user_list_file("list-auto.txt"));
+        assert!(!is_user_list_file("list-general.txt"));
+        assert!(!is_user_list_file("list-auto.txt.bak"));
+        assert!(!is_user_list_file("user.txt"));
+    }
+
+    #[test]
+    fn restore_user_data_prefers_bin_lists_and_keeps_auto() {
+        let base = std::env::temp_dir().join(format!(
+            "zapret2-updater-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let backup = base.join("backup");
+        let install = base.join("install");
+        // The live user file sits in the working bin/lists; a stale
+        // namesake sits in the root lists of the same backup.
+        fs::create_dir_all(backup.join("bin/lists")).unwrap();
+        fs::create_dir_all(backup.join("lists")).unwrap();
+        fs::write(
+            backup.join("bin/lists/list-general-user.txt"),
+            "live.example\r\n",
+        )
+        .unwrap();
+        fs::write(
+            backup.join("lists/list-general-user.txt"),
+            "stale.example\r\n",
+        )
+        .unwrap();
+        // An old-layout backup may hold the auto-hostlist only in the
+        // root lists — the fallback source must still pick it up.
+        fs::write(backup.join("lists/list-auto.txt"), "learned.example\r\n").unwrap();
+        // A shipped (non-user) list must NOT be carried over.
+        fs::write(backup.join("bin/lists/list-general.txt"), "shipped\r\n").unwrap();
+        fs::create_dir_all(&install).unwrap();
+
+        restore_user_data(&backup, &install).unwrap();
+
+        let dest = install.join("bin/lists");
+        assert_eq!(
+            fs::read_to_string(dest.join("list-general-user.txt")).unwrap(),
+            "live.example\r\n",
+            "the bin/lists copy must win over the root-lists namesake"
+        );
+        assert_eq!(
+            fs::read_to_string(dest.join("list-auto.txt")).unwrap(),
+            "learned.example\r\n",
+            "the fallback source must restore list-auto.txt"
+        );
+        assert!(!dest.join("list-general.txt").exists());
+        assert!(
+            !install.join("lists").exists(),
+            "the new tree's root lists must stay untouched"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn backup_slot_dir_appends_bak_to_install_name() {
+        let install = Path::new("apps").join("zapret2");
+        assert_eq!(
+            backup_slot_dir(&install),
+            Path::new("apps").join("zapret2.bak")
+        );
+    }
+
+    #[test]
+    fn rescue_copies_missing_user_lists_from_backup_bin_lists() {
+        let base = std::env::temp_dir().join(format!(
+            "zapret2-updater-test-{}-rescue-a",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let backup = base.join("backup");
+        let install = base.join("install");
+        // The stranded live user files sit in the backup's working
+        // lists dir; a stale namesake sits in its root lists.
+        fs::create_dir_all(backup.join("bin/lists")).unwrap();
+        fs::create_dir_all(backup.join("lists")).unwrap();
+        fs::write(
+            backup.join("bin/lists/list-general-user.txt"),
+            "live.example\r\n",
+        )
+        .unwrap();
+        fs::write(
+            backup.join("lists/list-general-user.txt"),
+            "stale.example\r\n",
+        )
+        .unwrap();
+        fs::write(backup.join("bin/lists/list-exclude-user.txt"), "x.example\r\n").unwrap();
+        // The fresh install ships an empty working lists dir.
+        fs::create_dir_all(install.join("bin/lists")).unwrap();
+
+        let rescued = rescue_user_lists_from_backup(&install, &backup);
+
+        assert_eq!(rescued, 2);
+        let dest = install.join("bin/lists");
+        assert_eq!(
+            fs::read_to_string(dest.join("list-general-user.txt")).unwrap(),
+            "live.example\r\n",
+            "the bin/lists copy must win over the root-lists namesake"
+        );
+        assert_eq!(
+            fs::read_to_string(dest.join("list-exclude-user.txt")).unwrap(),
+            "x.example\r\n"
+        );
+        // Idempotency: a second launch finds everything in place.
+        assert_eq!(rescue_user_lists_from_backup(&install, &backup), 0);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn rescue_never_overwrites_existing_working_files() {
+        let base = std::env::temp_dir().join(format!(
+            "zapret2-updater-test-{}-rescue-b",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let backup = base.join("backup");
+        let install = base.join("install");
+        fs::create_dir_all(backup.join("bin/lists")).unwrap();
+        fs::write(
+            backup.join("bin/lists/list-general-user.txt"),
+            "old.example\r\n",
+        )
+        .unwrap();
+        // The working copy is fresher than the backup one and must win.
+        fs::create_dir_all(install.join("bin/lists")).unwrap();
+        fs::write(
+            install.join("bin/lists/list-general-user.txt"),
+            "fresh.example\r\n",
+        )
+        .unwrap();
+
+        let rescued = rescue_user_lists_from_backup(&install, &backup);
+
+        assert_eq!(rescued, 0);
+        assert_eq!(
+            fs::read_to_string(install.join("bin/lists/list-general-user.txt")).unwrap(),
+            "fresh.example\r\n"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn rescue_falls_back_to_backup_root_lists() {
+        let base = std::env::temp_dir().join(format!(
+            "zapret2-updater-test-{}-rescue-c",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let backup = base.join("backup");
+        let install = base.join("install");
+        // An old-layout backup holds the learned auto-hostlist only in
+        // the tree-root lists.
+        fs::create_dir_all(backup.join("lists")).unwrap();
+        fs::write(backup.join("lists/list-auto.txt"), "learned.example\r\n").unwrap();
+        fs::create_dir_all(&install).unwrap();
+
+        let rescued = rescue_user_lists_from_backup(&install, &backup);
+
+        assert_eq!(rescued, 1);
+        assert_eq!(
+            fs::read_to_string(install.join("bin/lists/list-auto.txt")).unwrap(),
+            "learned.example\r\n"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn rescue_without_backup_is_a_quiet_noop() {
+        let base = std::env::temp_dir().join(format!(
+            "zapret2-updater-test-{}-rescue-d",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let install = base.join("install");
+        fs::create_dir_all(install.join("bin/lists")).unwrap();
+
+        // No backup slot at all (fresh install / manual zip update).
+        assert_eq!(
+            rescue_user_lists_from_backup(&install, &base.join("backup")),
+            0
+        );
+        assert!(fs::read_dir(install.join("bin/lists"))
+            .unwrap()
+            .next()
+            .is_none());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn rescue_ignores_shipped_lists() {
+        let base = std::env::temp_dir().join(format!(
+            "zapret2-updater-test-{}-rescue-e",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let backup = base.join("backup");
+        let install = base.join("install");
+        fs::create_dir_all(backup.join("bin/lists")).unwrap();
+        fs::write(backup.join("bin/lists/list-general.txt"), "old-shipped\r\n").unwrap();
+        fs::write(backup.join("bin/lists/ipset-all.txt"), "old-shipped\r\n").unwrap();
+        // The fresh install's factory lists must stay exactly as shipped.
+        fs::create_dir_all(install.join("bin/lists")).unwrap();
+        fs::write(install.join("bin/lists/list-general.txt"), "new-shipped\r\n").unwrap();
+
+        let rescued = rescue_user_lists_from_backup(&install, &backup);
+
+        assert_eq!(rescued, 0);
+        let dest = install.join("bin/lists");
+        assert_eq!(
+            fs::read_to_string(dest.join("list-general.txt")).unwrap(),
+            "new-shipped\r\n"
+        );
+        assert!(!dest.join("ipset-all.txt").exists());
+        let _ = fs::remove_dir_all(&base);
     }
 }

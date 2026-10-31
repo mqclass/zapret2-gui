@@ -80,6 +80,11 @@ pub async fn download_update(_app: AppHandle) -> Result<PathBuf, String> {
     Err(LINUX_UPDATE_UNAVAILABLE.to_string())
 }
 
+/// Startup repair of user lists stranded in the pre-update backup.
+/// Honest no-op on Linux: there is no updater (see `install_update`),
+/// hence no backup slot and nothing to rescue.
+pub fn rescue_user_lists_at_startup() {}
+
 /// Installs a previously staged update. Refused on Linux in phase 1:
 /// nothing can ever have been staged by `download_update`.
 pub fn install_update(
