@@ -4,11 +4,17 @@
 
 # zapret2-gui
 
+<p align="center">
+  <a href="https://github.com/mqclass/zapret2-gui/releases/latest"><img src="https://img.shields.io/github/v/release/mqclass/zapret2-gui?style=flat&color=brightgreen&label=Latest%20Release" alt="Latest Release" /></a>
+  <a href="https://github.com/mqclass/zapret2-gui/releases"><img src="https://img.shields.io/github/downloads/mqclass/zapret2-gui/total?style=flat&color=blue&label=Downloads" alt="Downloads" /></a>
+  <a href="https://github.com/mqclass/zapret2-gui/stargazers"><img src="https://img.shields.io/github/stars/mqclass/zapret2-gui?style=flat&color=yellow&label=Stars" alt="Stars" /></a>
+</p>
+
 Программа для свободного интернета: без блокировок, замедлений и чужих решений, что вам можно смотреть и читать. YouTube, Discord и заблокированные сайты снова открываются, и весь интернет снова работает так, как должен. Без VPN и без серверов за границей: весь обход работает локально на вашем компьютере.
 
 Появилась она из простой злости. Свободный интернет потихоньку превращался в набор разрешённых сайтов, а нормальных инструментов против этого не нашлось: одни выглядят как панель управления самолётом, другие умирают при первой же подкрутке блокировок, третьи требуют читать форумы, чтобы просто включить YouTube. Здесь вместо этого окно с одной кнопкой «Включить обход» и человеческими словами вместо технического жаргона. Если вы не знаете, что такое DPI, вам и не нужно: программа сделана так, чтобы разобраться мог любой.
 
-Внутри движок [zapret2](https://github.com/bol-van/zapret2) от bol-van, который обманывает DPI, систему провайдера, которая рассматривает трафик и режет соединения с запрещёнными сайтами. Архив с программой весит 17 мегабайт, его не стыдно переслать другу прямо в мессенджере. На GitHub программу скачали под две тысячи раз.
+Внутри движок [zapret2](https://github.com/bol-van/zapret2) от bol-van, который обманывает DPI, систему провайдера, которая рассматривает трафик и режет соединения с запрещёнными сайтами. Архив с программой весит 17 мегабайт, его не стыдно переслать другу прямо в мессенджере.
 
 [Скачать последнюю версию](https://github.com/mqclass/zapret2-gui/releases) · [English version](README_EN.md)
 

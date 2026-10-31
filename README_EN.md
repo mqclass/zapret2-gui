@@ -4,11 +4,17 @@
 
 # zapret2-gui
 
+<p align="center">
+  <a href="https://github.com/mqclass/zapret2-gui/releases/latest"><img src="https://img.shields.io/github/v/release/mqclass/zapret2-gui?style=flat&color=brightgreen&label=Latest%20Release" alt="Latest Release" /></a>
+  <a href="https://github.com/mqclass/zapret2-gui/releases"><img src="https://img.shields.io/github/downloads/mqclass/zapret2-gui/total?style=flat&color=blue&label=Downloads" alt="Downloads" /></a>
+  <a href="https://github.com/mqclass/zapret2-gui/stargazers"><img src="https://img.shields.io/github/stars/mqclass/zapret2-gui?style=flat&color=yellow&label=Stars" alt="Stars" /></a>
+</p>
+
 A program for a free internet: no blocks, no throttling, and nobody else deciding what you may watch or read. YouTube, Discord and blocked sites open again, and the whole internet works the way it should. No VPN and no servers abroad: the bypass runs entirely on your own computer.
 
 It exists out of plain frustration. The free internet was quietly turning into a list of approved sites, and there were no decent tools against that: some look like an airplane cockpit, others die the moment the provider tightens the blocks, and the rest make you dig through forums just to turn on YouTube. Here, instead, you get a window with a single "Enable bypass" button and human words instead of technical jargon. If you don't know what DPI is, you don't need to: the program is built so that anyone can figure it out.
 
-Under the hood is the [zapret2](https://github.com/bol-van/zapret2) engine by bol-van, which fools DPI, the provider's system that inspects traffic and cuts connections to banned sites. The program archive weighs 17 megabytes, small enough to forward to a friend right in a messenger. On GitHub it has been downloaded nearly two thousand times.
+Under the hood is the [zapret2](https://github.com/bol-van/zapret2) engine by bol-van, which fools DPI, the provider's system that inspects traffic and cuts connections to banned sites. The program archive weighs 17 megabytes, small enough to forward to a friend right in a messenger.
 
 [Download the latest version](https://github.com/mqclass/zapret2-gui/releases) · [Русский](README.md)
 
