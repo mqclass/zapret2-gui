@@ -1081,6 +1081,7 @@ const AppContent: React.FC = () => {
               onRefreshProbes={handleRefreshProbes}
               isRefreshingProbes={isRefreshingProbes}
               onSelectAndStartStrategy={handleStartStrategy}
+              onNavigateTab={setActiveTab}
             />
           )}
 

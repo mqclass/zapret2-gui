@@ -79,7 +79,11 @@ async fn main() {
             // No external sidecars: the Telegram bridge runs in-process,
             // so there is nothing holding files for install_update to gate on.
             sidecars: Vec::new(),
-            tgproxy: tgproxy_backend,        })
+            tgproxy: tgproxy_backend,
+            classifier_lock: Arc::new(tokio::sync::Mutex::new(())),
+            classifier_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            classifier_restored: Arc::new(parking_lot::Mutex::new(None)),
+        })
         .setup(move |app| {
             let handle = app.handle().clone();
             // If a svc instance is already running (e.g. the GUI was restarted
@@ -113,6 +117,23 @@ async fn main() {
                 Arc::new(crate::engine::TauriSink::new(handle.clone()));
             supervisor.set_event_sink(sink.clone());
             tgproxy.set_event_sink(sink);
+
+            // Block classifier dead-man (§4.3): if the previous GUI died
+            // mid-classification, the engine may still be stopped.
+            // Restore it before the frontend starts any watchdog cycles.
+            // The short delay lets the svc-attach probe above land, so
+            // the restore talks to the backend that actually owns the
+            // engine.
+            {
+                let app_state = handle.state::<crate::commands::AppState>();
+                let backend = app_state.backend.clone();
+                let restored = app_state.classifier_restored.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    crate::commands::restore_classifier_session_at_startup(backend, restored)
+                        .await;
+                });
+            }
 
             // If the Telegram proxy was left enabled, restore it (best-effort).
             // Runs after the attach probe above, so it lands in the svc when
@@ -358,6 +379,9 @@ async fn main() {
             commands::get_log_file_path,
             commands::ping_custom_target,
             commands::probe_strategy,
+            commands::classify_target,
+            commands::cancel_classify_target,
+            commands::take_classifier_restored,
             commands::set_last_strategy,
             commands::get_app_settings,
             commands::save_app_settings,

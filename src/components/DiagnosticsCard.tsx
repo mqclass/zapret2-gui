@@ -19,9 +19,13 @@ import {
   ShieldAlert,
   Loader2,
   X,
+  HelpCircle,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { DiagnosticsReport, ProbeMetric, ProbeStatus, StrategyProbeResult, SupervisorStatusResponse } from "../types";
+import { ClassifierModal, ClassifierTargetRequest } from "./ClassifierModal";
+import { shouldOfferClassifier } from "../utils/classifier";
+import { NavTab } from "./Sidebar";
 import { useI18n } from "../i18n";
 import { formatErrorMessage } from "../utils/error";
 import {
@@ -57,10 +61,11 @@ interface DiagnosticsCardProps {
   onRefresh?: () => void;
   isRefreshing?: boolean;
   onSelectAndStartStrategy?: (strategyId: string) => void;
+  onNavigateTab?: (tab: NavTab) => void;
 }
 
 export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
-  ({ report, onRefresh, isRefreshing, onSelectAndStartStrategy }) => {
+  ({ report, onRefresh, isRefreshing, onSelectAndStartStrategy, onNavigateTab }) => {
     const { t } = useI18n();
 
     // Custom Target Ping State
@@ -77,6 +82,24 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
     const [isAutoTuneModalOpen, setIsAutoTuneModalOpen] = useState(false);
     const autoTuneCancelRef = useRef(false);
     const autoTuneRunningRef = useRef(false);
+
+    // Block classifier hint (§5): offered after an honest auto-tune
+    // failure, behind the §5.2 gate in utils/classifier.
+    const [classifierReq, setClassifierReq] = useState<ClassifierTargetRequest | null>(null);
+    const [isClassifierOpen, setIsClassifierOpen] = useState(false);
+    const [classifierBusy, setClassifierBusy] = useState(false);
+
+    const handleOfferClassifier = useCallback(() => {
+      // §4.2: another cycle (watchdog) may have claimed the probe lock
+      // since the results rendered — never start on top of it.
+      if (isProbeCycleRunning()) {
+        setClassifierBusy(true);
+        return;
+      }
+      setClassifierBusy(false);
+      setClassifierReq({ target: "youtube", targetName: "YouTube" });
+      setIsClassifierOpen(true);
+    }, []);
 
     // Visible error for user-initiated actions (previously only console.error)
     const [actionError, setActionError] = useState<string | null>(null);
@@ -620,6 +643,26 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
                     </button>
                   )}
 
+                  {/* Classifier hint (§5): only behind the §5.2 gate —
+                      at least one candidate was really started and
+                      measured, and still nothing scored. */}
+                  {shouldOfferClassifier(probeResults, autoTuneWinner) && (
+                    <div className="mt-3 rounded-panel border border-raise bg-cardin/40 p-3">
+                      <p className="text-xs text-ink2">{t.classifier.hintText}</p>
+                      {classifierBusy && (
+                        <p className="mt-1.5 text-[11px] text-amber-300">{t.classifier.busyNote}</p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleOfferClassifier}
+                        className="mt-2 flex items-center gap-1 rounded-control bg-accent px-3 py-1.5 text-[11px] font-semibold text-white hover:opacity-90 cursor-pointer transition-opacity"
+                      >
+                        <HelpCircle className="h-3 w-3" />
+                        <span>{t.classifier.hintBtn}</span>
+                      </button>
+                    </div>
+                  )}
+
                   <div className="mt-3 space-y-2 max-h-72 overflow-y-auto pr-1">
                     {sortedProbeResults.length === 0 && (
                       <p className="text-xs text-ink4">{t.diagnostics.autoTuneNoWinner}</p>
@@ -706,6 +749,18 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
             </div>,
             document.body
           )}
+
+        {/* Block Classifier Modal (from the §5 hint) */}
+        <ClassifierModal
+          open={isClassifierOpen}
+          request={classifierReq}
+          onClose={() => setIsClassifierOpen(false)}
+          onOpenStrategies={() => onNavigateTab?.("strategies")}
+          onRerunAutoTune={() => {
+            setIsAutoTuneModalOpen(false);
+            handleAutoTune();
+          }}
+        />
       </div>
     );
   }

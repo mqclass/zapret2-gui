@@ -48,7 +48,16 @@ pub struct AppState {
     pub sidecars: Vec<Arc<dyn crate::engine::managed::ManagedSidecar>>,
     /// Where the Telegram bridge runs: in-process or inside zapret2-svc.exe.
     /// Swapped to Remote when the GUI attaches to a running service.
-    pub tgproxy: Arc<parking_lot::RwLock<crate::svc_client::TgproxyBackend>>,}
+    pub tgproxy: Arc<parking_lot::RwLock<crate::svc_client::TgproxyBackend>>,
+    /// Block classifier (§4.2): process-local cycle lock (a second
+    /// parallel classify_target is rejected), the cancel flag the
+    /// probe orchestration polls between legs, and the one-shot
+    /// dead-man restore record the frontend turns into a notice (§4.3).
+    pub classifier_lock: Arc<tokio::sync::Mutex<()>>,
+    pub classifier_cancel: Arc<std::sync::atomic::AtomicBool>,
+    pub classifier_restored:
+        Arc<parking_lot::Mutex<Option<crate::engine::block_classifier::ClassifierSession>>>,
+}
 
 /// TTL for the resolved-binaries cache: binaries are re-discovered at most this often,
 /// so a newly installed/updated winws2.exe is picked up without an app restart.
@@ -1307,6 +1316,350 @@ pub fn window_start_dragging(window: tauri::Window) -> Result<(), String> {
 #[tauri::command]
 pub fn window_close(window: tauri::Window) -> Result<(), String> {
     window.hide().map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Block classifier (design: BLOCK-CLASSIFIER-DESIGN-DRAFT.md, edition 2)
+// ---------------------------------------------------------------------------
+
+use crate::engine::block_classifier::orchestrate::{
+    self, ClassifierTarget, SysProbe,
+};
+use crate::engine::block_classifier::{
+    ClassifierSession, ClassifierStage, ClassifierTimeouts, Diagnosis,
+};
+use std::sync::atomic::Ordering;
+use tauri::Emitter;
+
+/// Frontend sentinel: another classification is already running.
+pub const CLASSIFIER_BUSY: &str = "CLASSIFIER_BUSY";
+/// Frontend sentinel: the user cancelled; not an error, no card (§3.4).
+pub const CLASSIFIER_CANCELLED: &str = "CLASSIFIER_CANCELLED";
+
+fn epoch_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+/// Resolves the IPC `target` argument into a validated classifier
+/// target. Known ids map to the report's endpoints; anything else is a
+/// user-supplied domain/IP and inherits the full M-6 validation set of
+/// `probe_custom` (design §3.3 item 6) BEFORE any classifier check.
+async fn resolve_classifier_target(
+    target: &str,
+    target_name: Option<String>,
+) -> Result<ClassifierTarget, String> {
+    let known = |host: &str, name: &str, probe: SysProbe| ClassifierTarget {
+        host: host.to_string(),
+        name: target_name.clone().unwrap_or_else(|| name.to_string()),
+        port: 443,
+        literal_ip: None,
+        sys_probe: Some(probe),
+    };
+    match target {
+        "youtube" => return Ok(known("www.youtube.com", "YouTube", SysProbe::Youtube)),
+        "discord" => return Ok(known("discord.com", "Discord", SysProbe::Discord)),
+        "discord_voice" => {
+            return Ok(known("discord.media", "Discord Voice", SysProbe::DiscordVoice))
+        }
+        "telegram" => return Ok(known("web.telegram.org", "Telegram", SysProbe::Telegram)),
+        "twitter" => return Ok(known("x.com", "X (Twitter)", SysProbe::Twitter)),
+        "cloudflare" => {
+            return Err(
+                "Cloudflare — контрольная цель, её блокировку проверять не нужно".to_string(),
+            )
+        }
+        _ => {}
+    }
+
+    // Custom target (M-6 mirror of probe_custom).
+    let clean = target.trim();
+    if clean.is_empty() {
+        return Err("Пустая цель для проверки".to_string());
+    }
+    if clean.starts_with("http://") {
+        return Err("HTTP запрещён для произвольных проверок — используйте HTTPS".to_string());
+    }
+    let url_str = if clean.starts_with("https://") {
+        clean.to_string()
+    } else {
+        let hostport = clean.split('/').next().unwrap_or(clean);
+        format!("https://{}", hostport)
+    };
+    let parsed = match reqwest::Url::parse(&url_str) {
+        Ok(u) if u.scheme() == "https" => u,
+        _ => return Err("Некорректный адрес — разрешён только HTTPS".to_string()),
+    };
+    let host = parsed.host_str().unwrap_or_default().to_string();
+    if host.is_empty() {
+        return Err("Не указан хост цели".to_string());
+    }
+    let port = parsed.port_or_known_default().unwrap_or(443);
+
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        if !crate::engine::probes::is_public_ip(&ip) {
+            return Err("Приватные и локальные IP запрещены для проверок".to_string());
+        }
+        return Ok(ClassifierTarget {
+            host: host.clone(),
+            name: target_name.unwrap_or(host),
+            port,
+            literal_ip: Some(ip),
+            sys_probe: None,
+        });
+    }
+
+    let h = host.to_lowercase();
+    if h == "localhost"
+        || h.ends_with(".localhost")
+        || h.ends_with(".local")
+        || h.ends_with(".internal")
+        || h.ends_with(".invalid")
+    {
+        return Err("Локальные хосты запрещены для проверок".to_string());
+    }
+    // DNS name shape limits (RFC 1035): a label over 63 bytes or a
+    // name over 253 bytes can never resolve — reject up front instead
+    // of letting every downstream resolver fail in obscure ways.
+    if host.len() > 253 || host.split('.').any(|label| label.len() > 63) {
+        return Err("Некорректное имя хоста цели".to_string());
+    }
+    // DNS-rebinding guard, identical to probe_custom: every address the
+    // system resolver returns for the name must be publicly routable.
+    match tokio::time::timeout(
+        Duration::from_millis(2000),
+        tokio::net::lookup_host(format!("{}:{}", host, port)),
+    )
+    .await
+    {
+        Ok(Ok(addrs)) => {
+            let mut any = false;
+            for a in addrs {
+                any = true;
+                if !crate::engine::probes::is_public_ip(&a.ip()) {
+                    return Err(
+                        "Хост резолвится в приватный IP — проверка запрещена".to_string(),
+                    );
+                }
+            }
+            if !any {
+                return Err("Хост не резолвится в IP-адреса".to_string());
+            }
+        }
+        _ => return Err("Ошибка DNS при проверке цели".to_string()),
+    }
+
+    let sys_url = if port == 443 {
+        format!("https://{}/", host)
+    } else {
+        format!("https://{}:{}/", host, port)
+    };
+    Ok(ClassifierTarget {
+        host: host.clone(),
+        name: target_name.unwrap_or(host),
+        port,
+        literal_ip: None,
+        sys_probe: Some(SysProbe::Custom { url: sys_url }),
+    })
+}
+
+/// Classifies why a target does not open, on the raw provider path:
+/// the engine is stopped for the whole cycle and restored afterwards
+/// (§4.1). One Rust command owns the whole cycle (§4.2) — persisted
+/// dead-man record first, engine stop, probe battery, verdict, engine
+/// restore, record removal.
+#[tauri::command]
+pub async fn classify_target(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    target: String,
+    target_name: Option<String>,
+) -> Result<Diagnosis, String> {
+    let _guard = state
+        .classifier_lock
+        .try_lock()
+        .map_err(|_| CLASSIFIER_BUSY.to_string())?;
+    let ct = resolve_classifier_target(&target, target_name).await?;
+    state.classifier_cancel.store(false, Ordering::SeqCst);
+
+    let backend = state.backend.read().clone();
+    let status = backend.get_status().await;
+    let (was_running, strategy_id) = match status.state {
+        SupervisorState::Running => (
+            true,
+            if status.active_custom_args {
+                // A one-off custom-args run has no strategy id to return
+                // to; start(None) below restores the persisted last
+                // strategy — recorded honestly in the session as None.
+                None
+            } else {
+                status.active_strategy.clone()
+            },
+        ),
+        SupervisorState::Stopped | SupervisorState::Error => (false, None),
+        _ => {
+            return Err(
+                "Движок сейчас включается или выключается — подождите несколько секунд и попробуйте снова"
+                    .to_string(),
+            )
+        }
+    };
+
+    // Dead-man FIRST (§4.3): if the record cannot be persisted, the
+    // cycle never starts and the engine is never stopped.
+    let session = ClassifierSession {
+        started_epoch: epoch_now(),
+        was_engine_running: was_running,
+        strategy_id: strategy_id.clone(),
+        target: ct.host.clone(),
+    };
+    crate::platform::settings::update_settings(|s| {
+        s.classifier_session = Some(session);
+    })?;
+
+    if was_running {
+        if let Err(e) = backend.stop().await {
+            let _ = crate::platform::settings::update_settings(|s| {
+                s.classifier_session = None;
+            });
+            return Err(format!(
+                "Не удалось остановить обход для проверки: {}",
+                e
+            ));
+        }
+        // Let the filter actually drop before measuring the raw path.
+        tokio::time::sleep(Duration::from_millis(700)).await;
+    }
+
+    let progress_app = app.clone();
+    let progress = move |stage: ClassifierStage| {
+        let _ = progress_app.emit("classifier-progress", stage);
+    };
+    let outcome = orchestrate::run_classification(
+        state.diagnostics.as_ref(),
+        &ct,
+        &ClassifierTimeouts::default(),
+        &progress,
+        &state.classifier_cancel,
+    )
+    .await;
+
+    // The engine is restored in EVERY outcome — verdict, deadline,
+    // cancel (§4.1). The dead-man record is removed ONLY when the
+    // engine is verifiably back (start succeeded, or it turns out to
+    // be running already). If the restore failed, the record STAYS:
+    // the startup recovery retries it on the next launch (§4.3), and
+    // the user gets an honest error instead of a verdict implying
+    // everything is back to normal while the bypass is down.
+    let mut engine_back = !was_running;
+    if was_running {
+        match backend.start(strategy_id.clone(), None).await {
+            Ok(()) => engine_back = true,
+            Err(e) => {
+                eprintln!(
+                    "[classifier] engine restore after classification failed: {}",
+                    e
+                );
+                if backend.get_status().await.state == SupervisorState::Running {
+                    engine_back = true;
+                }
+            }
+        }
+    }
+    if !engine_back {
+        return Err(
+            "Проверка завершена, но обход не удалось включить обратно. Включите его вручную на главном экране — а при следующем запуске приложение попробует вернуть его само"
+                .to_string(),
+        );
+    }
+    let _ = crate::platform::settings::update_settings(|s| {
+        s.classifier_session = None;
+    });
+
+    match outcome {
+        Ok(d) => {
+            // §3.3 item 7: target, class, key outcomes, certificate
+            // validity fact and SAN line — never bodies or certificates.
+            eprintln!(
+                "[classifier] target={} class={:?} partial={} cert_valid={:?} cert_subject={:?} outcomes={:?}",
+                d.target,
+                d.class,
+                d.partial_mode,
+                d.details.cert_valid,
+                d.details.cert_subject,
+                d.details.addr_outcomes
+            );
+            Ok(d)
+        }
+        Err(orchestrate::Cancelled) => Err(CLASSIFIER_CANCELLED.to_string()),
+    }
+}
+
+/// Requests cancellation of the running classification cycle. The
+/// cycle stops between legs, restores the engine, and resolves with
+/// the CLASSIFIER_CANCELLED sentinel — the UI just drops the progress.
+#[tauri::command]
+pub async fn cancel_classify_target(state: State<'_, AppState>) -> Result<(), String> {
+    state.classifier_cancel.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// One-shot: returns the dead-man record recovered at app start (and
+/// clears it), so Diagnostics can show the restore notice once (§6).
+#[tauri::command]
+pub async fn take_classifier_restored(
+    state: State<'_, AppState>,
+) -> Result<Option<ClassifierSession>, String> {
+    Ok(state.classifier_restored.lock().take())
+}
+
+/// Dead-man recovery at app start (§4.3), spawned from main's setup
+/// before the frontend starts any watchdog cycles: if a previous
+/// classification cycle was interrupted mid-way, the engine may have
+/// been left stopped — restart it on the recorded strategy, unless the
+/// user already started it themselves. The record is consumed and
+/// handed to the frontend for the one-time notice ONLY when the
+/// engine is verifiably back (or was never running): a failed start
+/// leaves the record in place for the next launch to retry, and the
+/// frontend must not announce a restore that did not happen.
+pub async fn restore_classifier_session_at_startup(
+    backend: Arc<parking_lot::RwLock<crate::svc_client::SupervisorBackend>>,
+    restored: Arc<parking_lot::Mutex<Option<ClassifierSession>>>,
+) {
+    let session = match crate::platform::settings::load_settings().classifier_session {
+        Some(s) => s,
+        None => return,
+    };
+    let backend = backend.read().clone();
+    let mut engine_back = !session.was_engine_running;
+    if session.was_engine_running {
+        let status = backend.get_status().await;
+        if status.state == SupervisorState::Running {
+            engine_back = true;
+        } else {
+            match backend.start(session.strategy_id.clone(), None).await {
+                Ok(()) => {
+                    eprintln!(
+                        "[classifier] restored engine after interrupted classification of {}",
+                        session.target
+                    );
+                    engine_back = true;
+                }
+                Err(e) => eprintln!(
+                    "[classifier] failed to restore engine after interrupted classification: {}; record kept, will retry on next launch",
+                    e
+                ),
+            }
+        }
+    }
+    if engine_back {
+        let _ = crate::platform::settings::update_settings(|s| {
+            s.classifier_session = None;
+        });
+        *restored.lock() = Some(session);
+    }
 }
 
 #[cfg(test)]

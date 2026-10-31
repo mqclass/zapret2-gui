@@ -172,6 +172,21 @@ impl DiagnosticsService {
             .await
     }
 
+    /// Same measurement through the redirect-limited untrusted client
+    /// (M-6). The block classifier uses it for the through-path signal
+    /// of user-supplied targets; built-in targets keep the main client
+    /// via their dedicated probe methods.
+    pub async fn measure_endpoint_untrusted(
+        &self,
+        name: &str,
+        host: &str,
+        port: u16,
+        url: &str,
+    ) -> ProbeMetric {
+        self.measure_endpoint_with(&self.untrusted_client, name, host, port, url)
+            .await
+    }
+
     /// Same as [`Self::measure_endpoint`], but with an explicitly supplied HTTP
     /// client (used for untrusted targets with a redirect-limited client, M-6).
     async fn measure_endpoint_with(
@@ -274,8 +289,7 @@ impl DiagnosticsService {
     }
 
     /// Probes YouTube and GoogleVideo endpoints.
-    pub async fn probe_youtube(&self) -> ProbeMetric {
-        self.measure_endpoint(
+    pub async fn probe_youtube(&self) -> ProbeMetric {        self.measure_endpoint(
             "YouTube / GoogleVideo",
             "www.youtube.com",
             443,
@@ -471,7 +485,11 @@ impl DiagnosticsService {
 /// Returns true only for publicly routable IP addresses (M-6 SSRF guard).
 /// Uses explicit range checks (no nightly-only `is_global`) so the result does
 /// not depend on the toolchain version.
-fn is_public_ip(ip: &std::net::IpAddr) -> bool {
+///
+/// `pub(crate)`: the block classifier (engine::block_classifier) applies the
+/// same guard to every address it is about to connect to, including addresses
+/// coming from the *system* resolver (§3.3 of the classifier design).
+pub(crate) fn is_public_ip(ip: &std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => {
             let o = v4.octets();
@@ -509,10 +527,29 @@ fn is_public_ip(ip: &std::net::IpAddr) -> bool {
             true
         }
         std::net::IpAddr::V6(v6) => {
+            // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible
+            // (::a.b.c.d) addresses embed an IPv4 address: judge them
+            // by the IPv4 rules above. Without this, ::ffff:192.168.0.1
+            // would sail through the v6 range checks below as "public"
+            // while connecting into the LAN all the same.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_public_ip(&std::net::IpAddr::V4(v4));
+            }
+            let seg = v6.segments();
+            if seg[..6] == [0, 0, 0, 0, 0, 0] {
+                // IPv4-compatible form. :: and ::1 also land here and
+                // are rejected by the IPv4 rules (0.0.0.0/8).
+                let v4 = std::net::Ipv4Addr::new(
+                    (seg[6] >> 8) as u8,
+                    seg[6] as u8,
+                    (seg[7] >> 8) as u8,
+                    seg[7] as u8,
+                );
+                return is_public_ip(&std::net::IpAddr::V4(v4));
+            }
             if v6.is_loopback() || v6.is_multicast() || v6.is_unspecified() {
                 return false;
             }
-            let seg = v6.segments();
             if (seg[0] & 0xfe00) == 0xfc00 {
                 return false;
             } // fc00::/7 unique local
@@ -561,7 +598,27 @@ fn parse_host_port(input: &str) -> (String, u16) {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_host_port;
+    use super::{is_public_ip, parse_host_port};
+
+    #[test]
+    fn test_is_public_ip_ipv4_embedded_in_ipv6() {
+        let check = |s: &str| is_public_ip(&s.parse::<std::net::IpAddr>().unwrap());
+        // IPv4-mapped forms of private/loopback addresses are NOT
+        // public, even though their v6 shape matches no v6 deny range.
+        assert!(!check("::ffff:192.168.0.1"));
+        assert!(!check("::ffff:127.0.0.1"));
+        assert!(!check("::ffff:10.0.0.5"));
+        // IPv4-compatible forms get the same IPv4 judgement.
+        assert!(!check("::192.168.0.1"));
+        assert!(!check("::127.0.0.1"));
+        // Embedded public addresses stay public in both forms.
+        assert!(check("::ffff:8.8.8.8"));
+        assert!(check("::8.8.8.8"));
+        // Plain v6 behaviour is unchanged.
+        assert!(check("2606:4700:4700::1111"));
+        assert!(!check("fe80::1"));
+        assert!(!check("fd00::1"));
+    }
 
     #[test]
     fn test_parse_host_port() {

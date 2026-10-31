@@ -6059,6 +6059,7 @@ dependencies = [
  "parking_lot",
  "rand 0.8.8",
  "reqwest 0.12.28",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -6071,8 +6072,10 @@ dependencies = [
  "tg-ws-proxy-rs",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-rustls",
  "tracing",
  "tracing-subscriber",
+ "webpki-roots 0.26.11",
  "windows 0.58.0",
  "zip",
 ]

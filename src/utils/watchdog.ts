@@ -40,6 +40,16 @@ export function isAutoTuneModalOpen(): boolean {
   return autoTuneModalOpen;
 }
 
+let classifierModalOpen = false;
+
+export function setClassifierModalOpenFlag(open: boolean): void {
+  classifierModalOpen = open;
+}
+
+export function isClassifierModalOpen(): boolean {
+  return classifierModalOpen;
+}
+
 let probeCycleRunning = false;
 
 export function isProbeCycleRunning(): boolean {

@@ -205,6 +205,56 @@ export interface Translations {
     autoTuneApplyBest: string;
     autoTuneBusy: string;
   };
+  classifier: {
+    /** Diagnostics banner + card. */
+    bannerTitle: string;
+    bannerDesc: string;
+    /** Target picker in Diagnostics. */
+    targetLabel: string;
+    customPlaceholder: string;
+    customBtn: string;
+    /** Modal chrome. */
+    modalTitle: string;
+    confirmBtn: string;
+    cancelBtn: string;
+    confirmRunning: string;
+    confirmRunningCustom: string;
+    confirmStopped: string;
+    stageControl: string;
+    stageResolve: string;
+    stageThrough: string;
+    stageTls: string;
+    stageVerdict: string;
+    resultHeader: string;
+    detailsTitle: string;
+    partialNote: string;
+    okBtn: string;
+    retryBtn: string;
+    dnsActionBtn: string;
+    dnsApplied: string;
+    sniStrategiesBtn: string;
+    sniRerunBtn: string;
+    busyNote: string;
+    restoredNotice: string;
+    /** Hint after a failed auto-tune (§5). */
+    hintText: string;
+    hintBtn: string;
+    /** Diagnosis texts (§6): title + body per class. */
+    openTitle: string;
+    openBody: string;
+    dnsTitle: string;
+    dnsBody: string;
+    sniTitle: string;
+    sniBody: string;
+    ipTitle: string;
+    ipBody: string;
+    serverDownTitle: string;
+    serverDownBody: string;
+    unknownTitle: string;
+    unknownBody: string;
+    noNetworkTitle: string;
+    noNetworkBody: string;
+  };
   logs: {
     title: string;
     lines: string;

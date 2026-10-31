@@ -3,6 +3,12 @@ pub mod events;
 pub mod logger;
 pub mod managed;
 pub mod probes;
+// The classifier's entry points live in the GUI binary (commands.rs);
+// the svc binary compiles the shared engine tree but never invokes it,
+// so without this the whole API surface reads as dead code there —
+// the same treatment as other GUI-only items in this tree.
+#[allow(dead_code)]
+pub mod block_classifier;
 pub mod speedtest;
 pub mod supervisor;
 pub mod tgproxy;

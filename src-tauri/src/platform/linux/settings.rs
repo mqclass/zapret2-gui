@@ -173,6 +173,13 @@ pub struct AppSettings {
     /// overridden; the dark glass base theme is never changed.
     #[serde(default)]
     pub accent_color: Option<String>,
+    /// Dead-man record of a classification cycle (block classifier,
+    /// design §4.3): written before the engine is stopped for the
+    /// cycle, removed only after the engine is restored. Present at
+    /// app start = the previous cycle was interrupted and the engine
+    /// may have been left stopped.
+    #[serde(default)]
+    pub classifier_session: Option<crate::engine::block_classifier::ClassifierSession>,
 }
 
 fn default_true() -> bool {
@@ -228,6 +235,7 @@ impl Default for AppSettings {
             watchdog_interval_minutes: 15,
             auto_hostlist_enabled: true,
             accent_color: None,
+            classifier_session: None,
         }
     }
 }

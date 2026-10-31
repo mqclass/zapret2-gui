@@ -160,6 +160,8 @@ export interface AppSettings {
   game_ports_udp: string;
   dns_provider: string;
   last_strategy_id?: string | null;
+  /** Block classifier dead-man record; present only while a cycle runs (or after an interrupted one). */
+  classifier_session?: ClassifierSession | null;
   auto_start_bypass?: boolean;
   auto_doctor_on_start?: boolean;
   notifications_enabled?: boolean;
@@ -311,4 +313,58 @@ export interface TransportConfig {
   enabled: boolean;
   /** Transport-specific options; validated by the transport itself. */
   options: unknown;
+}
+
+/** Block classifier diagnosis classes (engine::block_classifier). */
+export type DiagnosisClass =
+  | "no_network"
+  | "open"
+  | "dns"
+  | "sni"
+  | "ip"
+  | "server_down"
+  | "unknown";
+
+/** Raw-signal details behind a diagnosis (collapsible "Details"). */
+export interface DiagnosisDetails {
+  ctrl_alive: boolean;
+  sys_addrs: string[];
+  ref_addrs: string[];
+  ref_evidence_grade: boolean;
+  ref_corroborated: boolean;
+  partial_mode: boolean;
+  ctrl_neutral_alive: boolean;
+  deadline_hit: boolean;
+  addr_outcomes: string[];
+  sys_https: string[];
+  cert_valid: boolean | null;
+  cert_subject: string | null;
+}
+
+/** Full result of one classify_target cycle. */
+export interface Diagnosis {
+  class: DiagnosisClass;
+  target: string;
+  target_name: string;
+  /** Measurement context: always "direct" (raw provider path). */
+  context: string;
+  partial_mode: boolean;
+  details: DiagnosisDetails;
+}
+
+/** Progress stages emitted on the "classifier-progress" event. */
+export type ClassifierStage =
+  | "control"
+  | "resolve"
+  | "sys_path"
+  | "addresses"
+  | "tls"
+  | "verdict";
+
+/** Persisted dead-man record of a classification cycle (settings). */
+export interface ClassifierSession {
+  started_epoch: number;
+  was_engine_running: boolean;
+  strategy_id: string | null;
+  target: string;
 }

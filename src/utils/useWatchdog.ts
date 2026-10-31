@@ -34,6 +34,7 @@ import { AUTO_TUNE_CANDIDATES } from "../components/DiagnosticsCard";
 import {
   degradedServices,
   isAutoTuneModalOpen,
+  isClassifierModalOpen,
   isProbeCycleRunning,
   ytDiscScore,
   probeYtDiscScore,
@@ -116,7 +117,7 @@ export function useWatchdog(options: UseWatchdogOptions): void {
     const o = optsRef.current;
     if (!o.enabled || escalatingRef.current) return;
     if (o.engineState !== "running") return;
-    if (isAutoTuneModalOpen() || isProbeCycleRunning()) return;
+    if (isAutoTuneModalOpen() || isClassifierModalOpen() || isProbeCycleRunning()) return;
     let report: DiagnosticsReport;
     try {
       // Light check: plain HTTP through the running engine, no restart.
@@ -128,7 +129,7 @@ export function useWatchdog(options: UseWatchdogOptions): void {
     // State may have changed during the probe: re-check the guards.
     const o2 = optsRef.current;
     if (!o2.enabled || o2.engineState !== "running") return;
-    if (isAutoTuneModalOpen() || isProbeCycleRunning()) return;
+    if (isAutoTuneModalOpen() || isClassifierModalOpen() || isProbeCycleRunning()) return;
     // A mid-flight report proves nothing either way: skip, do not reset.
     if (
       report.youtube.status === "checking" ||
@@ -173,7 +174,7 @@ export function useWatchdog(options: UseWatchdogOptions): void {
         stopEngine: () => invoke("stop_supervisor"),
         setLastStrategy: (id) =>
           invoke("set_last_strategy", { strategyId: id }),
-        isCancelled: () => isAutoTuneModalOpen(),
+        isCancelled: () => isAutoTuneModalOpen() || isClassifierModalOpen(),
         onRestoreFailed: (failure) => {
           restoreFailureHolder.current = failure;
         },
@@ -203,7 +204,8 @@ export function useWatchdog(options: UseWatchdogOptions): void {
         !o3.enabled ||
         o3.engineState !== "running" ||
         o3.activeStrategyId !== triggerId ||
-        isAutoTuneModalOpen()
+        isAutoTuneModalOpen() ||
+        isClassifierModalOpen()
       ) {
         return;
       }

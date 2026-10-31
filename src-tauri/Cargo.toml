@@ -23,6 +23,14 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.38", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+# Block classifier TLS legs (design step 0 decision): reqwest cannot
+# expose handshake stages, so the classifier drives tokio-rustls itself
+# with an observing certificate verifier. Versions match the tree that
+# reqwest already pulls in (rustls 0.23.45, tokio-rustls 0.26.6,
+# webpki-roots 0.26.x); the ring provider is the one the tree uses.
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["tls12", "ring"] }
+webpki-roots = "0.26"
 parking_lot = "0.12"
 thiserror = "1.0"
 # rand: OsRng for the Telegram bridge secret. sha2/zip/hex: streaming
