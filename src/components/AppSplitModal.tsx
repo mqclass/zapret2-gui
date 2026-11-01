@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   X,
   Search,
@@ -12,6 +13,7 @@ import {
   Shield,
   RefreshCw,
   AlertTriangle,
+  FolderOpen,
 } from "lucide-react";
 import { useI18n } from "../i18n";
 import { isAutoTuneModalOpen, isProbeCycleRunning } from "../utils/watchdog";
@@ -40,6 +42,12 @@ interface AppSplitModalProps {
 export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose }) => {
   const { t } = useI18n();
   const [apps, setApps] = useState<AppInfo[]>([]);
+  // Apps that are in the saved selection but not currently running, plus
+  // apps added by file. Without these rows a saved app the user is not
+  // running right now would be selected invisibly, with no way to see
+  // or uncheck it — and an app that is not running could not be added
+  // at all (the running list is all there was).
+  const [extraApps, setExtraApps] = useState<AppInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [mode, setMode] = useState<"disabled" | "allowlist" | "blocklist">("disabled");
@@ -58,7 +66,7 @@ export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose })
   const [deferredNote, setDeferredNote] = useState(false);
   const [customArgsNote, setCustomArgsNote] = useState(false);
 
-  const loadData = async () => {
+  const loadData = async (preserveUnsaved = false) => {
     setIsLoading(true);
     setError(null);
     setConfirmRestart(false);
@@ -72,15 +80,45 @@ export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose })
         invoke<LuaStrategy[]>("list_strategies"),
       ]);
       setApps(appList);
+      // Saved apps that are not running get synthetic rows (name from
+      // the file name) so the selection stays visible and editable.
+      const runningPaths = new Set(appList.map((a) => a.path.toLowerCase()));
+      const configPaths = new Set(config.apps.map((p) => p.toLowerCase()));
+      const configExtras = config.apps
+        .filter((p) => !runningPaths.has(p.toLowerCase()))
+        .map((p) => ({
+          pid: 0,
+          name: p.split(/[\\/]/).pop() ?? p,
+          path: p,
+        }));
+      // On Refresh (not on open), apps added by file but not saved yet
+      // live only in extraApps + selected: reloading from the saved
+      // config would silently drop both their rows and their checkmarks,
+      // and the empty-state hint itself tells the user to press Refresh.
+      // Keep them selected; their rows are needed only while the app is
+      // still not running. They stay out of initialApps, so Apply still
+      // sees a change and saves them.
+      const unsavedPicked = preserveUnsaved
+        ? extraApps.filter(
+            (a) =>
+              selected.has(a.path.toLowerCase()) &&
+              !configPaths.has(a.path.toLowerCase())
+          )
+        : [];
+      setExtraApps([
+        ...configExtras,
+        ...unsavedPicked.filter((a) => !runningPaths.has(a.path.toLowerCase())),
+      ]);
       const validModes = ["disabled", "allowlist", "blocklist"] as const;
       const parsedMode = (validModes as readonly string[]).includes(config.mode)
         ? (config.mode as "disabled" | "allowlist" | "blocklist")
         : "disabled";
       setMode(parsedMode);
-      const parsedApps = new Set(config.apps.map((p) => p.toLowerCase()));
+      const parsedApps = new Set(configPaths);
+      for (const a of unsavedPicked) parsedApps.add(a.path.toLowerCase());
       setSelected(parsedApps);
       setInitialMode(parsedMode);
-      setInitialApps(parsedApps);
+      setInitialApps(new Set(configPaths));
       setSupervisor(systemStatus.supervisor);
       setStrategies(strategyList);
       setSplitBinaryPresent(
@@ -101,13 +139,57 @@ export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose })
     }
   }, [isOpen]);
 
+  // Saved / manually added apps first: they are the user's own picks,
+  // then the running list. Deduplicated by path like the backend list.
+  const displayApps = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: AppInfo[] = [];
+    for (const a of [...extraApps, ...apps]) {
+      const key = a.path.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(a);
+      }
+    }
+    return merged;
+  }, [apps, extraApps]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
-    if (!q) return apps;
-    return apps.filter(
+    if (!q) return displayApps;
+    return displayApps.filter(
       (a) => a.name.toLowerCase().includes(q) || a.path.toLowerCase().includes(q)
     );
-  }, [apps, search]);
+  }, [displayApps, search]);
+
+  // Adds any installed app by its .exe file, running or not, and
+  // selects it. This is the escape hatch for everything the running
+  // list cannot show (not launched yet, no readable process path).
+  const handleAddByFile = async () => {
+    try {
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "EXE", extensions: ["exe"] }],
+      });
+      if (typeof picked !== "string" || !picked) return;
+      const key = picked.toLowerCase();
+      setExtraApps((prev) =>
+        prev.some((a) => a.path.toLowerCase() === key) ||
+        apps.some((a) => a.path.toLowerCase() === key)
+          ? prev
+          : [
+              ...prev,
+              { pid: 0, name: picked.split(/[\\/]/).pop() ?? picked, path: picked },
+            ]
+      );
+      setSelected((prev) => new Set(prev).add(key));
+      // Clear the search so the newly added, now-checked row is visible.
+      setSearch("");
+    } catch (err: any) {
+      setError(typeof err === "string" ? err : JSON.stringify(err));
+    }
+  };
 
   const toggleApp = (path: string) => {
     const key = path.toLowerCase();
@@ -371,15 +453,24 @@ export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose })
         {/* Search */}
         {mode !== "disabled" && (
           <div className="border-b border-raise p-3">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink5" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={t.appSplit.searchPlaceholder}
-                className="w-full rounded-control border border-line bg-cardin pl-8 pr-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 focus:border-accent-line focus:outline-none"
-              />
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink5" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={t.appSplit.searchPlaceholder}
+                  className="w-full rounded-control border border-line bg-cardin pl-8 pr-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 focus:border-accent-line focus:outline-none"
+                />
+              </div>
+              <button
+                onClick={handleAddByFile}
+                className="flex shrink-0 items-center gap-1.5 rounded-control px-2.5 py-1.5 text-xs text-ink4 hover:text-ink hover:bg-hovert border border-line transition-all cursor-pointer"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                <span>{t.appSplit.addByFile}</span>
+              </button>
             </div>
           </div>
         )}
@@ -392,7 +483,10 @@ export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose })
                 <Loader2 className="h-5 w-5 animate-spin text-accent" />
               </div>
             ) : filtered.length === 0 ? (
-              <p className="text-center text-xs text-ink5 py-8">{t.appSplit.noApps}</p>
+              <div className="px-4 py-8 text-center space-y-2">
+                <p className="text-xs text-ink5">{t.appSplit.noApps}</p>
+                <p className="text-[11px] leading-relaxed text-ink5">{t.appSplit.noAppsHint}</p>
+              </div>
             ) : (
               filtered.map((app) => {
                 const isSelected = selected.has(app.path.toLowerCase());
@@ -430,7 +524,7 @@ export const AppSplitModal: React.FC<AppSplitModalProps> = ({ isOpen, onClose })
         <div className="flex items-center justify-between border-t border-raise p-4">
           <div className="flex items-center gap-2">
             <button
-              onClick={loadData}
+              onClick={() => loadData(true)}
               disabled={isLoading}
               className="flex items-center gap-1.5 rounded-control px-2.5 py-1.5 text-xs text-ink4 hover:text-ink hover:bg-hovert border border-line transition-all cursor-pointer disabled:opacity-50"
             >

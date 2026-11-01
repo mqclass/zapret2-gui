@@ -26,7 +26,11 @@ pub struct AppInfo {
 }
 
 /// Enumerates running processes with their executable paths.
-/// Returns at most 200 entries, sorted by name.
+/// Returns at most 200 entries after deduplication by path, sorted by
+/// name. The cap must be applied AFTER dedupe (as in the Linux build):
+/// truncating the raw process scan first silently drops user apps on
+/// machines with many processes, because the snapshot order is by PID,
+/// not by name.
 pub fn list_running_apps() -> Vec<AppInfo> {
     let mut apps = Vec::new();
     unsafe {
@@ -55,9 +59,6 @@ pub fn list_running_apps() -> Vec<AppInfo> {
                 if Process32NextW(snapshot, &mut entry).is_err() {
                     break;
                 }
-                if apps.len() >= 200 {
-                    break;
-                }
             }
         }
         let _ = CloseHandle(snapshot);
@@ -67,6 +68,7 @@ pub fn list_running_apps() -> Vec<AppInfo> {
     // (selection is per-path anyway).
     let mut seen = std::collections::HashSet::new();
     apps.retain(|app| seen.insert(app.path.to_lowercase()));
+    apps.truncate(200);
     apps
 }
 

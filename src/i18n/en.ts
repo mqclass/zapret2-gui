@@ -748,6 +748,9 @@ export const en: Translations = {
     modeBlocklistDesc: "Checked apps go direct, rest go through the bypass.",
     searchPlaceholder: "Search apps...",
     noApps: "No apps found",
+    noAppsHint:
+      "Only running apps are listed. Launch the app and press Refresh, or add it with the Choose file button.",
+    addByFile: "Choose file",
     refresh: "Refresh",
     cancel: "Cancel",
     apply: "Apply",

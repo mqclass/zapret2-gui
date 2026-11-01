@@ -732,6 +732,8 @@ export interface Translations {
     modeBlocklistDesc: string;
     searchPlaceholder: string;
     noApps: string;
+    noAppsHint: string;
+    addByFile: string;
     refresh: string;
     cancel: string;
     apply: string;
