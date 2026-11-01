@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { ZapretLogo } from "./ZapretLogo";
+import logoUrl from "../assets/logo.png";
 import { useI18n } from "../i18n";
 import { SupervisorState, SplitTunnelMode } from "../types";
 
@@ -109,8 +109,20 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
           className="p-4 border-b t-divider cursor-default"
         >
           <div data-tauri-drag-region className="flex items-center gap-3">
-            <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-raise border border-line">
-              <ZapretLogo className="h-5 w-5" glow={isRunning} />
+            <div className="relative h-9 w-9 shrink-0">
+              {/* Project logo (the bird from the app icon), full-bleed
+                  like the icon itself. The clip lives on this inner box
+                  only: the status dot below overhangs the corner by 2px
+                  and must not be cut by it. */}
+              <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-panel border border-line">
+                <img
+                  src={logoUrl}
+                  alt="zapret2"
+                  draggable={false}
+                  data-tauri-drag-region
+                  className="h-full w-full object-cover"
+                />
+              </div>
               {/* Status dot */}
               <span
                 className={`absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 items-center justify-center rounded-full border-2 border-sidebar ${
