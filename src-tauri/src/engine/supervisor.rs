@@ -890,7 +890,7 @@ impl Supervisor {
 
         // Linux: Flowseal strategies are winws argument lists built
         // entirely on --dpi-desync-*, and the pinned Linux engine
-        // (nfqws2 v1.0.6) accepts none of them — its desync is
+        // (nfqws2 v1.0.7) accepts none of them — its desync is
         // Lua-only, verified against the binary's own --help and
         // --dry-run ("unrecognized option: dpi-desync"). There is no
         // honest way to run them here, so refuse with the reason

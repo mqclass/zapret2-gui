@@ -3,7 +3,7 @@
 //! On Windows the engine's root capture is WinDivert, driven by the
 //! `--wf-tcp-out` / `--wf-udp-out` (winws2) and `--wf-tcp` / `--wf-udp`
 //! (winws) root arguments the supervisor's builders emit. nfqws2 does
-//! not know those arguments at all (verified against the pinned v1.0.6
+//! not know those arguments at all (verified against the pinned v1.0.7
 //! binary: `--wf-tcp-out` is an "unrecognized option"); its capture is
 //! an NFQUEUE fed by nftables rules. This module is the translation
 //! layer:

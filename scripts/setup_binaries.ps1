@@ -37,9 +37,9 @@ $RequiredFiles = @("winws2.exe", "winws.exe", "WinDivert.dll", "WinDivert64.sys"
 # ==============================================================================
 $UpstreamPins = @{
     "zapret2" = @{
-        Label  = "bol-van/zapret2 v1.0.6"
-        Url    = "https://github.com/bol-van/zapret2/releases/download/v1.0.6/zapret2-v1.0.6.zip"
-        Sha256 = "e141b51b60c895fe9548f4d644365461dcad8155e068d284a9aae1724504237d"
+        Label  = "bol-van/zapret2 v1.0.7"
+        Url    = "https://github.com/bol-van/zapret2/releases/download/v1.0.7/zapret2-v1.0.7.zip"
+        Sha256 = "35e14e4e1f345b870c3b87269fa45353efd597241a25304d38375c46b9fd2967"
     }
     "flowseal" = @{
         Label  = "Flowseal/zapret-discord-youtube 1.10.4"
@@ -112,8 +112,8 @@ $NeedsZapret2 = (-not (Test-Path (Join-Path $BinDir "winws2.exe"))) -or
 if ($NeedsZapret2) {
     $Pin = $UpstreamPins["zapret2"]
     Write-Host ("==> Downloading {0} from GitHub..." -f $Pin.Label) -ForegroundColor Cyan
-    $Z2Zip = Join-Path $env:TEMP "zapret2-v1.0.6.zip"
-    $Z2Dir = Join-Path $env:TEMP "zapret2-v1.0.6-extracted"
+    $Z2Zip = Join-Path $env:TEMP "zapret2-v1.0.7.zip"
+    $Z2Dir = Join-Path $env:TEMP "zapret2-v1.0.7-extracted"
 
     Invoke-WebRequest -Uri $Pin.Url -OutFile $Z2Zip
     Test-PinnedHash -Path $Z2Zip -ExpectedSha256 $Pin.Sha256 -Label $Pin.Label
@@ -195,8 +195,8 @@ if (Test-Path (Join-Path $BinDir "winws2.exe")) { Copy-Item (Join-Path $BinDir "
 #         fork commit in the commit message.
 #    Until then both values stay empty and this block is skipped with a
 #    warning, keeping CI green.
-$SplitPinUrl = "https://github.com/mqclass/zapret2/releases/download/winws2-split-v1.0.6/winws2-split.exe"
-$SplitPinSha256 = "3c43c3f3992dcfa4164e2a872d971757f6d2544933145c9705f11ac719b3f97c"
+$SplitPinUrl = "https://github.com/mqclass/zapret2/releases/download/winws2-split-v1.0.7/winws2-split.exe"
+$SplitPinSha256 = "24ebd97067cdedaf92dd3f956d227ee13cdd8e8f875ab9481885e39453ad45ff"
 $SplitTarget = Join-Path $BinDir "winws2-split.exe"
 if (-not (Test-Path $SplitTarget)) {
     if ([string]::IsNullOrWhiteSpace($SplitPinUrl) -or [string]::IsNullOrWhiteSpace($SplitPinSha256)) {

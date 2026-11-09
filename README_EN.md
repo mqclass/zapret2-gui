@@ -76,7 +76,7 @@ The finished file: `src-tauri/target/release/zapret2-supervisor.exe`.
 
 ## Where the binaries come from
 
-There are no compiled files in the repository, and that is verifiable. During the build, the `setup_binaries.ps1` script downloads the engine and the data from the official releases of [zapret2](https://github.com/bol-van/zapret2/releases) (v1.0.6) and [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube/releases) (1.10.4), and the SHA256 checksum of every archive is written into the script in advance: if a checksum does not match the reference, the build stops. The per-app split engine `winws2-split.exe` is built from [our fork of zapret2](https://github.com/mqclass/zapret2); its address and checksum are recorded in the same place.
+There are no compiled files in the repository, and that is verifiable. During the build, the `setup_binaries.ps1` script downloads the engine and the data from the official releases of [zapret2](https://github.com/bol-van/zapret2/releases) (v1.0.7) and [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube/releases) (1.10.4), and the SHA256 checksum of every archive is written into the script in advance: if a checksum does not match the reference, the build stops. The per-app split engine `winws2-split.exe` is built from [our fork of zapret2](https://github.com/mqclass/zapret2); its address and checksum are recorded in the same place.
 
 ## Linux
 

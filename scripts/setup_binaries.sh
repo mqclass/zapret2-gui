@@ -6,8 +6,8 @@
 # bol-van/zapret2 release archive, verifies its SHA256, and installs the
 # native Linux engine (nfqws2) into bin/ next to the Windows binaries.
 #
-# Upstream DOES ship Linux builds — verified against the v1.0.6 release
-# on 2026-10-29: zapret2-v1.0.6.tar.gz contains
+# Upstream DOES ship Linux builds — verified against the v1.0.7 release
+# on 2026-11-09: zapret2-v1.0.7.tar.gz contains
 # binaries/linux-x86_64/nfqws2 (statically linked), and its SHA256
 # matches upstream's own sha256sum.txt from the same release. No fork
 # build is needed for the engine.
@@ -35,11 +35,11 @@ mkdir -p "$BIN_DIR"
 #   4. Update Url + Sha256 + BinarySha256 below in ONE commit and mention
 #      the upstream version in the commit message.
 # ==============================================================================
-ZAPRET2_LABEL="bol-van/zapret2 v1.0.6"
-ZAPRET2_URL="https://github.com/bol-van/zapret2/releases/download/v1.0.6/zapret2-v1.0.6.tar.gz"
-ZAPRET2_SHA256="eb412aebc82cdef1f09b6aa9df45c8ff60fb88683b6663e6c4a9275d87ea2db4"
-NFQWS2_SHA256="25049b2bff954c02051e1102a06d34f2f0f946b069d350c9065a86ecd88267c1"
-NFQWS2_ARCHIVE_PATH="zapret2-v1.0.6/binaries/linux-x86_64/nfqws2"
+ZAPRET2_LABEL="bol-van/zapret2 v1.0.7"
+ZAPRET2_URL="https://github.com/bol-van/zapret2/releases/download/v1.0.7/zapret2-v1.0.7.tar.gz"
+ZAPRET2_SHA256="547a5dce3f4820721a425680ea3f7f3971b7e9c772b8c795dd2d623148da0928"
+NFQWS2_SHA256="4bb2634f0266bcc3cbe5988f4fc8c5e824649dd11edc418e71a415096c2505b0"
+NFQWS2_ARCHIVE_PATH="zapret2-v1.0.7/binaries/linux-x86_64/nfqws2"
 
 verify_pinned_hash() {
     local path="$1" expected="$2" label="$3"
@@ -80,7 +80,7 @@ else
     echo "==> Downloading $ZAPRET2_LABEL from GitHub..."
     TMP_DIR="$(mktemp -d)"
     trap 'rm -rf "$TMP_DIR"' EXIT
-    ARCHIVE="$TMP_DIR/zapret2-v1.0.6.tar.gz"
+    ARCHIVE="$TMP_DIR/zapret2-v1.0.7.tar.gz"
     download "$ZAPRET2_URL" "$ARCHIVE"
     verify_pinned_hash "$ARCHIVE" "$ZAPRET2_SHA256" "$ZAPRET2_LABEL"
     tar -xzf "$ARCHIVE" -C "$TMP_DIR" "$NFQWS2_ARCHIVE_PATH"

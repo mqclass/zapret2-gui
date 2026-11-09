@@ -76,7 +76,7 @@ cargo build --release
 
 ## Откуда берутся бинарники
 
-В репозитории скомпилированных файлов нет, это проверяемо. При сборке скрипт `setup_binaries.ps1` скачивает движок и данные из официальных релизов [zapret2](https://github.com/bol-van/zapret2/releases) (v1.0.6) и [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube/releases) (1.10.4), а контрольная сумма SHA256 каждого архива заранее записана в скрипте: не совпала с эталоном, сборка останавливается. Движок разделения по приложениям `winws2-split.exe` собирается из [нашего форка zapret2](https://github.com/mqclass/zapret2), его адрес и контрольная сумма записаны там же.
+В репозитории скомпилированных файлов нет, это проверяемо. При сборке скрипт `setup_binaries.ps1` скачивает движок и данные из официальных релизов [zapret2](https://github.com/bol-van/zapret2/releases) (v1.0.7) и [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube/releases) (1.10.4), а контрольная сумма SHA256 каждого архива заранее записана в скрипте: не совпала с эталоном, сборка останавливается. Движок разделения по приложениям `winws2-split.exe` собирается из [нашего форка zapret2](https://github.com/mqclass/zapret2), его адрес и контрольная сумма записаны там же.
 
 ## Linux
 
