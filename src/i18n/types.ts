@@ -236,6 +236,8 @@ export interface Translations {
     sniRerunBtn: string;
     busyNote: string;
     restoredNotice: string;
+    /** Restore notice when the interrupted run used custom args (§4.3). */
+    restoredNoticeCustom: string;
     /** Hint after a failed auto-tune (§5). */
     hintText: string;
     hintBtn: string;

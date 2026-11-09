@@ -60,7 +60,12 @@ pub struct DnsAnswer {
 }
 
 /// Encodes one question (RD=1, one question, QCLASS=IN).
-pub fn encode_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
+/// Encodes a one-question DNS query. Returns `None` for a name that
+/// cannot be represented on the wire: a label over 63 bytes (RFC 1035
+/// §2.3.4) has no valid encoding, and silently truncating it would ask
+/// the resolver about a *different* name than the one intended — the
+/// caller must fail the resolution instead.
+pub fn encode_query(id: u16, name: &str, qtype: u16) -> Option<Vec<u8>> {
     let mut msg = Vec::with_capacity(12 + name.len() + 6);
     msg.extend_from_slice(&id.to_be_bytes());
     msg.extend_from_slice(&0x0100u16.to_be_bytes()); // RD=1
@@ -68,22 +73,30 @@ pub fn encode_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
     msg.extend_from_slice(&0u16.to_be_bytes()); // ANCOUNT
     msg.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
     msg.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
-    encode_name(&mut msg, name);
+    if !encode_name(&mut msg, name) {
+        return None;
+    }
     msg.extend_from_slice(&qtype.to_be_bytes());
     msg.extend_from_slice(&QCLASS_IN.to_be_bytes());
-    msg
+    Some(msg)
 }
 
-fn encode_name(msg: &mut Vec<u8>, name: &str) {
+/// Appends the wire form of `name`; `false` when a label exceeds the
+/// 63-byte wire limit and the name cannot be encoded as-is.
+fn encode_name(msg: &mut Vec<u8>, name: &str) -> bool {
     for label in name.trim_end_matches('.').split('.') {
         if label.is_empty() {
             continue;
         }
         let bytes = label.as_bytes();
-        msg.push(bytes.len().min(63) as u8);
-        msg.extend_from_slice(&bytes[..bytes.len().min(63)]);
+        if bytes.len() > 63 {
+            return false;
+        }
+        msg.push(bytes.len() as u8);
+        msg.extend_from_slice(bytes);
     }
     msg.push(0);
+    true
 }
 
 /// Reads a possibly-compressed name at `offset`; returns the name and the
@@ -247,7 +260,8 @@ async fn udp_query(
     let mut last_err = String::new();
     for _ in 0..2 {
         let id = next_query_id();
-        let query = encode_query(id, name, qtype);
+        let query = encode_query(id, name, qtype)
+            .ok_or_else(|| "invalid dns name".to_string())?;
         sock.send(&query).await.map_err(|e| e.to_string())?;
         let mut buf = vec![0u8; 2048];
         match timeout(per_try, sock.recv(&mut buf)).await {
@@ -306,7 +320,8 @@ async fn doh_query(
     name: &str,
     qtype: u16,
 ) -> Result<DnsAnswer, String> {
-    let query = encode_query(0, name, qtype);
+    let query = encode_query(0, name, qtype)
+        .ok_or_else(|| "invalid dns name".to_string())?;
     let resp = client
         .post(url)
         .header("content-type", "application/dns-message")
@@ -458,13 +473,25 @@ mod tests {
 
     #[test]
     fn query_encoding_shape() {
-        let q = encode_query(0x1234, "www.example.com", QTYPE_A);
+        let q = encode_query(0x1234, "www.example.com", QTYPE_A).unwrap();
         assert_eq!(&q[0..2], &[0x12, 0x34]);
         assert_eq!(&q[2..4], &[0x01, 0x00]); // RD
         assert_eq!(&q[4..6], &[0x00, 0x01]); // QD=1
         assert_eq!(q[12], 3); // "www"
         let ans = parse_response(&q, Some(0x1234));
         assert!(matches!(ans, Err(DnsCodecError::NotResponse)));
+    }
+
+    #[test]
+    fn encode_query_rejects_overlong_label() {
+        // A label over the 63-byte wire limit must fail the encode,
+        // never silently truncate into a different name.
+        let long_label = "a".repeat(64);
+        let name = format!("{}.example.com", long_label);
+        assert!(encode_query(1, &name, QTYPE_A).is_none());
+        let max_label = "a".repeat(63);
+        let name = format!("{}.example.com", max_label);
+        assert!(encode_query(1, &name, QTYPE_A).is_some());
     }
 
     #[test]

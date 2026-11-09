@@ -768,6 +768,23 @@ mod tests {
         s.parse().unwrap()
     }
 
+    #[tokio::test]
+    async fn tls_battery_expired_deadline_truncates_before_any_attempt() {
+        // §3.4: a battery cut by the cycle deadline must report itself
+        // truncated instead of looking complete. With the deadline
+        // already in the past, not a single leg may run.
+        let mut addr = AddrSignals::new(ip("192.0.2.1"));
+        let t = ClassifierTimeouts::default();
+        let cancel = AtomicBool::new(false);
+        let deadline = Instant::now() - Duration::from_secs(1);
+        let started = Instant::now();
+        let (_cert, truncated) =
+            tls_battery(&mut addr, "example.com", 443, &t, deadline, &cancel).await;
+        assert!(truncated);
+        assert!(addr.tls_real.is_empty() && addr.tls_foreign.is_empty());
+        assert!(started.elapsed() < t.tls_attempt);
+    }
+
     #[test]
     fn sets_agree_needs_a_shared_address() {
         assert!(sets_agree(&[ip("1.2.3.4")], &[ip("1.2.3.4"), ip("5.6.7.8")]));

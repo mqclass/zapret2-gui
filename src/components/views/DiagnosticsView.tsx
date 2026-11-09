@@ -67,7 +67,15 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = React.memo(
           }
           if (cancelled) return;
           if (session) {
-            if (!session.was_engine_running || !session.strategy_id) return;
+            if (!session.was_engine_running) return;
+            if (!session.strategy_id) {
+              // Custom-args run (§4.3): there is no strategy id to
+              // name — the engine was returned to the saved strategy.
+              if (!cancelled) {
+                setRestoredNotice(t.classifier.restoredNoticeCustom);
+              }
+              return;
+            }
             let name: string = session.strategy_id;
             try {
               const list = await invoke<{ id: string; name: string }[]>("list_strategies");
