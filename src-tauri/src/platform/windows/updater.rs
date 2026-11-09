@@ -932,34 +932,10 @@ pub fn install_update(
     // before the first rename of the swap.
     check_engines_stopped(engine_state, sidecars)?;
 
-    // Stop a running svc before the file swap: its exe cannot be replaced
-    // while the process is alive, and an old svc would otherwise keep
-    // serving the new GUI from the pipe (version skew). This happens only
-    // after every validation above has passed, so a refused install never
-    // kills a healthy svc (and the bypass it serves) for nothing.
-    crate::svc_client::shutdown_svc_blocking();
-
+    // Build and persist the helper plan BEFORE anything destructive:
+    // a failure here must leave a healthy svc (and the bypass it
+    // serves) untouched, per the fail-closed rule below.
     let backup_dir = backup_slot_dir(&install_dir);
-
-    // Single backup slot: drop the previous one so a stale backup can never
-    // be mistaken for the current version during manual recovery.
-    if backup_dir.exists() {
-        fs::remove_dir_all(&backup_dir)
-            .map_err(|e| format!("Cannot clear previous backup {}: {e}", backup_dir.display()))?;
-    }
-
-    // 1-4. Hand the swap itself to the staged binary running as a
-    //    detached helper (--apply-update, see run_update_helper). This
-    //    process cannot move its own installation directory: launched
-    //    by double-click it stands *in* that directory (it is the
-    //    process's working directory), and Windows refuses to move a
-    //    directory a live process stands in — os error 32, the exact
-    //    failure users hit updating to 1.3.1 ("Failed to back up
-    //    current installation: Cannot move ..."). The helper lives in
-    //    %TEMP%, waits for this process to exit, then performs the
-    //    backup, the swap, the user-data restore and the relaunch of
-    //    the new version (inheriting the elevated token — no new UAC
-    //    prompt).
     let plan = UpdatePlan {
         install_dir: install_dir.clone(),
         backup_dir: backup_dir.clone(),
@@ -979,7 +955,43 @@ pub fn install_update(
         discard_staged(&staged);
         return Err(format!("Cannot write update plan: {e}"));
     }
-    if let Err(e) = std::process::Command::new(&staged_exe)
+
+    // Stop a running svc before the file swap: its exe cannot be replaced
+    // while the process is alive, and an old svc would otherwise keep
+    // serving the new GUI from the pipe (version skew). This happens only
+    // after every validation above has passed, so a refused install never
+    // kills a healthy svc (and the bypass it serves) for nothing.
+    crate::svc_client::shutdown_svc_blocking();
+
+    // Single backup slot: drop the previous one so a stale backup can never
+    // be mistaken for the current version during manual recovery.
+    if backup_dir.exists() {
+        fs::remove_dir_all(&backup_dir)
+            .map_err(|e| format!("Cannot clear previous backup {}: {e}", backup_dir.display()))?;
+    }
+
+    // 1-4. Hand the swap itself to a copy of the staged binary running
+    //    as a detached helper (--apply-update, see run_update_helper).
+    //    This process cannot move its own installation directory:
+    //    launched by double-click it stands *in* that directory (it is
+    //    the process's working directory), and Windows refuses to move
+    //    a directory a live process stands in — os error 32, the exact
+    //    failure users hit updating to 1.3.1 ("Failed to back up
+    //    current installation: Cannot move ..."). The helper waits for
+    //    this process to exit, then performs the backup, the swap, the
+    //    user-data restore and the relaunch of the new version
+    //    (inheriting the elevated token — no new UAC prompt).
+    //    The helper is a copy in %TEMP% root, NOT the staged exe
+    //    itself: the helper must not live inside the staging tree it
+    //    moves — on cross-volume installs move_dir copies the tree and
+    //    deletes the source, and the exe of a running helper cannot be
+    //    deleted, which would strand the swap half-way.
+    let helper_exe = std::env::temp_dir().join("zapret2-updater-helper.exe");
+    if let Err(e) = fs::copy(&staged_exe, &helper_exe) {
+        discard_staged(&staged);
+        return Err(format!("Cannot stage the update helper: {e}"));
+    }
+    if let Err(e) = std::process::Command::new(&helper_exe)
         .arg("--apply-update")
         .arg(&plan_path)
         .spawn()
@@ -1039,6 +1051,9 @@ pub fn run_update_helper(plan_path: &Path) -> i32 {
             return 1;
         }
     };
+    // Consume the plan: a leftover plan file must never be replayed by
+    // a later manual launch of the binary with the same argument.
+    let _ = fs::remove_file(plan_path);
     let relaunch_old = |plan: &UpdatePlan| {
         let old_exe = plan.install_dir.join(&plan.current_exe_name);
         if let Err(e) = std::process::Command::new(&old_exe).spawn() {
