@@ -19,6 +19,24 @@ use crate::platform::privileges::{ensure_elevated, is_elevated};
 
 #[tokio::main]
 async fn main() {
+    // Update helper mode: the staged binary performs the install swap
+    // after the GUI that handed off has exited (see
+    // platform::windows::updater::run_update_helper). Must run before
+    // any UI, WebView2 or elevation work — the helper just moves files
+    // and relaunches, inheriting the handing-off process's token.
+    #[cfg(windows)]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(pos) = args.iter().position(|a| a == "--apply-update") {
+            match args.get(pos + 1) {
+                Some(plan) => std::process::exit(
+                    crate::platform::updater::run_update_helper(std::path::Path::new(plan)),
+                ),
+                None => std::process::exit(1),
+            }
+        }
+    }
+
     // 0. WebView2 pre-flight: the UI cannot render without the system WebView2
     //    runtime. Show a plain-language dialog instead of a raw framework error.
     crate::platform::webview_check::ensure_webview2();

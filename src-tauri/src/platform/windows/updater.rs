@@ -948,42 +948,159 @@ pub fn install_update(
             .map_err(|e| format!("Cannot clear previous backup {}: {e}", backup_dir.display()))?;
     }
 
-    // 1. Current installation -> backup (renaming a running exe is allowed).
-    //    move_dir falls back to copy+delete across volumes.
-    if let Err(e) = move_dir(&install_dir, &backup_dir) {
+    // 1-4. Hand the swap itself to the staged binary running as a
+    //    detached helper (--apply-update, see run_update_helper). This
+    //    process cannot move its own installation directory: launched
+    //    by double-click it stands *in* that directory (it is the
+    //    process's working directory), and Windows refuses to move a
+    //    directory a live process stands in — os error 32, the exact
+    //    failure users hit updating to 1.3.1 ("Failed to back up
+    //    current installation: Cannot move ..."). The helper lives in
+    //    %TEMP%, waits for this process to exit, then performs the
+    //    backup, the swap, the user-data restore and the relaunch of
+    //    the new version (inheriting the elevated token — no new UAC
+    //    prompt).
+    let plan = UpdatePlan {
+        install_dir: install_dir.clone(),
+        backup_dir: backup_dir.clone(),
+        staging_dir: fresh_staging.clone(),
+        staged_exe_name: staged_exe_name.to_string_lossy().into_owned(),
+        current_exe_name: exe_file_name.to_string_lossy().into_owned(),
+    };
+    let plan_path = std::env::temp_dir().join("zapret2-update-plan.json");
+    let plan_json = match serde_json::to_string(&plan) {
+        Ok(j) => j,
+        Err(e) => {
+            discard_staged(&staged);
+            return Err(format!("Cannot serialize update plan: {e}"));
+        }
+    };
+    if let Err(e) = fs::write(&plan_path, plan_json) {
         discard_staged(&staged);
-        return Err(format!("Failed to back up current installation: {e}"));
+        return Err(format!("Cannot write update plan: {e}"));
     }
-
-    // 2. Staging -> installation. Any failure from here on rolls back.
-    if let Err(e) = move_dir(&fresh_staging, &install_dir) {
-        rollback_swap(&install_dir, &backup_dir, &fresh_staging);
+    if let Err(e) = std::process::Command::new(&staged_exe)
+        .arg("--apply-update")
+        .arg(&plan_path)
+        .spawn()
+    {
         discard_staged(&staged);
-        return Err(format!("Failed to install update (rolled back): {e}"));
+        return Err(format!("Cannot start the update helper: {e}"));
     }
-
-    // 3. Restore user data into the fresh tree.
-    if let Err(e) = restore_user_data(&backup_dir, &install_dir) {
-        rollback_swap(&install_dir, &backup_dir, &fresh_staging);
-        discard_staged(&staged);
-        return Err(format!(
-            "Failed to restore user settings into the update (rolled back): {e}"
-        ));
-    }
-
-    // 4. Launch the new version (inherits the elevated token — no new UAC
-    //    prompt) and terminate this process.
-    let new_exe = install_dir.join(&staged_exe_name);
-    if let Err(e) = std::process::Command::new(&new_exe).spawn() {
-        rollback_swap(&install_dir, &backup_dir, &fresh_staging);
-        discard_staged(&staged);
-        return Err(format!(
-            "Update installed but the new version failed to launch (rolled back): {e}"
-        ));
-    }
-    // The staged work dir is left for the next download's stale cleanup;
-    // %TEMP% is also routinely cleared by Windows itself.
+    // The helper takes over from here; leaving immediately is what
+    // releases the installation directory.
     std::process::exit(0);
+}
+
+/// Handoff plan for the update helper: everything the detached staged
+/// binary needs to perform the swap after this process has exited.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct UpdatePlan {
+    install_dir: PathBuf,
+    backup_dir: PathBuf,
+    staging_dir: PathBuf,
+    staged_exe_name: String,
+    current_exe_name: String,
+}
+
+/// Entry point for `--apply-update <plan.json>`, run by the staged
+/// binary out of %TEMP% (see main). Performs the swap the GUI could
+/// not do itself: backup move (retried until the handed-off GUI has
+/// exited and released the install dir), staging move, user-data
+/// restore, relaunch — with rollback to the previous version on any
+/// failure. Progress is logged to %TEMP%/zapret2-update.log.
+pub fn run_update_helper(plan_path: &Path) -> i32 {
+    // Stand in neither the install nor the staging directory: a
+    // process blocks moving its own working directory.
+    let _ = std::env::set_current_dir(std::env::temp_dir());
+    let log_path = std::env::temp_dir().join("zapret2-update.log");
+    let log = |msg: &str| {
+        eprintln!("[updater-helper] {msg}");
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "{msg}");
+        }
+    };
+    let raw = match fs::read_to_string(plan_path) {
+        Ok(r) => r,
+        Err(e) => {
+            log(&format!("cannot read plan: {e}"));
+            return 1;
+        }
+    };
+    let plan: UpdatePlan = match serde_json::from_str(&raw) {
+        Ok(p) => p,
+        Err(e) => {
+            log(&format!("cannot parse plan: {e}"));
+            return 1;
+        }
+    };
+    let relaunch_old = |plan: &UpdatePlan| {
+        let old_exe = plan.install_dir.join(&plan.current_exe_name);
+        if let Err(e) = std::process::Command::new(&old_exe).spawn() {
+            log(&format!("cannot relaunch previous version: {e}"));
+        }
+    };
+    // Self-heal: a previous helper died after the backup move but
+    // before the swap — the install dir is gone and the backup holds
+    // the only copy. Put it back and relaunch; the user can retry.
+    if !plan.install_dir.exists() && plan.backup_dir.exists() {
+        log("install dir missing, backup present: restoring previous installation");
+        if move_dir(&plan.backup_dir, &plan.install_dir).is_ok() {
+            relaunch_old(&plan);
+        }
+        return 1;
+    }
+    // The backup move only succeeds once the handed-off GUI has exited
+    // and released the install dir; retry for up to ~60 s.
+    let mut backed_up = false;
+    let mut last_err = String::new();
+    for _ in 0..120 {
+        match move_dir(&plan.install_dir, &plan.backup_dir) {
+            Ok(()) => {
+                backed_up = true;
+                break;
+            }
+            Err(e) => {
+                last_err = e;
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        }
+    }
+    if !backed_up {
+        log(&format!("backup move never succeeded: {last_err}"));
+        relaunch_old(&plan);
+        return 1;
+    }
+    if let Err(e) = move_dir(&plan.staging_dir, &plan.install_dir) {
+        log(&format!("swap failed, rolling back: {e}"));
+        rollback_swap(&plan.install_dir, &plan.backup_dir, &plan.staging_dir);
+        relaunch_old(&plan);
+        return 1;
+    }
+    if let Err(e) = restore_user_data(&plan.backup_dir, &plan.install_dir) {
+        log(&format!("user-data restore failed, rolling back: {e}"));
+        rollback_swap(&plan.install_dir, &plan.backup_dir, &plan.staging_dir);
+        relaunch_old(&plan);
+        return 1;
+    }
+    let new_exe = plan.install_dir.join(&plan.staged_exe_name);
+    match std::process::Command::new(&new_exe).spawn() {
+        Ok(_) => {
+            log("update applied, new version launched");
+            0
+        }
+        Err(e) => {
+            log(&format!("new version failed to launch, rolling back: {e}"));
+            rollback_swap(&plan.install_dir, &plan.backup_dir, &plan.staging_dir);
+            relaunch_old(&plan);
+            1
+        }
+    }
 }
 
 /// Returns the auto-check toggle and the last successful check timestamp.
