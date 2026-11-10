@@ -73,6 +73,16 @@ pub struct CustomDnsEntry {
     pub secondary: String,
 }
 
+/// One detector measurement for a googlevideo node host (feature
+/// «YouTube тормозит»): the host that was measured and when. The verdict
+/// is implied by which settings list holds the record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YoutubeNodeRecord {
+    pub host: String,
+    /// Unix seconds of the measurement.
+    pub measured_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub split_tunnel_mode: SplitTunnelMode,
@@ -150,6 +160,23 @@ pub struct AppSettings {
     /// Entries written by the last successful refresh (UI display).
     #[serde(default)]
     pub smart_hosts_entry_count: usize,
+    /// YouTube-throttle lane inside smart hosts: block throttled
+    /// googlevideo nodes via hosts (127.0.0.2). Applied only while smart
+    /// hosts itself is enabled (same marked section, same backup).
+    #[serde(default)]
+    pub youtube_throttle_enabled: bool,
+    /// Detector-confirmed throttled nodes (see YoutubeNodeRecord).
+    /// Records older than 7 days drop out when the lane is applied.
+    #[serde(default)]
+    pub youtube_throttled_nodes: Vec<YoutubeNodeRecord>,
+    /// Detector-measured fast nodes: a local measurement outranks the
+    /// community list, so these clusters are never blocked while a
+    /// fresh fast record exists.
+    #[serde(default)]
+    pub youtube_fast_nodes: Vec<YoutubeNodeRecord>,
+    /// Lane entries written by the last successful apply (UI counter).
+    #[serde(default)]
+    pub youtube_throttle_blocked_count: usize,
     /// Watchdog: background re-checks of the current strategy and automatic
     /// escalation to a better one on confirmed degradation.
     #[serde(default = "default_true")]
@@ -227,6 +254,10 @@ impl Default for AppSettings {
             smart_hosts_include_adblock: false,
             smart_hosts_last_update: None,
             smart_hosts_entry_count: 0,
+            youtube_throttle_enabled: false,
+            youtube_throttled_nodes: Vec::new(),
+            youtube_fast_nodes: Vec::new(),
+            youtube_throttle_blocked_count: 0,
             watchdog_enabled: true,
             watchdog_interval_minutes: 15,
             auto_hostlist_enabled: true,

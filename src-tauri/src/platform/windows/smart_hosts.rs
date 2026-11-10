@@ -22,7 +22,7 @@
 
 use std::collections::HashSet;
 use std::io::Write;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -245,6 +245,156 @@ pub fn merge_entries(sources: Vec<Vec<HostEntry>>, include_adblock: bool) -> Vec
     merged
 }
 
+
+// ---------------------------------------------------------------------------
+// YouTube lane: deliberate blocks of throttled googlevideo nodes
+// ---------------------------------------------------------------------------
+
+/// Raw URL of the throttled-nodes list in our own repository: the list is
+/// data and must be updatable without an app release.
+pub const YOUTUBE_NODES_URL: &str =
+    "https://raw.githubusercontent.com/mqclass/zapret2-gui/main/lists/youtube-bad-nodes.txt";
+
+/// Bundled copy of the same list, used when the download fails or parses
+/// empty.
+const YOUTUBE_NODES_BUNDLED: &str = include_str!("../../../../lists/youtube-bad-nodes.txt");
+
+/// Hosts target for throttled nodes: a loopback address where nothing
+/// listens, so the player gets a fast refusal and picks another node.
+pub const YOUTUBE_BLOCK_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
+
+/// Detector records (throttled blocks and fast verdicts alike) expire
+/// after 7 days without re-confirmation and drop out at the next apply.
+pub const YOUTUBE_NODE_TTL_SECS: u64 = 7 * 24 * 3600;
+
+/// Parses the throttled-nodes list: one hostname per line, `#` starts a
+/// comment. Only guard-matching googlevideo node hosts survive — this
+/// file is downloaded at runtime, and downloaded data must never be able
+/// to point arbitrary domains at 127.0.0.2 through our hosts section.
+pub fn parse_node_list(text: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for raw_line in text.lines() {
+        let line = match raw_line.find('#') {
+            Some(i) => &raw_line[..i],
+            None => raw_line,
+        };
+        let host = line.trim().to_lowercase();
+        if host.is_empty() {
+            continue;
+        }
+        if crate::engine::youtube_probe::is_googlevideo_node_host(&host)
+            && seen.insert(host.clone())
+        {
+            out.push(host);
+        }
+    }
+    out
+}
+
+/// Downloads the throttled-nodes list; on any failure falls back to the
+/// copy bundled at build time.
+async fn fetch_youtube_list_hosts() -> Vec<String> {
+    match fetch_source(YOUTUBE_NODES_URL).await {
+        Ok(text) => {
+            let hosts = parse_node_list(&text);
+            if !hosts.is_empty() {
+                return hosts;
+            }
+            eprintln!("smart-hosts: youtube node list parsed empty, using the bundled copy");
+        }
+        Err(e) => {
+            eprintln!(
+                "smart-hosts: youtube node list download failed ({}), using the bundled copy",
+                e
+            );
+        }
+    }
+    parse_node_list(YOUTUBE_NODES_BUNDLED)
+}
+
+/// Everything the YouTube lane needs, pre-extracted from settings so the
+/// resolution logic stays pure and unit-testable.
+pub struct YoutubeLaneInputs {
+    /// Hosts from the external/bundled list (guard-validated).
+    pub list_hosts: Vec<String>,
+    /// Detector-confirmed throttled records: (host, measured_at unix).
+    pub throttled: Vec<(String, u64)>,
+    /// Detector-measured fast records: (host, measured_at unix).
+    pub fast: Vec<(String, u64)>,
+}
+
+/// Resolves the YouTube lane to hosts entries.
+///
+/// Rules (feature design section 1):
+/// - Sources unite: detector-found clusters plus community list hosts.
+/// - A local measurement outranks the list: the freshest non-expired
+///   verdict per cluster wins, and a cluster measured fast is never
+///   blocked, even when the list names it.
+/// - A throttled verdict blocks the whole cluster (rr1..rr20).
+/// - Records older than [`YOUTUBE_NODE_TTL_SECS`] are ignored.
+pub fn resolve_youtube_lane(inputs: &YoutubeLaneInputs, now: u64) -> Vec<HostEntry> {
+    use crate::engine::youtube_probe::{cluster_prefix, expand_cluster_prefix};
+    use std::collections::HashMap;
+
+    // Freshest verdict per cluster: cluster -> (throttled, measured_at).
+    let mut verdicts: HashMap<String, (bool, u64)> = HashMap::new();
+    let mut note = |host: &str, measured_at: u64, throttled: bool| {
+        if now.saturating_sub(measured_at) >= YOUTUBE_NODE_TTL_SECS {
+            return;
+        }
+        let Some(cluster) = cluster_prefix(host) else {
+            return;
+        };
+        match verdicts.get(&cluster) {
+            Some((_, ts)) if *ts > measured_at => {}
+            _ => {
+                verdicts.insert(cluster, (throttled, measured_at));
+            }
+        }
+    };
+    for (host, ts) in &inputs.throttled {
+        note(host, *ts, true);
+    }
+    for (host, ts) in &inputs.fast {
+        note(host, *ts, false);
+    }
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut hosts: Vec<String> = Vec::new();
+    // Detector-throttled clusters: block rr1..rr20 (community method).
+    for (cluster, (throttled, _)) in &verdicts {
+        if *throttled {
+            for h in expand_cluster_prefix(cluster) {
+                if seen.insert(h.clone()) {
+                    hosts.push(h);
+                }
+            }
+        }
+    }
+    // Community list, minus clusters this machine measured fast.
+    for h in &inputs.list_hosts {
+        let Some(cluster) = cluster_prefix(h) else {
+            continue;
+        };
+        if matches!(verdicts.get(&cluster), Some((false, _))) {
+            continue;
+        }
+        if seen.insert(h.clone()) {
+            hosts.push(h.clone());
+        }
+    }
+
+    hosts.sort();
+    hosts
+        .into_iter()
+        .map(|domain| HostEntry {
+            ip: YOUTUBE_BLOCK_IP,
+            domain,
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Apply / remove
 // ---------------------------------------------------------------------------
@@ -391,18 +541,45 @@ pub async fn refresh_smart_hosts() -> Result<SmartHostsStatus, String> {
     }
 
     let merged = merge_entries(parsed, settings.smart_hosts_include_adblock);
-    if merged.is_empty() {
+
+    // YouTube lane: deliberate 127.0.0.2 blocks of throttled googlevideo
+    // nodes (see engine::youtube_probe). The lane is NOT passed through
+    // merge_entries — these are intentional blocks and must not be eaten
+    // by the adblock filter. It rides the same marked section, backup
+    // and refresh as the community lists.
+    let mut lane: Vec<HostEntry> = Vec::new();
+    if settings.youtube_throttle_enabled {
+        let inputs = YoutubeLaneInputs {
+            list_hosts: fetch_youtube_list_hosts().await,
+            throttled: settings
+                .youtube_throttled_nodes
+                .iter()
+                .map(|r| (r.host.clone(), r.measured_at))
+                .collect(),
+            fast: settings
+                .youtube_fast_nodes
+                .iter()
+                .map(|r| (r.host.clone(), r.measured_at))
+                .collect(),
+        };
+        lane = resolve_youtube_lane(&inputs, unix_now());
+    }
+    if merged.is_empty() && lane.is_empty() {
         return Err("Источники не дали ни одной записи".to_string());
     }
+    let lane_count = lane.len();
+    let mut all = merged;
+    all.extend(lane);
 
-    apply_entries(&merged)?;
+    apply_entries(&all)?;
 
     let now = unix_now();
     // Bookkeeping only: the hosts file is already updated at this point,
     // so a failed save must not turn a successful refresh into an error.
     if let Err(e) = update_settings(|s| {
         s.smart_hosts_last_update = Some(now);
-        s.smart_hosts_entry_count = merged.len();
+        s.smart_hosts_entry_count = all.len();
+        s.youtube_throttle_blocked_count = lane_count;
     }) {
         eprintln!("smart-hosts: applied, but failed to persist refresh state: {}", e);
     }
@@ -459,6 +636,7 @@ pub fn disable_smart_hosts() -> Result<SmartHostsStatus, String> {
         s.smart_hosts_enabled = false;
         s.smart_hosts_last_update = None;
         s.smart_hosts_entry_count = 0;
+        s.youtube_throttle_blocked_count = 0;
     })?;
     Ok(status())
 }
@@ -577,5 +755,102 @@ mod tests {
         assert!(before.contains("localhost"));
         assert!(!before.contains(SECTION_BEGIN));
         assert!(after.is_empty() || !after.contains(SECTION_END));
+    }
+
+    #[test]
+    fn parse_node_list_filters_and_dedupes() {
+        let text = "# comment\n\nrr1---sn-gvnuxaxjvh-n8ml.googlevideo.com\nRR2---sn-gvnuxaxjvh-n8ml.googlevideo.com\nrr1---sn-gvnuxaxjvh-n8ml.googlevideo.com\nyoutube.com\nrr3---sn-gvnuxaxjvh-n8ml.googlevideo.com # inline comment\ngarbage line\n1.2.3.4 rr4---sn-gvnuxaxjvh-n8ml.googlevideo.com\n";
+        let hosts = parse_node_list(text);
+        assert_eq!(
+            hosts,
+            vec![
+                "rr1---sn-gvnuxaxjvh-n8ml.googlevideo.com",
+                "rr2---sn-gvnuxaxjvh-n8ml.googlevideo.com",
+                "rr3---sn-gvnuxaxjvh-n8ml.googlevideo.com",
+            ]
+        );
+    }
+
+    #[test]
+    fn bundled_node_list_parses() {
+        let hosts = parse_node_list(YOUTUBE_NODES_BUNDLED);
+        assert_eq!(hosts.len(), 20);
+        assert!(hosts.iter().all(|h| h.contains("sn-gvnuxaxjvh-n8ml")));
+    }
+
+    #[test]
+    fn lane_list_entries_point_at_block_ip() {
+        let inputs = YoutubeLaneInputs {
+            list_hosts: vec!["rr5---sn-aaaa-bb.googlevideo.com".to_string()],
+            throttled: vec![],
+            fast: vec![],
+        };
+        let lane = resolve_youtube_lane(&inputs, 1_000_000);
+        assert_eq!(lane.len(), 1);
+        assert_eq!(lane[0].ip, YOUTUBE_BLOCK_IP);
+        assert_eq!(lane[0].domain, "rr5---sn-aaaa-bb.googlevideo.com");
+        // The lane bypasses the adblock filter by construction: the same
+        // mapping fed through merge_entries with adblock off would be
+        // dropped as a blocking entry. That is why refresh applies the
+        // lane separately, never through merge_entries.
+        assert!(merge_entries(vec![lane.clone()], false).is_empty());
+        assert_eq!(merge_entries(vec![lane], true).len(), 1);
+    }
+
+    #[test]
+    fn lane_detected_throttled_expands_cluster() {
+        let now = 2_000_000;
+        let inputs = YoutubeLaneInputs {
+            list_hosts: vec![],
+            throttled: vec![("rr3---sn-aaaa-bb.googlevideo.com".to_string(), now - 60)],
+            fast: vec![],
+        };
+        let lane = resolve_youtube_lane(&inputs, now);
+        assert_eq!(lane.len(), 20);
+        assert!(lane
+            .iter()
+            .any(|e| e.domain == "rr20---sn-aaaa-bb.googlevideo.com"));
+    }
+
+    #[test]
+    fn lane_measured_fast_vetoes_list_and_detection() {
+        let now = 2_000_000;
+        // Same cluster in the list AND freshly measured fast -> no block.
+        let inputs = YoutubeLaneInputs {
+            list_hosts: vec!["rr5---sn-aaaa-bb.googlevideo.com".to_string()],
+            throttled: vec![],
+            fast: vec![("rr9---sn-aaaa-bb.googlevideo.com".to_string(), now - 60)],
+        };
+        assert!(resolve_youtube_lane(&inputs, now).is_empty());
+        // A fresh fast verdict also cancels an older throttled verdict.
+        let inputs2 = YoutubeLaneInputs {
+            list_hosts: vec![],
+            throttled: vec![("rr3---sn-aaaa-bb.googlevideo.com".to_string(), now - 3600)],
+            fast: vec![("rr9---sn-aaaa-bb.googlevideo.com".to_string(), now - 60)],
+        };
+        assert!(resolve_youtube_lane(&inputs2, now).is_empty());
+        // Reverse freshness order: the block stands.
+        let inputs3 = YoutubeLaneInputs {
+            list_hosts: vec![],
+            throttled: vec![("rr3---sn-aaaa-bb.googlevideo.com".to_string(), now - 60)],
+            fast: vec![("rr9---sn-aaaa-bb.googlevideo.com".to_string(), now - 3600)],
+        };
+        assert_eq!(resolve_youtube_lane(&inputs3, now).len(), 20);
+    }
+
+    #[test]
+    fn lane_records_expire_after_ttl() {
+        let now = 10 * YOUTUBE_NODE_TTL_SECS;
+        let stale = now - YOUTUBE_NODE_TTL_SECS - 1;
+        let inputs = YoutubeLaneInputs {
+            list_hosts: vec!["rr5---sn-aaaa-bb.googlevideo.com".to_string()],
+            throttled: vec![("rr3---sn-cccc-dd.googlevideo.com".to_string(), stale)],
+            fast: vec![("rr9---sn-aaaa-bb.googlevideo.com".to_string(), stale)],
+        };
+        let lane = resolve_youtube_lane(&inputs, now);
+        // Expired throttled record blocks nothing; expired fast record no
+        // longer vetoes the list entry for its cluster.
+        assert_eq!(lane.len(), 1);
+        assert_eq!(lane[0].domain, "rr5---sn-aaaa-bb.googlevideo.com");
     }
 }

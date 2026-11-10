@@ -12,6 +12,7 @@ pub mod probes;
 pub mod block_classifier;
 pub mod speedtest;
 pub mod supervisor;
+pub mod youtube_probe;
 pub mod tgproxy;
 pub mod transport;
 pub use events::{EventSink, NullSink, SinkSlot, TauriSink};
