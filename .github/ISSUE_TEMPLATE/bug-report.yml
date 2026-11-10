@@ -1,0 +1,64 @@
+name: Сообщить о баге
+description: Что-то не работает или работает не так, как должно
+title: "[Баг] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо, что нашли время написать. Чем точнее описание, тем быстрее получится починить.
+        Если не знаете, что писать в каком-то поле, просто оставьте его пустым.
+  - type: input
+    id: version
+    attributes:
+      label: Версия программы
+      description: Указана в левом верхнем углу окна, рядом с названием.
+      placeholder: "например, 1.4.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Версия Windows
+      placeholder: "например, Windows 11 24H2"
+    validations:
+      required: false
+  - type: input
+    id: provider
+    attributes:
+      label: Провайдер интернета
+      description: Блокировки у каждого провайдера свои, это правда важно.
+      placeholder: "например, Ростелеком, Дом.ру, МТС"
+    validations:
+      required: false
+  - type: input
+    id: strategy
+    attributes:
+      label: Какая стратегия выбрана
+      description: Название видно на главном экране под кнопкой обхода.
+      placeholder: "например, zapret2 RU Ultimate"
+    validations:
+      required: false
+  - type: textarea
+    id: what
+    attributes:
+      label: Что не работает
+      description: Что вы делали и что пошло не так. Если не открывается конкретный сайт, укажите его адрес.
+      placeholder: "Включаю обход, YouTube всё равно не открывается, диагностика пишет…"
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: Что уже пробовали
+      description: "Например: «Подобрать лучшую стратегию», перезапуск программы, другую стратегию. Если ничего, так и напишите."
+    validations:
+      required: false
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Результат диагностики
+      description: Если не открывается конкретный сайт, откройте в программе вкладку «Диагностика», проверьте этот сайт и вставьте результат сюда. Если программа вообще не запускается, пропустите это поле.
+      render: text
+    validations:
+      required: false

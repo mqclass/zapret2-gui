@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Вопросы по самому движку zapret2
+    url: https://github.com/bol-van/zapret2/issues
+    about: Если проблема в самом winws2/nfqws2, а не в этой программе, её лучше показать автору движка.

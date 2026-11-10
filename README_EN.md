@@ -26,7 +26,7 @@ Under the hood is the [zapret2](https://github.com/bol-van/zapret2) engine by bo
 
 ## Features
 
-Almost everything on this list is already in the current version. Two things still live in test builds and will arrive in the nearest update: per-app split tunneling and bypass modes for Lua strategies.
+Everything on this list is already in the current version.
 
 - **One-click start.** The "Enable bypass" button and a wizard that asks "What do you want to unblock?": YouTube, Discord, or everything at once. From there the program works out on its own how to get around your provider.
 - **It repairs itself when the provider tightens the blocks.** A familiar story: yesterday everything opened, today YouTube is dead. Auto-tuning runs through the ready-made strategies (there are more than a dozen) and keeps the one that works right now. A separate watchdog keeps an eye on the bypass in the background and runs the same tuning when quality degrades, without you lifting a finger.
@@ -81,6 +81,10 @@ There are no compiled files in the repository, and that is verifiable. During th
 ## Linux
 
 The Linux version is already written and lives in the dev branch: the same interface and service, the nfqws2 engine, traffic capture through nftables. The service and the engine are checked by automated tests and a live run on the build server, but on a home computer with an ordinary desktop nobody has put this version through its paces yet. That is why there are no Linux releases, and they will appear only after such a shakedown.
+
+## Found a bug?
+
+This program is made by one person, and one person cannot test it on every provider and every computer. Bug reports genuinely help: they are what makes the program better. If something does not work, [open an issue](https://github.com/mqclass/zapret2-gui/issues/new/choose): a short form there will suggest what to write. The most useful things to include are the program version, your internet provider, and the check result for the site that does not open — it is collected on the Diagnostics tab.
 
 ## Thanks
 
