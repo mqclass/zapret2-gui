@@ -106,8 +106,16 @@ pub const MAX_PROBE_HOSTS: usize = 6;
 /// ~425 KB in this window — comfortably above the minimum sample.
 const PER_HOST_TIMEOUT: Duration = Duration::from_secs(25);
 
-/// Overall budget for one check (~3 minutes per the design).
-const OVERALL_BUDGET: Duration = Duration::from_secs(170);
+/// Overall budget for one check (~3 minutes per the design), counted
+/// from the very start of the check: the report_mapping lookup, the
+/// watch-page fetches and every node probe share this one deadline, so
+/// the worst case stays at 3 minutes, not 3 minutes plus page fetches.
+const OVERALL_BUDGET: Duration = Duration::from_secs(180);
+
+/// Time left until `deadline`, zero once it has passed.
+fn remaining_until(deadline: Instant) -> Duration {
+    deadline.saturating_duration_since(Instant::now())
+}
 
 /// Long-lived public videos used as stream sources. Any single one may
 /// rot or get walled; the check tries them in order and reports
@@ -316,56 +324,84 @@ fn probe_client() -> &'static reqwest::Client {
 }
 
 /// Best-effort report_mapping lookup; failure is silent (diagnostics).
-async fn fetch_mapping_node(client: &reqwest::Client) -> Option<String> {
-    let text = client
-        .get("https://redirector.googlevideo.com/report_mapping")
-        .send()
-        .await
-        .ok()?
-        .text()
-        .await
-        .ok()?;
+/// Bounded by the check's overall deadline like every other stage.
+async fn fetch_mapping_node(client: &reqwest::Client, deadline: Instant) -> Option<String> {
+    let fetch = async {
+        let resp = client
+            .get("https://redirector.googlevideo.com/report_mapping")
+            .send()
+            .await
+            .ok()?;
+        resp.text().await.ok()
+    };
+    let text = tokio::time::timeout(remaining_until(deadline), fetch).await.ok()??;
     parse_report_mapping(&text)
 }
 
 /// Downloads one watch page and extracts its videoplayback URLs.
 /// `None` on any failure (bot wall, consent wall, no streamingData) —
-/// the caller moves on to the next test video.
-async fn fetch_watch_urls(client: &reqwest::Client, video_id: &str) -> Option<Vec<String>> {
+/// the caller moves on to the next test video. Bounded by the check's
+/// overall deadline like every other stage.
+async fn fetch_watch_urls(
+    client: &reqwest::Client,
+    video_id: &str,
+    deadline: Instant,
+) -> Option<Vec<String>> {
     let url = format!("https://www.youtube.com/watch?v={}", video_id);
-    let resp = client
-        .get(&url)
-        .header("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8")
-        .send()
+    let fetch = async {
+        let resp = client
+            .get(&url)
+            .header("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8")
+            .send()
+            .await
+            .ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let html = resp.text().await.ok()?;
+        let urls = extract_videoplayback_urls(&html);
+        if urls.is_empty() {
+            None
+        } else {
+            Some(urls)
+        }
+    };
+    tokio::time::timeout(remaining_until(deadline), fetch)
         .await
-        .ok()?;
-    if !resp.status().is_success() {
-        return None;
-    }
-    let html = resp.text().await.ok()?;
-    let urls = extract_videoplayback_urls(&html);
-    if urls.is_empty() {
-        None
-    } else {
-        Some(urls)
-    }
+        .ok()?
+}
+
+/// Decides whether a failed body read condemns the whole probe.
+///
+/// The per-host client timeout and a throttled node's drip feed race
+/// each other: at the canonical ~17 KB/s the client timeout fires
+/// mid-body with a perfectly good slow sample already in hand
+/// (>= MIN_SAMPLE_BYTES). Such a sample is judged on its numbers via
+/// [`classify_sample`], not written off as a network failure — writing
+/// it off would mark the exact nodes this detector exists to find as
+/// Unreachable and never record them. A failure before the minimum
+/// sample says nothing about throughput: that one stays fatal.
+fn read_failure_is_fatal(bytes: u64, read_failed: bool) -> bool {
+    read_failed && bytes < MIN_SAMPLE_BYTES
 }
 
 /// Measures one node's sustained throughput with a ~3 MiB range
 /// request against the original signed URL (hosts are never rewritten:
 /// the signature is not known to survive that, and the design forbids
 /// it). The verdict is computed from the bytes that actually arrived.
-async fn probe_host(client: &reqwest::Client, url: &str) -> YoutubeNodeProbe {
+/// The measurement window ends at the earlier of the per-host cap and
+/// the check's overall deadline.
+async fn probe_host(client: &reqwest::Client, url: &str, deadline: Instant) -> YoutubeNodeProbe {
     let fallback_host = url_host(url).unwrap_or_default();
     let started = Instant::now();
-    let mut resp = match client
+    let limit = (started + PER_HOST_TIMEOUT).min(deadline);
+    let send = client
         .get(url)
         .header("Range", format!("bytes=0-{}", PROBE_RANGE_BYTES - 1))
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(_) => {
+        .send();
+    let mut resp = match tokio::time::timeout(remaining_until(limit), send).await {
+        Ok(Ok(r)) => r,
+        _ => {
             return YoutubeNodeProbe {
                 host: fallback_host,
                 verdict: NodeVerdict::Unreachable,
@@ -393,20 +429,22 @@ async fn probe_host(client: &reqwest::Client, url: &str) -> YoutubeNodeProbe {
         .unwrap_or(fallback_host);
 
     let mut bytes: u64 = 0;
-    let mut network_failed = false;
-    while bytes < PROBE_RANGE_BYTES && started.elapsed() < PER_HOST_TIMEOUT {
+    let mut read_failed = false;
+    while bytes < PROBE_RANGE_BYTES && Instant::now() < limit {
         match tokio::time::timeout(Duration::from_secs(5), resp.chunk()).await {
             Ok(Ok(Some(chunk))) => bytes += chunk.len() as u64,
             Ok(Ok(None)) => break, // clean EOF
             Ok(Err(_)) => {
-                network_failed = true;
+                read_failed = true;
                 break;
             }
             Err(_) => break, // 5 s without data: stalled; judge the sample
         }
     }
     let elapsed = started.elapsed().as_secs_f64();
-    let verdict = classify_sample(bytes, elapsed, network_failed);
+    // A read error with a usable sample in hand (the client timeout
+    // killing a drip feed) is judged by the sample, not as a failure.
+    let verdict = classify_sample(bytes, elapsed, read_failure_is_fatal(bytes, read_failed));
     let mbps = if elapsed > 0.0 {
         bytes as f64 * 8.0 / elapsed / 1_000_000.0
     } else {
@@ -453,11 +491,19 @@ pub async fn run_youtube_throttle_check() -> YoutubeCheckResult {
     };
 
     let client = probe_client();
-    result.mapping_node = fetch_mapping_node(client).await;
+    // One deadline for the WHOLE check, from the very start: mapping,
+    // page fetches and probes all share it. When it runs out mid-check
+    // the result is honestly partial — the nodes measured so far, or
+    // Unknown when nothing could be measured at all.
+    let deadline = Instant::now() + OVERALL_BUDGET;
+    result.mapping_node = fetch_mapping_node(client, deadline).await;
 
     let mut page_urls: Vec<String> = Vec::new();
     for id in TEST_VIDEO_IDS {
-        if let Some(urls) = fetch_watch_urls(client, id).await {
+        if Instant::now() >= deadline {
+            break;
+        }
+        if let Some(urls) = fetch_watch_urls(client, id, deadline).await {
             page_urls = urls;
             break;
         }
@@ -469,13 +515,12 @@ pub async fn run_youtube_throttle_check() -> YoutubeCheckResult {
 
     // Sequential on purpose: parallel downloads would distort each
     // other's throughput and the verdicts with it.
-    let deadline = Instant::now() + OVERALL_BUDGET;
     let mut nodes: Vec<YoutubeNodeProbe> = Vec::new();
     for (_, url) in unique_node_urls(&page_urls) {
-        if Instant::now() > deadline {
+        if Instant::now() >= deadline {
             break;
         }
-        nodes.push(probe_host(client, &url).await);
+        nodes.push(probe_host(client, &url, deadline).await);
     }
     result.outcome = aggregate(&nodes);
     result.nodes = nodes;
@@ -583,6 +628,36 @@ mod tests {
         // A tiny clean sample cannot support a verdict.
         assert_eq!(classify_sample(10_000, 1.0, false), NodeVerdict::Unknown);
         assert_eq!(classify_sample(0, 1.0, false), NodeVerdict::Unknown);
+    }
+
+    #[test]
+    fn read_failure_with_usable_sample_is_judged_by_numbers() {
+        // The canonical drip feed: ~425 KB in 25 s (≈17 KB/s) and then
+        // the per-host client timeout kills the read. The sample is
+        // usable, so the verdict comes from its numbers: Throttled,
+        // never Unreachable — otherwise the detector would write off
+        // exactly the nodes it exists to record.
+        assert!(!read_failure_is_fatal(425_000, true));
+        assert_eq!(
+            classify_sample(425_000, 25.0, read_failure_is_fatal(425_000, true)),
+            NodeVerdict::Throttled
+        );
+        // A connection that delivered a fast full range and dropped at
+        // the very end still judges Fast.
+        assert_eq!(
+            classify_sample(3_145_728, 4.0, read_failure_is_fatal(3_145_728, true)),
+            NodeVerdict::Fast
+        );
+        // A failure before the minimum sample says nothing about
+        // throughput and stays a network failure.
+        assert!(read_failure_is_fatal(10_000, true));
+        assert_eq!(
+            classify_sample(10_000, 3.0, read_failure_is_fatal(10_000, true)),
+            NodeVerdict::Unreachable
+        );
+        // Clean EOF is never a failure, whatever arrived.
+        assert!(!read_failure_is_fatal(0, false));
+        assert!(!read_failure_is_fatal(3_145_728, false));
     }
 
     #[test]

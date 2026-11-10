@@ -706,6 +706,14 @@ export const DnsSpeedView: React.FC = React.memo(() => {
             </div>
           )}
 
+          {/* Source problems from the last refresh that still applied */}
+          {hostsStatus?.enabled && hostsStatus.last_error && (
+            <div className="flex items-center gap-2 text-[11px] text-amber-300/90">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{hostsStatus.last_error}</span>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <button
               type="button"

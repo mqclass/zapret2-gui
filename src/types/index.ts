@@ -261,6 +261,7 @@ export interface SmartHostsStatus {
   include_adblock: boolean;
   last_update: number | null;
   entry_count: number;
+  last_error: string | null;
   section_present: boolean;
   backup_present: boolean;
   youtube_throttle_enabled: boolean;

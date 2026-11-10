@@ -164,6 +164,12 @@ pub struct AppSettings {
     /// Entries written by the last successful refresh (UI display).
     #[serde(default)]
     pub smart_hosts_entry_count: usize,
+    /// Source problems from the last refresh that still applied its
+    /// section (e.g. the YouTube lane carried it while the community
+    /// sources were unreachable). Cleared by the next fully clean
+    /// refresh; surfaced in the status so failures are never silent.
+    #[serde(default)]
+    pub smart_hosts_last_error: Option<String>,
     /// YouTube-throttle lane inside smart hosts: block throttled
     /// googlevideo nodes via hosts (127.0.0.2). Applied only while smart
     /// hosts itself is enabled (same marked section, same backup).
@@ -258,6 +264,7 @@ impl Default for AppSettings {
             smart_hosts_include_adblock: false,
             smart_hosts_last_update: None,
             smart_hosts_entry_count: 0,
+            smart_hosts_last_error: None,
             youtube_throttle_enabled: false,
             youtube_throttled_nodes: Vec::new(),
             youtube_fast_nodes: Vec::new(),
