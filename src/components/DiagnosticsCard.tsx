@@ -54,6 +54,16 @@ export const AUTO_TUNE_CANDIDATES = [
   "firstbyte",
   "syndata",
   "ipfrag",
+  // Imported kinlay0 strategies: new techniques, probed after the
+  // proven candidates — they exist for providers where the whole
+  // standard pool fails.
+  "kinlay0-double-fake",
+  "kinlay0-double-fake-alt",
+  "kinlay0-double-fake-alt2",
+  "kinlay0-single-fake",
+  "kinlay0-single-fake-alt",
+  "kinlay0-hostfakesplit-ts",
+  "kinlay0-hostfakesplit-ts-alt",
 ];
 
 interface DiagnosticsCardProps {

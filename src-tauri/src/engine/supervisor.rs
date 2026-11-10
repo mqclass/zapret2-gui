@@ -993,6 +993,7 @@ impl Supervisor {
         // same fresh settings the builders will read.
         let tunnel_applied = if is_custom_args
             || active_id == "zapret2-ru-ultimate"
+            || crate::engine::imported_strategies::is_imported(&active_id)
             || target_strat
                 .as_ref()
                 .map_or(false, |s| s.category == "custom")
@@ -2075,6 +2076,71 @@ impl Supervisor {
         args
     }
 
+    /// Builds winws2 arguments for an imported kinlay0 strategy.
+    /// Pure: the caller resolves the filesystem-shaped inputs (the
+    /// auto-hostlist path and the list resolver, same shape as
+    /// branch 4's l()) so tests can pin the output.
+    ///
+    /// Layout mirrors the flagship: our standard root capture
+    /// filters, the three stock lua-init libraries the collection
+    /// loads (minus its blobs.lua — blobs are registered our way,
+    /// only the ones this strategy references), then the strategy's
+    /// profiles in the .bat's own order as --new=<slug> sections.
+    ///
+    /// Honest scope limits, same as the flagship: the split-tunnel
+    /// Lua modes do not reshape these lists (start_locked reports
+    /// the mode as not applied for imported ids), and the .bat
+    /// gamefilter sections are not carried over — the GUI's own
+    /// game sections belong to the Flowseal/Lua-preset builders.
+    ///
+    /// Auto-hostlist (design §3): with the setting on, the
+    /// domain_tls section — the TCP section gated on list-general —
+    /// gains --hostlist-auto after its exclude lines, like the
+    /// flagship's general sections. The QUIC section stays out:
+    /// the UDP failure detector is out of phase-1 scope there too.
+    fn build_imported_args(
+        imported: &crate::engine::imported_strategies::ImportedStrategy,
+        auto: Option<&str>,
+        list_path: &dyn Fn(&str) -> String,
+    ) -> Vec<String> {
+        let mut args: Vec<String> = vec![
+            "--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into(),
+            "--wf-udp-out=443,19294-19344,50000-65535".into(),
+            "--lua-init=@zapret-lib.lua".into(),
+            "--lua-init=@zapret-antidpi.lua".into(),
+            "--lua-init=@zapret-auto.lua".into(),
+        ];
+        for name in imported.blobs {
+            if let Some(file) = crate::engine::imported_strategies::blob_file(name) {
+                args.push(format!("--blob={}:@{}", name, file));
+            }
+        }
+        for (slug, profile_args) in imported.profiles {
+            args.push(format!("--new={}", slug));
+            for arg in *profile_args {
+                if let Some(pos) = arg.find("{L}") {
+                    let file = &arg[pos + 3..];
+                    args.push(format!("{}{}", &arg[..pos], list_path(file)));
+                } else {
+                    args.push(arg.to_string());
+                }
+            }
+        }
+        if let Some(auto_path) = auto {
+            let anchor = format!(
+                "--hostlist-exclude={}",
+                list_path("list-exclude-user.txt")
+            );
+            Self::insert_after_in_section(
+                &mut args,
+                "domain_tls",
+                &anchor,
+                &[format!("--hostlist-auto={}", auto_path)],
+            );
+        }
+        args
+    }
+
     /// Builds zapret2 Ultimate configuration for Russia on winws2 v2.
     /// Thin wrapper: reads the auto-hostlist setting and resolves
     /// the absolute auto path from the user lists directory (the
@@ -2376,6 +2442,28 @@ impl Supervisor {
         // 2. If it's the flagship zapret2 Ultimate Russia preset, build winws2 arguments
         if strat_id == "zapret2-ru-ultimate" {
             return Ok(Self::build_zapret2_ru_ultimate_args(&binaries.bin_dir, &lists_dir));
+        }
+
+        // 2b. Imported community strategies (kinlay0 collection,
+        // pinned): bundled argument vectors translated from the
+        // collection's .bat files (engine::imported_strategies). The
+        // list resolution mirrors branch 4's l() exactly: the bundled
+        // copy under bin/lists wins over the user lists directory.
+        if let Some(imported) = crate::engine::imported_strategies::find(strat_id) {
+            let settings = crate::platform::settings::load_settings();
+            let auto = if settings.auto_hostlist_enabled {
+                Some(auto_hostlist_path(&lists_dir))
+            } else {
+                None
+            };
+            let l = |file: &str| {
+                if binaries.bin_dir.join("lists").join(file).is_file() {
+                    format!("lists/{}", file)
+                } else {
+                    lists_dir.join(file).to_string_lossy().replace('\\', "/")
+                }
+            };
+            return Ok(Self::build_imported_args(imported, auto.as_deref(), &l));
         }
 
         let strategies = discover_strategies().unwrap_or_default();
@@ -3638,6 +3726,171 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&bundle);
         let _ = std::fs::remove_dir_all(&empty);
+    }
+
+    /// Builds imported-strategy args the way branch 2b of
+    /// resolve_strategy_args does, with bundled list resolution.
+    fn imported_test_args(
+        id: &str,
+        auto: Option<&str>,
+    ) -> Vec<String> {
+        let imported = crate::engine::imported_strategies::find(id)
+            .unwrap_or_else(|| panic!("unknown imported strategy {}", id));
+        Supervisor::build_imported_args(imported, auto, &|f| format!("lists/{}", f))
+    }
+
+    /// The `--new=<slug>` section span of a built argument list.
+    fn section_of<'a>(args: &'a [String], slug: &str) -> &'a [String] {
+        let marker = format!("--new={}", slug);
+        let start = args
+            .iter()
+            .position(|a| a == &marker)
+            .unwrap_or_else(|| panic!("section {} missing", slug));
+        let end = args
+            .iter()
+            .skip(start + 1)
+            .position(|a| a.starts_with("--new="))
+            .map(|p| start + 1 + p)
+            .unwrap_or(args.len());
+        &args[start..end]
+    }
+
+    #[test]
+    fn test_imported_args_shape_for_all_strategies() {
+        let all = crate::engine::imported_strategies::all();
+        assert_eq!(all.len(), 7, "first kinlay0 group is exactly 7 strategies");
+        for strat in all {
+            let args = imported_test_args(strat.id, None);
+            // Our root capture first, stock lua inits, no collection
+            // wrapping anywhere in the output.
+            assert_eq!(args[0], "--wf-tcp-out=80,443,2053,2083,2087,2096,8443", "{}", strat.id);
+            assert_eq!(args[1], "--wf-udp-out=443,19294-19344,50000-65535", "{}", strat.id);
+            assert_eq!(
+                args.iter().filter(|a| a.starts_with("--lua-init=")).count(),
+                3,
+                "{}",
+                strat.id
+            );
+            for arg in &args {
+                for banned in [
+                    "blobs.lua",
+                    "gamefilter",
+                    "GameFilter",
+                    "%",
+                    "--ctrack",
+                    "--wf-tcp-in",
+                    "--wf-udp-in",
+                    "{L}",
+                ] {
+                    assert!(
+                        !arg.contains(banned),
+                        "{}: arg {:?} contains banned {:?}",
+                        strat.id,
+                        arg,
+                        banned
+                    );
+                }
+            }
+            // The .bat game sections are dropped: 9 profiles become 7.
+            let sections: Vec<&String> = args
+                .iter()
+                .filter(|a| a.starts_with("--new="))
+                .collect();
+            assert_eq!(sections.len(), 7, "{}", strat.id);
+            // Blob completeness: every blob a desync chain references
+            // is registered our way before the profiles start.
+            let first_section = args
+                .iter()
+                .position(|a| a.starts_with("--new="))
+                .unwrap();
+            for arg in &args {
+                if let Some(pos) = arg.find("--lua-desync=") {
+                    for part in arg[pos..].split(':') {
+                        if let Some(name) = part.strip_prefix("blob=") {
+                            let reg = format!("--blob={}:@", name);
+                            assert!(
+                                args[..first_section]
+                                    .iter()
+                                    .any(|a| a.starts_with(&reg)),
+                                "{}: blob {} used but not registered",
+                                strat.id,
+                                name
+                            );
+                        }
+                    }
+                }
+            }
+            // The auto-hostlist target section exists in every one.
+            let _ = section_of(&args, "domain_tls");
+        }
+    }
+
+    #[test]
+    fn test_imported_double_fake_really_has_two_fakes() {
+        // The family's defining trait, pinned so a translator or pin
+        // change cannot silently flatten it: in domain_tls the DOUBLE
+        // FAKE chains carry two fake instances on the TLS payload
+        // (plus one on HTTP), SINGLE FAKE carries one (plus one).
+        let count_fakes = |id: &str| {
+            let args = imported_test_args(id, None);
+            section_of(&args, "domain_tls")
+                .iter()
+                .filter(|a| a.starts_with("--lua-desync=fake:"))
+                .count()
+        };
+        assert_eq!(count_fakes("kinlay0-double-fake"), 3);
+        assert_eq!(count_fakes("kinlay0-double-fake-alt"), 3);
+        assert_eq!(count_fakes("kinlay0-double-fake-alt2"), 3);
+        assert_eq!(count_fakes("kinlay0-single-fake"), 2);
+        // hostfakesplit's domain_tls leads with hostfakesplit, not fake.
+        let args = imported_test_args("kinlay0-hostfakesplit-ts", None);
+        let section = section_of(&args, "domain_tls");
+        assert!(section
+            .iter()
+            .any(|a| a.starts_with("--lua-desync=hostfakesplit:")));
+    }
+
+    #[test]
+    fn test_imported_auto_hostlist_injected_only_into_domain_tls() {
+        let with = imported_test_args(
+            "kinlay0-double-fake",
+            Some("/tmp/lists/list-auto.txt"),
+        );
+        let auto_args: Vec<&String> = with
+            .iter()
+            .filter(|a| a.starts_with("--hostlist-auto="))
+            .collect();
+        assert_eq!(auto_args.len(), 1);
+        assert_eq!(auto_args[0], "--hostlist-auto=/tmp/lists/list-auto.txt");
+        // It sits inside domain_tls, right after the user exclude.
+        let section = section_of(&with, "domain_tls");
+        let at = section
+            .iter()
+            .position(|a| a.starts_with("--hostlist-auto="))
+            .unwrap();
+        assert_eq!(
+            section[at - 1],
+            "--hostlist-exclude=lists/list-exclude-user.txt"
+        );
+        // Setting off: no auto line anywhere.
+        let without = imported_test_args("kinlay0-double-fake", None);
+        assert!(!without.iter().any(|a| a.starts_with("--hostlist-auto=")));
+    }
+
+    /// Manual validation hook: dumps the built argument lists (one
+    /// argument per line) to /tmp/imported-dryrun/ so they can be fed
+    /// to the real nfqws2 v1.0.7 with --dry-run (strip --wf-* first,
+    /// as the Linux nftables rewrite does). Not a CI test.
+    #[test]
+    #[ignore]
+    fn dump_imported_args_for_dryrun() {
+        let dir = std::path::Path::new("/tmp/imported-dryrun");
+        std::fs::create_dir_all(dir).unwrap();
+        for strat in crate::engine::imported_strategies::all() {
+            let args = imported_test_args(strat.id, None);
+            std::fs::write(dir.join(format!("{}.args", strat.id)), args.join("\n"))
+                .unwrap();
+        }
     }
 }
 

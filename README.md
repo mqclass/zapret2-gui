@@ -90,6 +90,7 @@ Linux-версия уже написана и живёт в ветке dev: то
 
 - [bol-van](https://github.com/bol-van/zapret2) — движок zapret2 и сам метод обхода DPI.
 - [Flowseal](https://github.com/Flowseal/zapret-discord-youtube) — стратегии и списки доменов.
+- [kinlay0](https://github.com/kinlay0/zapret2-discord-youtube-strats) — сборник стратегий сообщества: часть стратегий автоподбора (двойной и одиночный фейк, хост-фейк с TS) взята из него.
 - [medvedeff-true](https://github.com/medvedeff-true/Zapret-Gui) — идеи интерфейса.
 
 ## Лицензия

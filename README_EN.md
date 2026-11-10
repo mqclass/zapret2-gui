@@ -90,6 +90,7 @@ This program is made by one person, and one person cannot test it on every provi
 
 - [bol-van](https://github.com/bol-van/zapret2) for the zapret2 engine and the DPI bypass method itself.
 - [Flowseal](https://github.com/Flowseal/zapret-discord-youtube) for the strategies and domain lists.
+- [kinlay0](https://github.com/kinlay0/zapret2-discord-youtube-strats) for the community strategy collection: some auto-tune strategies (double fake, single fake, host fake with TS) come from it.
 - [medvedeff-true](https://github.com/medvedeff-true/Zapret-Gui) for interface ideas.
 
 ## License

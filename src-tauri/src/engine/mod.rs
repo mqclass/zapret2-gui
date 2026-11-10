@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 pub mod events;
+pub mod imported_strategies;
 pub mod logger;
 pub mod managed;
 pub mod probes;

@@ -283,6 +283,28 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
         custom_args: None,
     });
 
+    // 2b. Imported community strategies (kinlay0 collection, pinned
+    // commit): argument-vector strategies for winws2, registered from
+    // the shared registry in engine::imported_strategies; the
+    // supervisor builds their arguments from the vendored .bat
+    // templates (see resolve_strategy_args, branch 2b).
+    for meta in crate::engine::imported_strategies::all() {
+        list.push(LuaStrategy {
+            id: meta.id.into(),
+            name: meta.name.into(),
+            filename: format!("{} (winws2)", meta.filename),
+            path: PathBuf::from(format!(
+                "strategies/imported/kinlay0/{}",
+                meta.filename
+            )),
+            size_bytes: meta.size_bytes,
+            description: meta.description.into(),
+            engine: "winws2".into(),
+            category: "zapret2".into(),
+            custom_args: None,
+        });
+    }
+
     // 3. Discover local Lua scripts for zapret2 engine (filtering out internal helper/test modules)
     const INTERNAL_LUA_SCRIPTS: &[&str] = &[
         "zapret-lib.lua",
