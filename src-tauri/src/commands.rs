@@ -1167,6 +1167,32 @@ pub async fn maybe_refresh_smart_hosts() {
     crate::platform::smart_hosts::maybe_refresh_smart_hosts().await
 }
 
+/// Toggles the YouTube-throttle lane inside smart hosts (deliberate
+/// 127.0.0.2 blocks of throttled googlevideo nodes).
+#[tauri::command]
+pub async fn set_youtube_throttle_enabled(
+    enabled: bool,
+) -> Result<crate::platform::smart_hosts::SmartHostsStatus, String> {
+    crate::platform::settings::update_settings(|s| {
+        s.youtube_throttle_enabled = enabled;
+    })?;
+    if crate::platform::settings::load_settings().smart_hosts_enabled {
+        crate::platform::smart_hosts::refresh_smart_hosts().await
+    } else {
+        Ok(crate::platform::smart_hosts::status())
+    }
+}
+
+/// Runs the YouTube throttling check: measures real videoplayback
+/// throughput per googlevideo node from this machine, records the
+/// verdicts and (lane + smart hosts on) applies the updated lane.
+/// With the lane off the check is diagnostic only.
+#[tauri::command]
+pub async fn run_youtube_throttle_check(
+) -> Result<crate::engine::youtube_probe::YoutubeCheckResult, String> {
+    Ok(crate::engine::youtube_probe::run_youtube_throttle_check().await)
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SplitDnsDomains {
     pub builtin: Vec<String>,

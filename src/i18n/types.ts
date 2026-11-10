@@ -407,6 +407,27 @@ export interface Translations {
     backupNote: string;
     sourcesSavedHint: string;
   };
+  youtubeThrottle: {
+    title: string;
+    description: string;
+    laneLabel: string;
+    laneDesc: string;
+    needSmartHosts: string;
+    checkBtn: string;
+    checking: string;
+    blockedNowLabel: string;
+    checkedLabel: string;
+    throttledLabel: string;
+    fastText: string;
+    unreachableText: string;
+    unknownText: string;
+    throttledText: string;
+    appliedNote: string;
+    laneOffNote: string;
+    applyErrorLabel: string;
+    dohNote: string;
+    mappingLabel: string;
+  };
   speedtest: {
     title: string;
     subtitle: string;

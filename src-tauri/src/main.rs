@@ -444,6 +444,8 @@ async fn main() {
             commands::set_smart_hosts_sources,
             commands::set_smart_hosts_adblock,
             commands::maybe_refresh_smart_hosts,
+            commands::set_youtube_throttle_enabled,
+            commands::run_youtube_throttle_check,
             commands::get_tgproxy_status,
             commands::start_tgproxy,
             commands::stop_tgproxy,

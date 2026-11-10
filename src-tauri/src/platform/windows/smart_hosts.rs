@@ -71,6 +71,10 @@ pub struct SmartHostsStatus {
     pub entry_count: usize,
     pub section_present: bool,
     pub backup_present: bool,
+    /// YouTube-throttle lane toggle (its blocks live in this section).
+    pub youtube_throttle_enabled: bool,
+    /// YouTube lane entries written by the last successful apply.
+    pub youtube_blocked_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -703,6 +707,8 @@ pub fn status() -> SmartHostsStatus {
         entry_count: s.smart_hosts_entry_count,
         section_present: content.contains(SECTION_BEGIN),
         backup_present: backup_path().exists(),
+        youtube_throttle_enabled: s.youtube_throttle_enabled,
+        youtube_blocked_count: s.youtube_throttle_blocked_count,
     }
 }
 

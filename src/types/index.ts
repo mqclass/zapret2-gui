@@ -263,6 +263,28 @@ export interface SmartHostsStatus {
   entry_count: number;
   section_present: boolean;
   backup_present: boolean;
+  youtube_throttle_enabled: boolean;
+  youtube_blocked_count: number;
+}
+
+export type YoutubeNodeVerdict = "fast" | "throttled" | "unreachable" | "unknown";
+
+export interface YoutubeNodeProbe {
+  host: string;
+  verdict: YoutubeNodeVerdict;
+  mbps: number;
+  bytes: number;
+}
+
+export interface YoutubeCheckResult {
+  outcome: YoutubeNodeVerdict;
+  nodes: YoutubeNodeProbe[];
+  mapping_node: string | null;
+  lane_enabled: boolean;
+  smart_hosts_enabled: boolean;
+  applied: boolean;
+  blocked_now: number;
+  apply_error: string | null;
 }
 
 export interface SpeedtestResult {

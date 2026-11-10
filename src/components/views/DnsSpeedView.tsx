@@ -17,8 +17,9 @@ import {
   Plus,
   FileText,
   Clock,
+  Gauge,
 } from "lucide-react";
-import { DnsStatus, SpeedtestResult, SmartHostsStatus } from "../../types";
+import { DnsStatus, SpeedtestResult, SmartHostsStatus, YoutubeCheckResult } from "../../types";
 import { useI18n } from "../../i18n";
 import { DnsSplitModal } from "../DnsSplitModal";
 
@@ -155,6 +156,44 @@ export const DnsSpeedView: React.FC = React.memo(() => {
     } finally {
       setHostsBusy(false);
       setHostsBusyOp(null);
+    }
+  };
+
+  // YouTube throttle state
+  const [ytBusy, setYtBusy] = useState<boolean>(false);
+  const [ytResult, setYtResult] = useState<YoutubeCheckResult | null>(null);
+  const [ytError, setYtError] = useState<string | null>(null);
+
+  const handleToggleYtLane = async () => {
+    setHostsBusy(true);
+    setHostsError(null);
+    try {
+      const res = await invoke<SmartHostsStatus>("set_youtube_throttle_enabled", {
+        enabled: !(hostsStatus?.youtube_throttle_enabled ?? false),
+      });
+      setHostsStatus(res);
+      if (!res.enabled) {
+        flashHostsMessage(t.smartHosts.sourcesSavedHint);
+      }
+    } catch (err: any) {
+      setHostsError(typeof err === "string" ? err : JSON.stringify(err));
+    } finally {
+      setHostsBusy(false);
+    }
+  };
+
+  const handleRunYtCheck = async () => {
+    setYtBusy(true);
+    setYtError(null);
+    try {
+      const res = await invoke<YoutubeCheckResult>("run_youtube_throttle_check");
+      setYtResult(res);
+      // The apply inside the check may have moved the lane counters.
+      await loadSmartHosts();
+    } catch (err: any) {
+      setYtError(typeof err === "string" ? err : JSON.stringify(err));
+    } finally {
+      setYtBusy(false);
     }
   };
 
@@ -701,6 +740,109 @@ export const DnsSpeedView: React.FC = React.memo(() => {
               </button>
             )}
           </div>
+        </div>
+
+        {/* YouTube throttle */}
+        <div className="rounded-panel border border-line bg-cardin p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-red-500/20 to-red-600/5 border border-red-500/25 text-red-400 shadow-sm shadow-red-500/5">
+                <Gauge className="h-4 w-4 shrink-0" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-ink">{t.youtubeThrottle.title}</h4>
+                <p className="text-[11px] text-ink4">{t.youtubeThrottle.description}</p>
+              </div>
+            </div>
+            {(hostsStatus?.youtube_blocked_count ?? 0) > 0 && (
+              <span className="rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 bg-red-500/15 text-red-300 border-red-500/30">
+                {t.youtubeThrottle.blockedNowLabel} {hostsStatus?.youtube_blocked_count}
+              </span>
+            )}
+          </div>
+
+          {!hostsStatus?.enabled && (
+            <p className="text-[11px] text-amber-300/90 leading-relaxed">{t.youtubeThrottle.needSmartHosts}</p>
+          )}
+
+          {/* Lane toggle */}
+          <label className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors">
+            <input
+              type="checkbox"
+              checked={hostsStatus?.youtube_throttle_enabled ?? false}
+              disabled={hostsBusy || ytBusy}
+              onChange={handleToggleYtLane}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-red-500 cursor-pointer"
+            />
+            <span>
+              <span className="block text-xs font-semibold text-ink">{t.youtubeThrottle.laneLabel}</span>
+              <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{t.youtubeThrottle.laneDesc}</span>
+            </span>
+          </label>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRunYtCheck}
+              disabled={ytBusy || hostsBusy}
+              className="flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {ytBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              <span>{t.youtubeThrottle.checkBtn}</span>
+            </button>
+            {ytBusy && <span className="text-[11px] text-ink4">{t.youtubeThrottle.checking}</span>}
+          </div>
+
+          {ytError && (
+            <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+              <span>{ytError}</span>
+            </div>
+          )}
+
+          {ytResult && !ytBusy && (
+            <div className="space-y-1.5 text-[11px] text-ink3 leading-relaxed">
+              {ytResult.outcome === "unknown" && <p>{t.youtubeThrottle.unknownText}</p>}
+              {ytResult.outcome === "unreachable" && <p>{t.youtubeThrottle.unreachableText}</p>}
+              {ytResult.outcome === "fast" && (
+                <p>
+                  {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}. {t.youtubeThrottle.fastText}
+                </p>
+              )}
+              {ytResult.outcome === "throttled" && (
+                <>
+                  <p>
+                    {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}, {t.youtubeThrottle.throttledLabel}{" "}
+                    {ytResult.nodes.filter((n) => n.verdict === "throttled").length}. {t.youtubeThrottle.throttledText}
+                    {ytResult.applied
+                      ? ` ${t.youtubeThrottle.appliedNote}`
+                      : ytResult.lane_enabled
+                        ? ""
+                        : ` ${t.youtubeThrottle.laneOffNote}`}
+                  </p>
+                  <p className="font-mono text-[10px] text-ink4 break-all">
+                    {ytResult.nodes
+                      .filter((n) => n.verdict === "throttled")
+                      .map((n) => n.host)
+                      .join(", ")}
+                  </p>
+                </>
+              )}
+              {ytResult.mapping_node && (
+                <p className="text-ink4">
+                  {t.youtubeThrottle.mappingLabel}{" "}
+                  <span className="font-mono text-[10px]">{ytResult.mapping_node}</span>
+                </p>
+              )}
+              {ytResult.apply_error && (
+                <p className="text-rose-300">
+                  {t.youtubeThrottle.applyErrorLabel} {ytResult.apply_error}
+                </p>
+              )}
+            </div>
+          )}
+
+          <p className="text-[10px] text-ink5 leading-relaxed">{t.youtubeThrottle.dohNote}</p>
         </div>
       </div>
 
