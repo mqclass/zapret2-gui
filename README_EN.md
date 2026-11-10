@@ -22,7 +22,7 @@ Under the hood is the [zapret2](https://github.com/bol-van/zapret2) engine by bo
   <img src="assets/screenshot.png" width="860" alt="zapret2-gui main window" />
 </p>
 
-> **A word about fakes.** The program is distributed only here, on GitHub. The project has no Telegram channels, no YouTube pages and no mirrors on file-sharing sites. If zapret2-gui is offered to you anywhere else, that is not us, and anything could be inside.
+> **A word about fakes.** The program is distributed only here, on GitHub, and project news is published only in the official Telegram channel [«Незапретка»](https://t.me/zapret2_gui). The project has no YouTube pages and no mirrors on file-sharing sites. If zapret2-gui is offered to you anywhere else, that is not us, and anything could be inside.
 
 ## Features
 
