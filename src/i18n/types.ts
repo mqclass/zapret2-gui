@@ -79,6 +79,13 @@ export interface Translations {
     tunnelModeLine: string;
     changeMode: string;
   };
+  /** Redesign stage 4: the unified "Ускорение и DNS" tab. */
+  dnsTab: {
+    customAndSplit: string;
+    bridgeSettings: string;
+    showAll: string;
+    blockedShort: string;
+  };
   strategies: {
     title: string;
     discovered: string;
@@ -489,7 +496,6 @@ export interface Translations {
     settingsSub: string;
     simpleView: string;
     expertView: string;
-    telegramSection: string;
     logsSection: string;
   };
   settingsTab: {

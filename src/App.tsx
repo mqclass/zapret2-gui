@@ -26,9 +26,8 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DashboardView } from "./components/views/DashboardView";
 import { PresetsView } from "./components/views/PresetsView";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
-import { DnsSpeedView } from "./components/views/DnsSpeedView";
+import { DnsView } from "./components/views/DnsView";
 import { LogsView } from "./components/views/LogsView";
-import { TelegramView } from "./components/views/TelegramView";
 import { SettingsView } from "./components/views/SettingsView";
 import { AlertCircle, CheckCircle2, ShieldAlert, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
@@ -1146,11 +1145,11 @@ const AppContent: React.FC = () => {
           )}
 
           {activeTab === "dns" && (
-            <>
-              <DnsSpeedView expertMode={expertMode} />
-              <CompositeSectionHeader label={t.nav.telegramSection} />
-              <TelegramView expertMode={expertMode} logs={logs} />
-            </>
+            <DnsView
+              expertMode={expertMode}
+              logs={logs}
+              onExpertModeChange={handleExpertModeChange}
+            />
           )}
 
           {activeTab === "settings" && (

@@ -81,6 +81,12 @@ export const en: Translations = {
     tunnelModeLine: "Tunnel mode",
     changeMode: "Change",
   },
+  dnsTab: {
+    customAndSplit: "Custom servers & split DNS",
+    bridgeSettings: "Bridge settings",
+    showAll: "Show all DNS servers",
+    blockedShort: "Blocked",
+  },
   strategies: {
     title: "Bypass Mode Profile",
     discovered: "profiles available",
@@ -487,7 +493,6 @@ export const en: Translations = {
     settingsSub: "Startup and watchdog",
     simpleView: "Simple view",
     expertView: "Expert",
-    telegramSection: "Telegram",
     logsSection: "Event log",
   },
   settingsTab: {
@@ -630,7 +635,7 @@ export const en: Translations = {
     presetsSubtitle: "Bypass strategies and the domains they apply to",
     diagnosticsTitle: "Network Diagnostics",
     diagnosticsSubtitle: "Service ping monitoring, strategy auto-tuning and network healing",
-    dnsTitle: "DNS & Speed Test",
+    dnsTitle: "Speed & DNS",
     dnsSubtitle: "Protection against ISP DNS spoofing and real video stream measurement",
     settingsTitle: "Settings & Info",
     settingsSubtitle: "Autostart configuration, cleanup, licenses and security",

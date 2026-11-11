@@ -81,6 +81,12 @@ export const uk: Translations = {
     tunnelModeLine: "Режим тунелювання",
     changeMode: "Змінити",
   },
+  dnsTab: {
+    customAndSplit: "Свої сервери та розділення DNS",
+    bridgeSettings: "Налаштування моста",
+    showAll: "Показати всі DNS-сервери",
+    blockedShort: "Заблоковано",
+  },
   strategies: {
     title: "Режим обходу блокувань",
     discovered: "профілів доступно",
@@ -487,7 +493,6 @@ export const uk: Translations = {
     settingsSub: "Запуск і сторож",
     simpleView: "Простий вигляд",
     expertView: "Експерт",
-    telegramSection: "Telegram",
     logsSection: "Журнал подій",
   },
   settingsTab: {
@@ -630,7 +635,7 @@ export const uk: Translations = {
     presetsSubtitle: "Стратегії обходу та домени, до яких вони застосовуються",
     diagnosticsTitle: "Діагностика мережі",
     diagnosticsSubtitle: "Моніторинг пінгу сервісів, автопідбір стратегії та лікування мережі",
-    dnsTitle: "DNS і тест швидкості",
+    dnsTitle: "Прискорення та DNS",
     dnsSubtitle: "Захист від підміни DNS провайдером і замір реального відеопотоку",
     settingsTitle: "Параметри та Інформація",
     settingsSubtitle: "Конфігурація автозапуску, очищення, ліцензії та безпека",

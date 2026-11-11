@@ -81,6 +81,12 @@ export const ru: Translations = {
     tunnelModeLine: "Режим туннелирования",
     changeMode: "Изменить",
   },
+  dnsTab: {
+    customAndSplit: "Свои серверы и разделение DNS",
+    bridgeSettings: "Настройки моста",
+    showAll: "Показать все DNS-серверы",
+    blockedShort: "Заблокировано",
+  },
   strategies: {
     title: "Режим обхода блокировок",
     discovered: "профилей доступно",
@@ -487,7 +493,6 @@ export const ru: Translations = {
     settingsSub: "Запуск и сторож",
     simpleView: "Простой вид",
     expertView: "Эксперт",
-    telegramSection: "Telegram",
     logsSection: "Журнал событий",
   },
   settingsTab: {
@@ -630,7 +635,7 @@ export const ru: Translations = {
     presetsSubtitle: "Стратегии обхода и домены, к которым они применяются",
     diagnosticsTitle: "Диагностика сети",
     diagnosticsSubtitle: "Мониторинг пинга сервисов, автоподбор стратегии и лечение сети",
-    dnsTitle: "DNS и тест скорости",
+    dnsTitle: "Ускорение и DNS",
     dnsSubtitle: "Защита от подмены DNS провайдером и замер реального видеопотока",
     settingsTitle: "Параметры и Информация",
     settingsSubtitle: "Конфигурация автозапуска, очистка, лицензии и безопасность",
