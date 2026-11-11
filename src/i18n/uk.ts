@@ -566,6 +566,8 @@ export const uk: Translations = {
     watchdogTitle: "Сторож стратегій",
     watchdogDesc:
       "Регулярно перевіряє YouTube і Discord через поточну стратегію. Якщо дві перевірки поспіль показали просадку, сам запускає автопідбір і перемикається на переможця.",
+    watchdogShort:
+      "Перевіряє YouTube і Discord і сам перемикає стратегію, якщо стало гірше.",
     watchdogOn: "Увімкнено",
     watchdogOff: "Вимкнено",
     watchdogBtnEnable: "Увімкнути сторожа",
@@ -603,6 +605,7 @@ export const uk: Translations = {
     elevatedYes: "Адміністратор",
     elevatedNo: "Обмежений",
     flowsealLink: "GitHub Flowseal (Пресети)",
+    showAllSettings: "Показати всі налаштування",
 
   },
   update: {
@@ -671,15 +674,10 @@ export const uk: Translations = {
   },
   tabMeta: {
     dashboardTitle: "Центр керування обходом",
-    dashboardSubtitle: "Основний шлюз фільтрації пакетів WFP / WinDivert",
     presetsTitle: "Пресети та хости",
-    presetsSubtitle: "Стратегії обходу та домени, до яких вони застосовуються",
     diagnosticsTitle: "Діагностика та логи",
-    diagnosticsSubtitle: "Моніторинг пінгу сервісів, автопідбір стратегії та лікування мережі",
     dnsTitle: "Прискорення та DNS",
-    dnsSubtitle: "Захист від підміни DNS провайдером і замір реального відеопотоку",
     settingsTitle: "Параметри та Інформація",
-    settingsSubtitle: "Конфігурація автозапуску, очищення, ліцензії та безпека",
   },
   sidebar: {
     active: "Активна",

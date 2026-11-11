@@ -1137,6 +1137,7 @@ const AppContent: React.FC = () => {
           {activeTab === "settings" && (
             <SettingsView
               expertMode={expertMode}
+              onExpertModeChange={handleExpertModeChange}
               isElevated={isElevated}
               onRelaunchElevated={handleRelaunchElevated}
               isAutostart={isAutostart}

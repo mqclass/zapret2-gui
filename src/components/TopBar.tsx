@@ -63,24 +63,26 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
       };
     }, [isLangMenuOpen]);
 
-    const getTabMeta = (tab: NavTab) => {
+    // The header renders the tab title only; subtitles were computed
+    // here but never rendered (dead keys, removed in redesign stage 6).
+    const getTabTitle = (tab: NavTab) => {
       switch (tab) {
         case "dashboard":
-          return { title: t.tabMeta.dashboardTitle, subtitle: t.tabMeta.dashboardSubtitle };
+          return t.tabMeta.dashboardTitle;
         case "presets":
-          return { title: t.tabMeta.presetsTitle, subtitle: t.tabMeta.presetsSubtitle };
+          return t.tabMeta.presetsTitle;
         case "diagnostics":
-          return { title: t.tabMeta.diagnosticsTitle, subtitle: t.tabMeta.diagnosticsSubtitle };
+          return t.tabMeta.diagnosticsTitle;
         case "dns":
-          return { title: t.tabMeta.dnsTitle, subtitle: t.tabMeta.dnsSubtitle };
+          return t.tabMeta.dnsTitle;
         case "settings":
-          return { title: t.tabMeta.settingsTitle, subtitle: t.tabMeta.settingsSubtitle };
+          return t.tabMeta.settingsTitle;
         default:
-          return { title: t.tabMeta.dashboardTitle, subtitle: t.tabMeta.dashboardSubtitle };
+          return t.tabMeta.dashboardTitle;
       }
     };
 
-    const meta = getTabMeta(activeTab);
+    const tabTitle = getTabTitle(activeTab);
 
     const languages: { code: Language; label: string; full: string }[] = [
       { code: "ru", label: "RU", full: t.header.langRu },
@@ -127,8 +129,8 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
       >
         <div className="flex items-center gap-4 min-w-0">
           <div data-tauri-drag-region onDoubleClick={handleToggleMaximize} className="min-w-0">
-            <h2 data-tauri-drag-region title={meta.title} className="text-sm font-semibold tracking-tight text-ink leading-tight truncate">
-              {meta.title}
+            <h2 data-tauri-drag-region title={tabTitle} className="text-sm font-semibold tracking-tight text-ink leading-tight truncate">
+              {tabTitle}
             </h2>
           </div>
         </div>

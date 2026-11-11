@@ -566,6 +566,8 @@ export const en: Translations = {
     watchdogTitle: "Strategy watchdog",
     watchdogDesc:
       "Regularly checks YouTube and Discord through the current strategy. If two checks in a row show degradation, it runs auto-tune itself and switches to the winner.",
+    watchdogShort:
+      "Checks YouTube and Discord and switches strategy on its own if things get worse.",
     watchdogOn: "Enabled",
     watchdogOff: "Disabled",
     watchdogBtnEnable: "Enable watchdog",
@@ -603,6 +605,7 @@ export const en: Translations = {
     elevatedYes: "Administrator",
     elevatedNo: "Limited",
     flowsealLink: "GitHub Flowseal (Presets)",
+    showAllSettings: "Show all settings",
 
   },
   update: {
@@ -671,15 +674,10 @@ export const en: Translations = {
   },
   tabMeta: {
     dashboardTitle: "Bypass Control Center",
-    dashboardSubtitle: "Main WFP / WinDivert packet filtering gateway",
     presetsTitle: "Presets & Hosts",
-    presetsSubtitle: "Bypass strategies and the domains they apply to",
     diagnosticsTitle: "Diagnostics & Logs",
-    diagnosticsSubtitle: "Service ping monitoring, strategy auto-tuning and network healing",
     dnsTitle: "Speed & DNS",
-    dnsSubtitle: "Protection against ISP DNS spoofing and real video stream measurement",
     settingsTitle: "Settings & Info",
-    settingsSubtitle: "Autostart configuration, cleanup, licenses and security",
   },
   sidebar: {
     active: "Active",

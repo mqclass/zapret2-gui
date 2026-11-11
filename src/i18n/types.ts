@@ -571,6 +571,7 @@ export interface Translations {
     notificationsBtnDisable: string;
     watchdogTitle: string;
     watchdogDesc: string;
+    watchdogShort: string;
     watchdogOn: string;
     watchdogOff: string;
     watchdogBtnEnable: string;
@@ -605,6 +606,7 @@ export interface Translations {
     elevatedYes: string;
     elevatedNo: string;
     flowsealLink: string;
+    showAllSettings: string;
 
   };
   update: {
@@ -669,15 +671,10 @@ export interface Translations {
   };
   tabMeta: {
     dashboardTitle: string;
-    dashboardSubtitle: string;
     presetsTitle: string;
-    presetsSubtitle: string;
     diagnosticsTitle: string;
-    diagnosticsSubtitle: string;
     dnsTitle: string;
-    dnsSubtitle: string;
     settingsTitle: string;
-    settingsSubtitle: string;
   };
   sidebar: {
     active: string;

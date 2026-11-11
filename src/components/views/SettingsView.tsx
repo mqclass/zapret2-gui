@@ -24,7 +24,6 @@ import { useI18n } from "../../i18n";
 import { Language } from "../../i18n/types";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { UpdateInfo } from "../../types";
-import { TransportsSection } from "../TransportsSection";
 import { AppSplitModal } from "../AppSplitModal";
 import {
   ACCENT_PRESETS,
@@ -45,8 +44,10 @@ const EXTERNAL_LINKS: { url: string; label: string; labelKey?: "flowsealLink" }[
 
 
 interface SettingsViewProps {
-  /** Shell view mode (redesign): accepted since stage 1, used by later stages. */
+  /** Shell view mode (redesign): false = Простой вид, true = Эксперт. */
   expertMode?: boolean;
+  /** Switch the shell to expert mode (simple view's "show all settings"). */
+  onExpertModeChange?: (expert: boolean) => void;
   isElevated: boolean;
   onRelaunchElevated: () => void;
   isAutostart: boolean;
@@ -81,6 +82,8 @@ interface SettingsViewProps {
 
 export const SettingsView: React.FC<SettingsViewProps> = React.memo(
   ({
+    expertMode = false,
+    onExpertModeChange,
     isElevated,
     onRelaunchElevated,
     isAutostart,
@@ -178,11 +181,324 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
       setCustomDraft(null);
       clearDraftAccent();
     }, []);
+    // Shared by the simple and expert branches: the preset click and the
+    // custom-color drag must behave identically in both views, so the
+    // handlers live here instead of being duplicated per branch.
+    const handlePresetClick = React.useCallback(
+      (preset: (typeof ACCENT_PRESETS)[number]) => {
+        cancelCustomAccentSave();
+        const res = onAccentChangeRef.current(
+          preset.id === "violet" ? null : preset.fill
+        );
+        // A failed preset save is already surfaced by App
+        // (error alert); swallowing here keeps the fire-and-
+        // forget click from becoming an unhandled rejection.
+        if (res && typeof res.then === "function") {
+          res.catch(() => {});
+        }
+      },
+      [cancelCustomAccentSave]
+    );
+    const handleCustomColorChange = React.useCallback(
+      (v: string) => {
+        setCustomDraft(v);
+        applyAccent(v);
+        // Survives closing the app mid-debounce: App reconciles
+        // this draft once on the next launch (see accent.ts).
+        writeDraftAccent(v);
+        const pending = pendingAccentSaveRef.current;
+        if (pending) window.clearTimeout(pending.timer);
+        pendingAccentSaveRef.current = {
+          value: v,
+          timer: window.setTimeout(() => flushCustomAccentSave(), 450),
+        };
+      },
+      [flushCustomAccentSave]
+    );
+    const presetLabel = (preset: (typeof ACCENT_PRESETS)[number]) =>
+      preset.id === "violet"
+        ? t.settingsTab.accentViolet
+        : preset.id === "cyan"
+          ? t.settingsTab.accentCyan
+          : preset.id === "emerald"
+            ? t.settingsTab.accentEmerald
+            : preset.id === "amber"
+              ? t.settingsTab.accentAmber
+              : preset.id === "pink"
+                ? t.settingsTab.accentPink
+                : t.settingsTab.accentBlue;
     const languages: { code: Language; label: string; full: string }[] = [
       { code: "ru", label: "RU", full: "Русский" },
       { code: "en", label: "EN", full: "English" },
       { code: "uk", label: "UK", full: "Українська" },
     ];
+
+    // ------------------------------------------------------------------
+    // Простой вид (redesign stage 6): цвет, язык, сторож, обновления.
+    // Fits 1050x760 without scrolling. Everything else (автозапуск,
+    // служба, уведомления, экспорт диагностики, сплит приложений)
+    // lives in the expert branch below. All handlers are the same
+    // ones the full view uses; the update dialog and banner stay
+    // global (opened from the dashboard banner).
+    // ------------------------------------------------------------------
+    if (!expertMode) {
+      const currentFill = currentAccentFill(accentColor);
+      // Same rule as the full view's select: a backend interval
+      // outside 5/15/30/60 still gets its own chip.
+      const intervalOptions = [...new Set([5, 15, 30, 60, watchdogInterval])].sort(
+        (a, b) => a - b
+      );
+      return (
+        <div className="space-y-3 pb-3 max-w-4xl">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* Accent color — full width */}
+            <div className="t-card p-4 space-y-2 lg:col-span-2 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent">
+                  <Palette className="h-4 w-4" />
+                </div>
+                <h3 className="text-xs font-semibold text-ink">{t.settingsTab.accentTitle}</h3>
+              </div>
+
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {ACCENT_PRESETS.map((preset) => {
+                  const isSelected =
+                    currentFill.toLowerCase() === preset.fill.toLowerCase();
+                  const label = presetLabel(preset);
+                  return (
+                    <button
+                      type="button"
+                      key={preset.id}
+                      onClick={() => handlePresetClick(preset)}
+                      title={label}
+                      className={`flex flex-col items-center gap-1.5 p-2 rounded-panel border text-xs font-medium transition-all cursor-pointer ${
+                        isSelected
+                          ? "border-linestrong bg-hovert text-ink shadow-sm"
+                          : "border-line bg-cardin text-ink4 hover:text-ink2 hover:bg-raise"
+                      }`}
+                    >
+                      <span
+                        className="flex h-6 w-6 items-center justify-center rounded-full border border-white/20"
+                        style={{ backgroundColor: preset.fill }}
+                      >
+                        {isSelected && <Check className="h-3.5 w-3.5 text-white drop-shadow" />}
+                      </span>
+                      <span>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <label className="flex items-center gap-2.5 rounded-panel border border-line bg-cardin px-3 py-1.5 text-xs text-ink4 cursor-pointer">
+                <input
+                  type="color"
+                  value={customDraft ?? currentFill}
+                  onChange={(e) => handleCustomColorChange(e.target.value)}
+                  onBlur={() => flushCustomAccentSave()}
+                  className="h-6 w-9 shrink-0 cursor-pointer rounded-control border border-line bg-transparent p-0.5"
+                />
+                <span className="font-medium">{t.settingsTab.accentCustom}</span>
+                <span className="font-mono text-[11px] text-ink5">
+                  {customDraft ?? currentFill}
+                </span>
+              </label>
+            </div>
+
+            {/* Language. The card stretches to the watchdog card's
+                height, so the buttons sit centered in the leftover
+                space. No language code here: "Українська" + "UK" did
+                not fit a third of a half-width card and truncated. */}
+            <div className="t-card p-4 flex flex-col stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent">
+                  <Globe className="h-4 w-4" />
+                </div>
+                <h3 className="text-xs font-semibold text-ink">{t.settingsTab.languageSection}</h3>
+              </div>
+
+              <div className="flex-1 flex items-center">
+                <div className="grid grid-cols-3 gap-2 w-full">
+                  {languages.map((item) => {
+                    const isSelected = language === item.code;
+                    return (
+                      <button
+                        type="button"
+                        key={item.code}
+                        onClick={() => setLanguage(item.code)}
+                        className={`flex items-center justify-center p-2.5 rounded-panel border text-xs font-medium transition-all cursor-pointer ${
+                          isSelected
+                            ? "border-linestrong bg-hovert text-ink shadow-sm"
+                            : "border-line bg-cardin text-ink4 hover:text-ink2 hover:bg-raise"
+                        }`}
+                      >
+                        <span className="font-semibold">{item.full}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Watchdog */}
+            <div className="t-card p-4 space-y-2 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent">
+                    <ShieldCheck className="h-4 w-4" />
+                  </div>
+                  <h3 className="text-xs font-semibold text-ink truncate">{t.settingsTab.watchdogTitle}</h3>
+                </div>
+                <span
+                  className={`rounded-chip px-1.5 py-0.5 text-[10px] font-medium shrink-0 ${
+                    watchdogOn
+                      ? "bg-accent-wash text-accent-soft border border-accent-line"
+                      : "bg-hovert text-ink4"
+                  }`}
+                >
+                  {watchdogOn ? t.settingsTab.watchdogOn : t.settingsTab.watchdogOff}
+                </span>
+              </div>
+
+              <p className="text-[11px] text-ink4 leading-relaxed">
+                {t.settingsTab.watchdogShort}
+              </p>
+
+              {/* Label above the chips: label + 4 chips on one line
+                  wrapped "60 мин" onto a second row. */}
+              <div className="text-[11px] text-ink4">{t.settingsTab.watchdogIntervalLabel}</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {intervalOptions.map((n) => {
+                  const isSelected = watchdogInterval === n;
+                  return (
+                    <button
+                      type="button"
+                      key={n}
+                      onClick={() => onWatchdogInterval(n)}
+                      className={`rounded-control px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer border ${
+                        isSelected
+                          ? "bg-accent-wash text-accent-soft border-accent-line"
+                          : "bg-cardin text-ink3 border-line hover:bg-raise"
+                      }`}
+                    >
+                      {n} {t.settingsTab.watchdogMinutes}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={onToggleWatchdog}
+                disabled={isTogglingWatchdog}
+                className="w-full flex items-center justify-center gap-2 rounded-control px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 border border-line bg-hovert hover:bg-raise text-ink2"
+              >
+                {isTogglingWatchdog ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent" />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5 text-accent" />
+                )}
+                <span>
+                  {watchdogOn
+                    ? t.settingsTab.watchdogBtnDisable
+                    : t.settingsTab.watchdogBtnEnable}
+                </span>
+              </button>
+            </div>
+
+            {/* Updates — full width */}
+            <div className="t-card p-4 space-y-2 lg:col-span-2 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent">
+                  <ArrowDownToLine className="h-4 w-4" />
+                </div>
+                <h3 className="text-xs font-semibold text-ink">{t.update.sectionTitle}</h3>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-2.5">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    {updateInfo?.update_available ? (
+                      <AlertTriangle className="h-4 w-4 text-amber-400" />
+                    ) : (
+                      <BadgeCheck className="h-4 w-4 text-accent" />
+                    )}
+                    <span className="text-xs font-semibold text-ink">{t.update.versionTitle}</span>
+                    <span className="rounded-chip px-1.5 py-0.5 text-[10px] font-mono bg-hovert text-ink4">
+                      v{updateInfo?.current_version ?? t.header.version.replace(/^v/, "")}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
+                    {updateInfo
+                      ? updateInfo.update_available
+                        ? t.update.availableTitle.replace("{v}", updateInfo.latest_version)
+                        : t.update.upToDate
+                      : t.update.versionDesc}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onCheckUpdates}
+                  disabled={isCheckingUpdates}
+                  className="flex items-center justify-center gap-2 rounded-control px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 border border-line bg-hovert hover:bg-raise text-ink2"
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 text-accent ${isCheckingUpdates ? "animate-spin" : ""}`}
+                  />
+                  <span>{isCheckingUpdates ? t.update.checking : t.update.checkBtn}</span>
+                </button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-line bg-cardin p-2.5">
+                <div className="flex items-center gap-2">
+                  <RefreshCw
+                    className={`h-4 w-4 ${autoUpdateOn ? "text-accent" : "text-ink4"}`}
+                  />
+                  <span className="text-xs font-semibold text-ink">{t.update.autoCheckTitle}</span>
+                  <span
+                    className={`rounded-chip px-1.5 py-0.5 text-[10px] font-medium ${
+                      autoUpdateOn
+                        ? "bg-accent-wash text-accent-soft border border-accent-line"
+                        : "bg-hovert text-ink4"
+                    }`}
+                  >
+                    {autoUpdateOn ? t.update.autoCheckOn : t.update.autoCheckOff}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onToggleAutoUpdate}
+                  disabled={isTogglingAutoUpdate}
+                  className="flex items-center justify-center gap-2 rounded-control px-3.5 py-2 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 shrink-0 border border-line bg-hovert hover:bg-raise text-ink2"
+                >
+                  {isTogglingAutoUpdate ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent" />
+                  ) : autoUpdateOn ? (
+                    <BellOff className="h-3.5 w-3.5 text-accent" />
+                  ) : (
+                    <Bell className="h-3.5 w-3.5 text-accent" />
+                  )}
+                  <span>
+                    {autoUpdateOn ? t.update.autoCheckDisable : t.update.autoCheckEnable}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Bridge to the expert view (same text-button pattern as the
+              log digest's "show full log"). */}
+          <button
+            type="button"
+            onClick={() => onExpertModeChange?.(true)}
+            className="text-xs text-accent-soft hover:text-ink transition-colors cursor-pointer"
+          >
+            {t.settingsTab.showAllSettings} →
+          </button>
+        </div>
+      );
+    }
 
     return (
       <div className="space-y-4 pb-4 max-w-4xl">
@@ -621,34 +937,12 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               const currentFill = currentAccentFill(accentColor);
               const isSelected =
                 currentFill.toLowerCase() === preset.fill.toLowerCase();
-              const label =
-                preset.id === "violet"
-                  ? t.settingsTab.accentViolet
-                  : preset.id === "cyan"
-                    ? t.settingsTab.accentCyan
-                    : preset.id === "emerald"
-                      ? t.settingsTab.accentEmerald
-                      : preset.id === "amber"
-                        ? t.settingsTab.accentAmber
-                        : preset.id === "pink"
-                          ? t.settingsTab.accentPink
-                          : t.settingsTab.accentBlue;
+              const label = presetLabel(preset);
               return (
                 <button
                   type="button"
                   key={preset.id}
-                  onClick={() => {
-                    cancelCustomAccentSave();
-                    const res = onAccentChange(
-                      preset.id === "violet" ? null : preset.fill
-                    );
-                    // A failed preset save is already surfaced by App
-                    // (error alert); swallowing here keeps the fire-and-
-                    // forget click from becoming an unhandled rejection.
-                    if (res && typeof res.then === "function") {
-                      res.catch(() => {});
-                    }
-                  }}
+                  onClick={() => handlePresetClick(preset)}
                   title={label}
                   className={`flex flex-col items-center gap-1.5 p-3 rounded-panel border text-xs font-medium transition-all cursor-pointer ${
                     isSelected
@@ -672,23 +966,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             <input
               type="color"
               value={customDraft ?? currentAccentFill(accentColor)}
-              onChange={(e) => {
-                const v = e.target.value;
-                setCustomDraft(v);
-                applyAccent(v);
-                // Survives closing the app mid-debounce: App reconciles
-                // this draft once on the next launch (see accent.ts).
-                writeDraftAccent(v);
-                const pending = pendingAccentSaveRef.current;
-                if (pending) window.clearTimeout(pending.timer);
-                pendingAccentSaveRef.current = {
-                  value: v,
-                  timer: window.setTimeout(
-                    () => flushCustomAccentSave(),
-                    450
-                  ),
-                };
-              }}
+              onChange={(e) => handleCustomColorChange(e.target.value)}
               onBlur={() => flushCustomAccentSave()}
               className="h-7 w-10 shrink-0 cursor-pointer rounded-control border border-line bg-transparent p-0.5"
             />
@@ -698,9 +976,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             </span>
           </label>
         </div>
-
-        {/* Camouflage Transports (experimental framework) */}
-        <TransportsSection />
 
         {/* Per-app split tunneling */}
         <div className="t-card p-5 space-y-3 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>
