@@ -38,7 +38,11 @@ export const GoalPicker: React.FC<GoalPickerProps> = React.memo(
       <div className={`t-card ${compact ? "p-4" : "p-5"}`}>
         <div className="mb-3">
           <h2 className="text-sm font-semibold text-ink">{t.strategies.goalTitle}</h2>
-          <p className="text-xs text-ink4 mt-0.5">{t.strategies.goalSubtitle}</p>
+          {/* Compact (dashboard hero, simple presets): the tiles are
+              self-explanatory, the subtitle is vertical noise. */}
+          {!compact && (
+            <p className="text-xs text-ink4 mt-0.5">{t.strategies.goalSubtitle}</p>
+          )}
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
           {(

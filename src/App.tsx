@@ -24,10 +24,9 @@ import { ConflictBanner } from "./components/ConflictBanner";
 import { UpdateDialog, UpdatePhase } from "./components/UpdateDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DashboardView } from "./components/views/DashboardView";
-import { StrategiesView } from "./components/views/StrategiesView";
+import { PresetsView } from "./components/views/PresetsView";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
 import { DnsSpeedView } from "./components/views/DnsSpeedView";
-import { ListsView } from "./components/views/ListsView";
 import { LogsView } from "./components/views/LogsView";
 import { TelegramView } from "./components/views/TelegramView";
 import { SettingsView } from "./components/views/SettingsView";
@@ -1081,7 +1080,6 @@ const AppContent: React.FC = () => {
               strategies={strategies}
               selectedStrategyId={selectedStrategyId}
               splitTunnelMode={splitTunnelMode}
-              onModeChange={handleModeChange}
               onStart={handleStart}
               onStop={handleStop}
               onSelectStrategy={setSelectedStrategyId}
@@ -1103,10 +1101,9 @@ const AppContent: React.FC = () => {
           )}
 
           {activeTab === "presets" && (
-            <>
-              <StrategiesView
-                expertMode={expertMode}
-                strategies={strategies}
+            <PresetsView
+              expertMode={expertMode}
+              strategies={strategies}
               selectedStrategyId={selectedStrategyId}
               activeStrategyId={status.active_strategy}
               supervisorState={status.state}
@@ -1117,10 +1114,14 @@ const AppContent: React.FC = () => {
               onSaveCustomProfile={handleSaveCustomProfile}
               onDeleteCustomProfile={handleDeleteCustomProfile}
               disabled={status.state === "starting" || status.state === "stopping"}
-              />
-              <CompositeSectionHeader label={t.nav.listsSection} />
-              <ListsView expertMode={expertMode} />
-            </>
+              splitTunnelMode={splitTunnelMode}
+              appliedMode={(status.split_tunnel_applied_mode ?? null) as SplitTunnelMode | null}
+              activeCustomArgs={status.active_custom_args ?? false}
+              onModeChange={handleModeChange}
+              autoHostlistOn={autoHostlistOn}
+              onToggleAutoHostlist={handleToggleAutoHostlist}
+              onExpertModeChange={handleExpertModeChange}
+            />
           )}
 
           {activeTab === "diagnostics" && (

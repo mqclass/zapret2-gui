@@ -67,6 +67,18 @@ export interface Translations {
     switchTitle: string;
 
   };
+  /** Redesign stage 3: the unified "Пресеты и Хосты" tab. */
+  presetsTab: {
+    familyFlowseal: string;
+    familyZapret2: string;
+    familyKinlay0: string;
+    listsTitle: string;
+    listsGeneral: string;
+    listsAuto: string;
+    listsEdit: string;
+    tunnelModeLine: string;
+    changeMode: string;
+  };
   strategies: {
     title: string;
     discovered: string;
@@ -93,6 +105,7 @@ export interface Translations {
     editCustom: string;
     deleteCustom: string;
     noStrategiesInTab: string;
+    showAllSimple: string;
     goalTitle: string;
     goalSubtitle: string;
     goalYoutube: string;

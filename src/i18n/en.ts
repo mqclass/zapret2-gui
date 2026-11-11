@@ -70,6 +70,17 @@ export const en: Translations = {
     switchTitle: "Switch bypass to",
 
   },
+  presetsTab: {
+    familyFlowseal: "Flowseal",
+    familyZapret2: "zapret2",
+    familyKinlay0: "kinlay0 set",
+    listsTitle: "Domain lists",
+    listsGeneral: "Main",
+    listsAuto: "Auto-added",
+    listsEdit: "Edit lists",
+    tunnelModeLine: "Tunnel mode",
+    changeMode: "Change",
+  },
   strategies: {
     title: "Bypass Mode Profile",
     discovered: "profiles available",
@@ -96,6 +107,7 @@ export const en: Translations = {
     editCustom: "Edit",
     deleteCustom: "Delete",
     noStrategiesInTab: "No available profiles found in this category",
+    showAllSimple: "Show all strategies ({count})",
     goalTitle: "What do you want to unblock?",
     goalSubtitle: "Pick a goal — we will select a proven preset for you",
     goalYoutube: "YouTube",

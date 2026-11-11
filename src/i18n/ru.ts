@@ -70,6 +70,17 @@ export const ru: Translations = {
     switchTitle: "Переключить обход на",
 
   },
+  presetsTab: {
+    familyFlowseal: "Flowseal",
+    familyZapret2: "zapret2",
+    familyKinlay0: "Набор kinlay0",
+    listsTitle: "Списки доменов",
+    listsGeneral: "Основные",
+    listsAuto: "Автоматические",
+    listsEdit: "Редактировать списки",
+    tunnelModeLine: "Режим туннелирования",
+    changeMode: "Изменить",
+  },
   strategies: {
     title: "Режим обхода блокировок",
     discovered: "профилей доступно",
@@ -96,6 +107,7 @@ export const ru: Translations = {
     editCustom: "Редактировать",
     deleteCustom: "Удалить",
     noStrategiesInTab: "В этой категории нет доступных профилей",
+    showAllSimple: "Показать все стратегии ({count})",
     goalTitle: "Что хотите разблокировать?",
     goalSubtitle: "Выберите цель — подберём проверенный пресет",
     goalYoutube: "YouTube",
