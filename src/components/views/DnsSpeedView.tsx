@@ -23,7 +23,12 @@ import { DnsStatus, SpeedtestResult, SmartHostsStatus, YoutubeCheckResult } from
 import { useI18n } from "../../i18n";
 import { DnsSplitModal } from "../DnsSplitModal";
 
-export const DnsSpeedView: React.FC = React.memo(() => {
+interface DnsSpeedViewProps {
+  /** Shell view mode (redesign): accepted since stage 1, used by later stages. */
+  expertMode?: boolean;
+}
+
+export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo((_props) => {
   const { t } = useI18n();
 
   // DNS State

@@ -23,6 +23,8 @@ import { notifyUser } from "../../utils/notify";
 import { QRCodeSVG } from "qrcode.react";
 
 interface TelegramViewProps {
+  /** Shell view mode (redesign): accepted since stage 1, used by later stages. */
+  expertMode?: boolean;
   logs: LogEntry[];
 }
 

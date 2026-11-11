@@ -3,6 +3,8 @@ import { LogViewer } from "../LogViewer";
 import { LogEntry } from "../../types";
 
 interface LogsViewProps {
+  /** Shell view mode (redesign): accepted since stage 1, used by later stages. */
+  expertMode?: boolean;
   logs: LogEntry[];
   onClearLogs: () => void;
   onRefreshLogs?: () => void;

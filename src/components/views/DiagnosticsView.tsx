@@ -10,6 +10,8 @@ import { useI18n } from "../../i18n";
 import { isAutoTuneModalOpen, isProbeCycleRunning } from "../../utils/watchdog";
 
 interface DiagnosticsViewProps {
+  /** Shell view mode (redesign): accepted since stage 1, used by later stages. */
+  expertMode?: boolean;
   diagnostics: DiagnosticsReport;
   onRefreshProbes: () => void;
   isRefreshingProbes: boolean;
@@ -236,7 +238,7 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = React.memo(
           open={isClassifierOpen}
           request={classifierReq}
           onClose={() => setIsClassifierOpen(false)}
-          onOpenStrategies={() => onNavigateTab("strategies")}
+          onOpenStrategies={() => onNavigateTab("presets")}
         />
       </div>
     );

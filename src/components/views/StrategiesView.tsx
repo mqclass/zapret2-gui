@@ -4,6 +4,8 @@ import { Controls } from "../Controls";
 import { LuaStrategy, SupervisorState } from "../../types";
 
 interface StrategiesViewProps {
+  /** Shell view mode (redesign): accepted since stage 1, used by later stages. */
+  expertMode?: boolean;
   strategies: LuaStrategy[];
   selectedStrategyId: string;
   activeStrategyId: string | null;

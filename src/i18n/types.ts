@@ -465,13 +465,20 @@ export interface Translations {
   };
   nav: {
     dashboard: string;
-    strategies: string;
-    diagnostics: string;
+    dashboardSub: string;
+    presets: string;
+    presetsSub: string;
     dns: string;
-    lists: string;
-    logs: string;
-    telegram: string;
+    dnsSub: string;
+    diagnostics: string;
+    diagnosticsSub: string;
     settings: string;
+    settingsSub: string;
+    simpleView: string;
+    expertView: string;
+    listsSection: string;
+    telegramSection: string;
+    logsSection: string;
   };
   settingsTab: {
     title: string;
@@ -599,18 +606,12 @@ export interface Translations {
   tabMeta: {
     dashboardTitle: string;
     dashboardSubtitle: string;
-    strategiesTitle: string;
-    strategiesSubtitle: string;
+    presetsTitle: string;
+    presetsSubtitle: string;
     diagnosticsTitle: string;
     diagnosticsSubtitle: string;
     dnsTitle: string;
     dnsSubtitle: string;
-    listsTitle: string;
-    listsSubtitle: string;
-    logsTitle: string;
-    logsSubtitle: string;
-    telegramTitle: string;
-    telegramSubtitle: string;
     settingsTitle: string;
     settingsSubtitle: string;
   };

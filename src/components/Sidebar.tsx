@@ -4,13 +4,12 @@ import {
   Zap,
   Activity,
   Globe2,
-  ListFilter,
-  Terminal,
-  Send,
   Settings,
   Gamepad2,
   Layers,
   Compass,
+  Eye,
+  Code2,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -20,12 +19,9 @@ import { SupervisorState, SplitTunnelMode } from "../types";
 
 export type NavTab =
   | "dashboard"
-  | "strategies"
-  | "diagnostics"
+  | "presets"
   | "dns"
-  | "lists"
-  | "logs"
-  | "telegram"
+  | "diagnostics"
   | "settings";
 
 interface SidebarProps {
@@ -34,55 +30,59 @@ interface SidebarProps {
   state: SupervisorState;
   splitTunnelMode: SplitTunnelMode;
   isElevated: boolean;
+  expertMode: boolean;
+  onExpertModeChange: (expert: boolean) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = React.memo(
-  ({ activeTab, onTabChange, state, splitTunnelMode, isElevated }) => {
+  ({
+    activeTab,
+    onTabChange,
+    state,
+    splitTunnelMode,
+    expertMode,
+    onExpertModeChange,
+  }) => {
     const { t } = useI18n();
 
     const isRunning = state === "running";
     const isStarting = state === "starting";
     const isStopping = state === "stopping";
 
-    const navItems: { id: NavTab; label: string; icon: React.ReactNode }[] = [
+    const navItems: {
+      id: NavTab;
+      label: string;
+      sub: string;
+      icon: React.ReactNode;
+    }[] = [
       {
         id: "dashboard",
         label: t.nav.dashboard,
+        sub: t.nav.dashboardSub,
         icon: <Shield className="h-4 w-4" />,
       },
       {
-        id: "strategies",
-        label: t.nav.strategies,
+        id: "presets",
+        label: t.nav.presets,
+        sub: t.nav.presetsSub,
         icon: <Zap className="h-4 w-4" />,
-      },
-      {
-        id: "diagnostics",
-        label: t.nav.diagnostics,
-        icon: <Activity className="h-4 w-4" />,
       },
       {
         id: "dns",
         label: t.nav.dns,
+        sub: t.nav.dnsSub,
         icon: <Globe2 className="h-4 w-4" />,
       },
       {
-        id: "lists",
-        label: t.nav.lists,
-        icon: <ListFilter className="h-4 w-4" />,
-      },
-      {
-        id: "logs",
-        label: t.nav.logs,
-        icon: <Terminal className="h-4 w-4" />,
-      },
-      {
-        id: "telegram",
-        label: t.nav.telegram,
-        icon: <Send className="h-4 w-4" />,
+        id: "diagnostics",
+        label: t.nav.diagnostics,
+        sub: t.nav.diagnosticsSub,
+        icon: <Activity className="h-4 w-4" />,
       },
       {
         id: "settings",
         label: t.nav.settings,
+        sub: t.nav.settingsSub,
         icon: <Settings className="h-4 w-4" />,
       },
     ];
@@ -145,6 +145,28 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
           </div>
         </div>
 
+        {/* View Mode Switch (Простой вид / Эксперт) */}
+        <div className="px-3 pt-3">
+          <div className="t-modeswitch" role="group" aria-label={t.nav.simpleView}>
+            <button
+              type="button"
+              onClick={() => onExpertModeChange(false)}
+              className={`t-modeswitch-btn ${!expertMode ? "t-modeswitch-btn-active" : ""}`}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              <span>{t.nav.simpleView}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onExpertModeChange(true)}
+              className={`t-modeswitch-btn ${expertMode ? "t-modeswitch-btn-active" : ""}`}
+            >
+              <Code2 className="h-3.5 w-3.5" />
+              <span>{t.nav.expertView}</span>
+            </button>
+          </div>
+        </div>
+
         {/* Navigation List */}
         <nav className="flex-1 p-2.5 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
@@ -153,24 +175,29 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
               <button
                 key={item.id}
                 onClick={() => onTabChange(item.id)}
-                className={`t-navitem ${isActive ? "t-navitem-active" : ""}`}
+                className={`t-navitem t-navitem-lg ${isActive ? "t-navitem-active" : ""}`}
               >
-                <span className="relative flex items-center gap-2.5">
-                  <span className="t-navitem-icon">
-                    {item.icon}
+                <span className="relative flex items-center gap-2.5 min-w-0">
+                  <span className="t-navitem-tile">{item.icon}</span>
+                  <span className="flex flex-col items-start min-w-0">
+                    <span className="text-[13px] font-semibold leading-tight whitespace-nowrap">
+                      {item.label}
+                    </span>
+                    <span className="text-[10.5px] font-normal text-ink4 truncate mt-0.5">
+                      {item.sub}
+                    </span>
                   </span>
-                  <span>{item.label}</span>
                 </span>
                 {item.id === "dashboard" && (
                   <span
-                    className={`relative h-1.5 w-1.5 rounded-full ${
+                    className={`relative shrink-0 inline-flex rounded-full border px-1.5 py-0.5 text-[9.5px] font-bold ${
                       isRunning
-                        ? "bg-emerald-400"
-                        : isStarting || isStopping
-                        ? "bg-amber-400 animate-pulse"
-                        : "bg-ink5"
-                    }`}
-                  />
+                        ? "border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
+                        : "border-amber-400/30 bg-amber-500/20 text-amber-300"
+                    } ${isStarting || isStopping ? "animate-pulse" : ""}`}
+                  >
+                    {isRunning ? "ON" : "OFF"}
+                  </span>
                 )}
               </button>
             );

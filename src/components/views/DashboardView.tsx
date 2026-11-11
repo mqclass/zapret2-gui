@@ -31,6 +31,8 @@ import { NavTab } from "../Sidebar";
 import { isAutoTuneModalOpen, isProbeCycleRunning } from "../../utils/watchdog";
 
 interface DashboardViewProps {
+  /** Shell view mode (redesign): accepted since stage 1, used by later stages. */
+  expertMode?: boolean;
   status: SupervisorStatus;
   diagnostics: DiagnosticsReport;
   strategies: LuaStrategy[];
@@ -474,8 +476,8 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           <div
             role="button"
             tabIndex={0}
-            onClick={() => onNavigateTab("strategies")}
-            onKeyDown={(e) => e.key === "Enter" && onNavigateTab("strategies")}
+            onClick={() => onNavigateTab("presets")}
+            onKeyDown={(e) => e.key === "Enter" && onNavigateTab("presets")}
             className="group cursor-pointer t-card p-4 hover-lift"
           >
             <div className="flex items-center justify-between mb-2">

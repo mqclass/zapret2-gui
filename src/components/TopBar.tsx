@@ -67,20 +67,14 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
       switch (tab) {
         case "dashboard":
           return { title: t.tabMeta.dashboardTitle, subtitle: t.tabMeta.dashboardSubtitle };
-        case "strategies":
-          return { title: t.tabMeta.strategiesTitle, subtitle: t.tabMeta.strategiesSubtitle };
+        case "presets":
+          return { title: t.tabMeta.presetsTitle, subtitle: t.tabMeta.presetsSubtitle };
         case "diagnostics":
           return { title: t.tabMeta.diagnosticsTitle, subtitle: t.tabMeta.diagnosticsSubtitle };
         case "dns":
           return { title: t.tabMeta.dnsTitle, subtitle: t.tabMeta.dnsSubtitle };
-        case "lists":
-          return { title: t.tabMeta.listsTitle, subtitle: t.tabMeta.listsSubtitle };
-        case "logs":
-          return { title: t.tabMeta.logsTitle, subtitle: t.tabMeta.logsSubtitle };
         case "settings":
           return { title: t.tabMeta.settingsTitle, subtitle: t.tabMeta.settingsSubtitle };
-        case "telegram":
-          return { title: t.tabMeta.telegramTitle, subtitle: t.tabMeta.telegramSubtitle };
         default:
           return { title: t.tabMeta.dashboardTitle, subtitle: t.tabMeta.dashboardSubtitle };
       }

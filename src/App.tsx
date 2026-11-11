@@ -46,10 +46,46 @@ import {
 import { useWatchdog } from "./utils/useWatchdog";
 import { save } from "@tauri-apps/plugin-dialog";
 
+const EXPERT_MODE_STORAGE_KEY = "zapret2.expert_mode";
+
+/** Divider with a small caps label between the stacked legacy views on
+ *  the composite redesign tabs (stage 1: old screens in the new shell). */
+const CompositeSectionHeader: React.FC<{ label: string }> = React.memo(
+  ({ label }) => (
+    <div className="flex items-center gap-3 pt-2" aria-hidden="true">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-ink4">
+        {label}
+      </span>
+      <span className="h-px flex-1 bg-[rgb(var(--c-line)/var(--line-alpha))]" />
+    </div>
+  )
+);
+
 const AppContent: React.FC = () => {
   const { t } = useI18n();
 
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
+  // Shell view mode (Простой вид / Эксперт). Stage 1 of the redesign:
+  // the flag only lives in the shell and is handed to the views; what it
+  // shows/hides inside each view lands in later stages. Persisted in
+  // localStorage next to the other frontend UI preferences (the accent
+  // mirror, the selected host list) — a backend setting would need an
+  // IPC/settings change, which the redesign stages deliberately avoid.
+  const [expertMode, setExpertMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(EXPERT_MODE_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const handleExpertModeChange = useCallback((expert: boolean) => {
+    setExpertMode(expert);
+    try {
+      localStorage.setItem(EXPERT_MODE_STORAGE_KEY, expert ? "1" : "0");
+    } catch {
+      /* storage unavailable — the mode just won't persist */
+    }
+  }, []);
   const [isElevated, setIsElevated] = useState<boolean>(true);
   const [status, setStatus] = useState<SupervisorStatus>({
     state: "stopped",
@@ -961,6 +997,8 @@ const AppContent: React.FC = () => {
         state={status.state}
         splitTunnelMode={splitTunnelMode}
         isElevated={isElevated}
+        expertMode={expertMode}
+        onExpertModeChange={handleExpertModeChange}
       />
 
       {/* Main Content Area — floating panel */}
@@ -1033,9 +1071,11 @@ const AppContent: React.FC = () => {
             </div>
           )}
 
-          {/* Active View Router */}
+          {/* Active View Router — redesign stage 1: five shell tabs, the
+              legacy screens stacked inside the composite ones. */}
           {activeTab === "dashboard" && (
             <DashboardView
+              expertMode={expertMode}
               status={status}
               diagnostics={diagnostics}
               strategies={strategies}
@@ -1059,9 +1099,11 @@ const AppContent: React.FC = () => {
             />
           )}
 
-          {activeTab === "strategies" && (
-            <StrategiesView
-              strategies={strategies}
+          {activeTab === "presets" && (
+            <>
+              <StrategiesView
+                expertMode={expertMode}
+                strategies={strategies}
               selectedStrategyId={selectedStrategyId}
               activeStrategyId={status.active_strategy}
               supervisorState={status.state}
@@ -1072,36 +1114,44 @@ const AppContent: React.FC = () => {
               onSaveCustomProfile={handleSaveCustomProfile}
               onDeleteCustomProfile={handleDeleteCustomProfile}
               disabled={status.state === "starting" || status.state === "stopping"}
-            />
+              />
+              <CompositeSectionHeader label={t.nav.listsSection} />
+              <ListsView expertMode={expertMode} />
+            </>
           )}
 
           {activeTab === "diagnostics" && (
-            <DiagnosticsView
-              diagnostics={diagnostics}
-              onRefreshProbes={handleRefreshProbes}
-              isRefreshingProbes={isRefreshingProbes}
-              onSelectAndStartStrategy={handleStartStrategy}
-              onNavigateTab={setActiveTab}
-            />
+            <>
+              <DiagnosticsView
+                expertMode={expertMode}
+                diagnostics={diagnostics}
+                onRefreshProbes={handleRefreshProbes}
+                isRefreshingProbes={isRefreshingProbes}
+                onSelectAndStartStrategy={handleStartStrategy}
+                onNavigateTab={setActiveTab}
+              />
+              <CompositeSectionHeader label={t.nav.logsSection} />
+              <LogsView
+                expertMode={expertMode}
+                logs={logs}
+                onClearLogs={handleClearLogs}
+                onRefreshLogs={handleRefreshLogs}
+                isRefreshing={isRefreshingLogs}
+              />
+            </>
           )}
 
-          {activeTab === "dns" && <DnsSpeedView />}
-
-          {activeTab === "lists" && <ListsView />}
-
-          {activeTab === "logs" && (
-            <LogsView
-              logs={logs}
-              onClearLogs={handleClearLogs}
-              onRefreshLogs={handleRefreshLogs}
-              isRefreshing={isRefreshingLogs}
-            />
+          {activeTab === "dns" && (
+            <>
+              <DnsSpeedView expertMode={expertMode} />
+              <CompositeSectionHeader label={t.nav.telegramSection} />
+              <TelegramView expertMode={expertMode} logs={logs} />
+            </>
           )}
-
-          {activeTab === "telegram" && <TelegramView logs={logs} />}
 
           {activeTab === "settings" && (
             <SettingsView
+              expertMode={expertMode}
               isElevated={isElevated}
               onRelaunchElevated={handleRelaunchElevated}
               isAutostart={isAutostart}

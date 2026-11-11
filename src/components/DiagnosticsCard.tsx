@@ -765,7 +765,7 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
           open={isClassifierOpen}
           request={classifierReq}
           onClose={() => setIsClassifierOpen(false)}
-          onOpenStrategies={() => onNavigateTab?.("strategies")}
+          onOpenStrategies={() => onNavigateTab?.("presets")}
           onRerunAutoTune={() => {
             setIsAutoTuneModalOpen(false);
             handleAutoTune();

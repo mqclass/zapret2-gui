@@ -45,6 +45,8 @@ const EXTERNAL_LINKS: { url: string; label: string; labelKey?: "flowsealLink" }[
 
 
 interface SettingsViewProps {
+  /** Shell view mode (redesign): accepted since stage 1, used by later stages. */
+  expertMode?: boolean;
   isElevated: boolean;
   onRelaunchElevated: () => void;
   isAutostart: boolean;
