@@ -187,6 +187,13 @@ export function useAutoTune({
         lastStartedId = id;
         try {
           const res = await invoke<StrategyProbeResult>("probe_strategy", { strategyId: id });
+          if (res == null || typeof res !== "object") {
+            // A transport that resolves without a value must not poison
+            // the results array: a null entry crashes the sorted results
+            // comparator (null.score) and the ErrorBoundary kills the
+            // dashboard. Treat it exactly like a failed probe.
+            throw new Error("Проверка не вернула результат");
+          }
           results.push(res);
           setProbeResults([...results]);
           if (res.error && res.error.includes("ADMIN_REQUIRED")) {
@@ -273,12 +280,14 @@ export function useAutoTune({
   }, []);
 
   const sortedProbeResults = probeResults
-    ? [...probeResults].sort(
-        (a, b) =>
-          b.score - a.score ||
-          (a.average_ping_ms ?? Number.MAX_SAFE_INTEGER) -
-            (b.average_ping_ms ?? Number.MAX_SAFE_INTEGER)
-      )
+    ? [...probeResults]
+        .filter((r): r is StrategyProbeResult => r != null && typeof r === "object")
+        .sort(
+          (a, b) =>
+            b.score - a.score ||
+            (a.average_ping_ms ?? Number.MAX_SAFE_INTEGER) -
+              (b.average_ping_ms ?? Number.MAX_SAFE_INTEGER)
+        )
     : [];
   const autoTuneWinner =
     sortedProbeResults.length > 0 &&
