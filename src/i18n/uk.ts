@@ -487,7 +487,6 @@ export const uk: Translations = {
     settingsSub: "Запуск і сторож",
     simpleView: "Простий вигляд",
     expertView: "Експерт",
-    listsSection: "Списки доменів",
     telegramSection: "Telegram",
     logsSection: "Журнал подій",
   },

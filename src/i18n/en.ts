@@ -487,7 +487,6 @@ export const en: Translations = {
     settingsSub: "Startup and watchdog",
     simpleView: "Simple view",
     expertView: "Expert",
-    listsSection: "Domain lists",
     telegramSection: "Telegram",
     logsSection: "Event log",
   },

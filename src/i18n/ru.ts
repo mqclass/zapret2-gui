@@ -487,7 +487,6 @@ export const ru: Translations = {
     settingsSub: "Запуск и сторож",
     simpleView: "Простой вид",
     expertView: "Эксперт",
-    listsSection: "Списки доменов",
     telegramSection: "Telegram",
     logsSection: "Журнал событий",
   },

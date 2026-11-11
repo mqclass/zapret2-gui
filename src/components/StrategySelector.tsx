@@ -130,20 +130,29 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
     ].filter((g) => g.items.length > 0);
 
     // The simple view must fit 1050x760 without scrolling, so each
-    // family shows at most three rows here — the active and the
-    // selected strategy always stay visible even past the cap. The
-    // hidden remainder is one click away in expert mode.
+    // family shows at most three rows here — a hard cap, in every
+    // state. The active and the selected strategy always stay
+    // visible: when they sit past the cap they take the last slots.
+    // (A filter that merely *adds* them past the cap would let a
+    // diverged active/selected pair grow a family to five rows and
+    // push the tab over the viewport.) The hidden remainder is one
+    // click away in expert mode.
     const SIMPLE_PER_FAMILY = 3;
     const visibleSimpleGroups = isSimple
-      ? simpleGroups.map((g) => ({
-          ...g,
-          items: g.items.filter(
-            (s, i) =>
-              i < SIMPLE_PER_FAMILY ||
-              s.id === activeStrategyId ||
-              s.id === selectedStrategyId,
-          ),
-        }))
+      ? simpleGroups.map((g) => {
+          const shown = g.items.slice(0, SIMPLE_PER_FAMILY);
+          const mustShow = [...new Set([activeStrategyId, selectedStrategyId])].filter(
+            (id): id is string =>
+              id !== null && !shown.some((s) => s.id === id),
+          );
+          mustShow.forEach((id, k) => {
+            const extra = g.items.find((s) => s.id === id);
+            if (extra && k < shown.length) {
+              shown[shown.length - 1 - k] = extra;
+            }
+          });
+          return { ...g, items: shown };
+        })
       : simpleGroups;
     const hiddenSimpleCount = isSimple
       ? simpleGroups.reduce((n, g) => n + g.items.length, 0) -

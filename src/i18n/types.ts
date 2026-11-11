@@ -489,7 +489,6 @@ export interface Translations {
     settingsSub: string;
     simpleView: string;
     expertView: string;
-    listsSection: string;
     telegramSection: string;
     logsSection: string;
   };
