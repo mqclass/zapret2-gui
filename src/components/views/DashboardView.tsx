@@ -1,12 +1,7 @@
 import React from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { motion } from "framer-motion";
+import { motion, Variants } from "framer-motion";
 import {
-  Shield,
-  ShieldCheck,
-  Play,
-  Square,
-  Loader2,
   Zap,
   Globe2,
   Tv,
@@ -14,6 +9,15 @@ import {
   Mic,
   ChevronRight,
   AlertTriangle,
+  Loader2,
+  Activity,
+  RefreshCw,
+  Sparkles,
+  Eye,
+  AppWindow,
+  MessageCircle,
+  Volume2,
+  Send,
 } from "lucide-react";
 import {
   SupervisorStatus,
@@ -21,17 +25,23 @@ import {
   LuaStrategy,
   SplitTunnelMode,
   UpdateInfo,
+  ProbeMetric,
 } from "../../types";
 import { useI18n } from "../../i18n";
 import { SplitTunnelBar } from "../SplitTunnelBar";
 import { HeroOrb, OrbState } from "../HeroOrb";
 import { Sparkline } from "../Sparkline";
 import { UpdateBanner } from "../UpdateBanner";
+import { TransportsSection } from "../TransportsSection";
+import { GoalPicker } from "../GoalPicker";
+import { useAutoTune } from "../AutoTuneModal";
+import { AppSplitModal } from "../AppSplitModal";
+import { CustomProfileModal } from "../CustomProfileModal";
 import { NavTab } from "../Sidebar";
 import { isAutoTuneModalOpen, isProbeCycleRunning } from "../../utils/watchdog";
 
 interface DashboardViewProps {
-  /** Shell view mode (redesign): accepted since stage 1, used by later stages. */
+  /** Shell view mode (redesign): false = Простой вид, true = Эксперт. */
   expertMode?: boolean;
   status: SupervisorStatus;
   diagnostics: DiagnosticsReport;
@@ -49,10 +59,29 @@ interface DashboardViewProps {
   updateInfo: UpdateInfo | null;
   onOpenUpdateDialog: () => void;
   onDismissUpdate: () => void;
+  /** Strategy watchdog state, for the simple view's status-only row. */
+  watchdogOn: boolean;
+  watchdogIntervalMinutes: number;
+  /** Wizard «Свой конфиг» goal: saves through the same App handler as the presets tab. */
+  onSaveCustomProfile: (strategy: LuaStrategy) => Promise<void>;
 }
+
+const listVariants: Variants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } },
+};
+const itemVariants: Variants = {
+  hidden: { opacity: 0, y: 18 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+  },
+};
 
 export const DashboardView: React.FC<DashboardViewProps> = React.memo(
   ({
+    expertMode = false,
     status,
     diagnostics,
     strategies,
@@ -69,6 +98,9 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
     updateInfo,
     onOpenUpdateDialog,
     onDismissUpdate,
+    watchdogOn,
+    watchdogIntervalMinutes,
+    onSaveCustomProfile,
   }) => {
     const { t } = useI18n();
 
@@ -186,16 +218,72 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
       return `${s}${sec}`;
     };
 
-    return (
-      <motion.div
-        className="space-y-4 pb-4"
-        initial="hidden"
-        animate="show"
-        variants={{
-          hidden: {},
-          show: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } },
-        }}
+    // --- Simple view: auto-tune, wizard custom goal, app-split summary ---
+
+    // The very same auto-tune cycle + modal the diagnostics tab hosts;
+    // pre-check errors land in a small line under the strategy row.
+    const [autoTuneError, setAutoTuneError] = React.useState<string | null>(null);
+    const { isAutoTuning, startAutoTune, autoTuneModal } = useAutoTune({
+      onSelectAndStartStrategy: onStartStrategy,
+      onNavigateTab,
+      onError: setAutoTuneError,
+    });
+
+    const [isCustomModalOpen, setIsCustomModalOpen] = React.useState(false);
+    const [isAppSplitOpen, setIsAppSplitOpen] = React.useState(false);
+
+    // App-split one-liner: mode + selected-app count, read from the
+    // same config the modal edits; refreshed on mount and after the
+    // modal closes (its Apply path lives inside the modal).
+    const [appSplitSummary, setAppSplitSummary] = React.useState<{
+      mode: string;
+      count: number;
+    } | null>(null);
+    const refreshAppSplitSummary = React.useCallback(async () => {
+      try {
+        const cfg = await invoke<{ mode: string; apps: string[] }>(
+          "get_app_split_config"
+        );
+        setAppSplitSummary({ mode: cfg.mode, count: cfg.apps?.length ?? 0 });
+      } catch {
+        // Row falls back to the "off" text; the modal itself reports errors.
+      }
+    }, []);
+    React.useEffect(() => {
+      void refreshAppSplitSummary();
+    }, [refreshAppSplitSummary]);
+
+    const statusPill = (
+      <span
+        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase ${
+          isRunning
+            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.22)]"
+            : isTransitioning
+            ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+            : "border-linestrong bg-raise/60 text-ink4"
+        }`}
       >
+        <span
+          className={`h-2 w-2 rounded-full ${
+            isRunning
+              ? "bg-emerald-400"
+              : isTransitioning
+              ? "bg-amber-400 animate-pulse"
+              : "bg-ink5"
+          }`}
+        />
+        {isRunning
+          ? t.dashboard.active
+          : isStarting
+          ? t.dashboard.connecting
+          : isStopping
+          ? t.dashboard.stopping
+          : t.dashboard.stopped}
+      </span>
+    );
+
+    const banners = (
+      <>
         {/* Update availability banner (announces only — no silent downloads) */}
         {updateInfo?.update_available && (
           <UpdateBanner
@@ -223,16 +311,296 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               </div>
             </div>
           )}
+      </>
+    );
+
+    // ------------------------------------------------------------------
+    // Простой вид: hero, wizard, service cards, one status card.
+    // ------------------------------------------------------------------
+    if (!expertMode) {
+      const displayStratName = isRunning
+        ? activeStrat?.name ?? status.active_strategy ?? t.dashboard.defaultStrategy
+        : selectedStrat?.name ?? selectedStrategyId;
+
+      const renderServiceCard = (
+        name: string,
+        metric: ProbeMetric | undefined,
+        icon: React.ReactNode,
+        tileClass: string
+      ) => {
+        const st = metric?.status ?? "checking";
+        const word =
+          st === "operational"
+            ? t.dashboard.svcWorks
+            : st === "degraded"
+            ? t.dashboard.svcSlow
+            : st === "blocked"
+            ? t.dashboard.svcDown
+            : t.dashboard.svcChecking;
+        const dot =
+          st === "operational"
+            ? "bg-emerald-400"
+            : st === "degraded"
+            ? "bg-amber-400"
+            : st === "blocked"
+            ? "bg-rose-400"
+            : "bg-amber-400 animate-pulse";
+        return (
+          <div className="t-card p-2.5 flex items-center gap-3">
+            <div
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-panel border ${tileClass}`}
+            >
+              {icon}
+            </div>
+            <div className="min-w-0">
+              {/* Name on its own line: «Голосовой чат» no longer loses
+                  its tail to the status dot beside it. */}
+              <div className="text-xs font-semibold text-ink truncate">{name}</div>
+              <div className="text-[11px] text-ink4 mt-0.5 flex items-center gap-1.5">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
+                <span className="truncate">
+                  {word}
+                  {metric?.latency_ms != null ? ` ${metric.latency_ms} ms` : ""}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const appSplitText =
+        appSplitSummary === null || appSplitSummary.mode === "disabled"
+          ? t.dashboard.appsOff
+          : appSplitSummary.mode === "allowlist"
+          ? t.dashboard.appsOnly.replace("{n}", String(appSplitSummary.count))
+          : t.dashboard.appsOutside.replace("{n}", String(appSplitSummary.count));
+
+      return (
+        <motion.div
+          className="space-y-2.5 pb-3"
+          initial="hidden"
+          animate="show"
+          variants={listVariants}
+        >
+          {banners}
+
+          {/* Hero: orb + plain-language status */}
+          <motion.div
+            variants={itemVariants}
+            className="t-card relative overflow-hidden px-5 py-4"
+          >
+            <span
+              aria-hidden
+              className={`pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full blur-3xl transition-colors duration-1000 ${
+                isRunning ? "bg-emerald-500/[0.13]" : "bg-accent/[0.09]"
+              }`}
+            />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent-line to-transparent"
+            />
+            <div className="relative flex items-center justify-between gap-6">
+              <div className="space-y-2 max-w-xl">
+                {statusPill}
+                <h1
+                  className={`text-3xl font-extrabold tracking-tight leading-none ${
+                    isRunning
+                      ? "bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent"
+                      : "text-ink"
+                  }`}
+                >
+                  {isRunning ? t.dashboard.bypassOnHeadline : t.dashboard.bypassOffHeadline}
+                </h1>
+                <p className="text-sm text-ink3 leading-relaxed">
+                  {isRunning ? t.dashboard.simpleOnText : t.dashboard.simpleOffText}
+                </p>
+                {isRunning && status.uptime_secs > 0 && (
+                  <div className="text-xs text-ink4">
+                    {t.dashboard.uptime} {formatUptime(status.uptime_secs)}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center justify-center shrink-0">
+                <HeroOrb
+                  state={orbState}
+                  onToggle={isRunning ? onStop : onStart}
+                  disabled={isTransitioning}
+                  label={orbLabel}
+                  compact
+                />
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Wizard: what do you want to unblock? */}
+          <motion.div variants={itemVariants}>
+            <GoalPicker
+              strategies={strategies}
+              selectedStrategyId={selectedStrategyId}
+              disabled={isTransitioning}
+              onSelectStrategy={onSelectStrategy}
+              onStartStrategy={onStartStrategy}
+              onCustomGoal={() => setIsCustomModalOpen(true)}
+              compact
+            />
+          </motion.div>
+
+          {/* Service availability: four compact cards from the live probes */}
+          <motion.div variants={itemVariants}>
+            <div className="flex items-center justify-between mb-1.5 px-0.5">
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4 text-accent" />
+                <h2 className="text-[13px] font-bold text-ink">
+                  {t.dashboard.servicesTitle}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={onRefreshProbes}
+                disabled={isRefreshingProbes}
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-control bg-raise/60 hover:bg-hovert border border-line text-ink3 hover:text-ink transition-all cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${isRefreshingProbes ? "animate-spin text-accent" : ""}`}
+                />
+                <span>{t.dashboard.checkBtn}</span>
+              </button>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+              {renderServiceCard(
+                "YouTube",
+                diagnostics.youtube,
+                <Tv className="h-4 w-4" />,
+                "bg-red-500/10 border-red-500/20 text-red-400"
+              )}
+              {renderServiceCard(
+                "Discord",
+                diagnostics.discord,
+                <MessageCircle className="h-4 w-4" />,
+                "bg-indigo-500/10 border-indigo-500/20 text-indigo-300"
+              )}
+              {renderServiceCard(
+                t.dashboard.svcVoice,
+                diagnostics.discord_voice,
+                <Volume2 className="h-4 w-4" />,
+                "bg-violet-500/10 border-violet-500/20 text-violet-300"
+              )}
+              {renderServiceCard(
+                "Telegram",
+                diagnostics.telegram,
+                <Send className="h-4 w-4" />,
+                "bg-sky-500/10 border-sky-500/20 text-sky-300"
+              )}
+            </div>
+          </motion.div>
+
+          {/* One status card: strategy row, then watchdog + per-app
+              routing side by side (one row instead of two — the simple
+              view must fit 1050×760 without scrolling). */}
+          <motion.div variants={itemVariants} className="t-card p-3.5 space-y-2.5">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-accent-wash border border-accent-line text-accent">
+                <Zap className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] text-ink4">{t.dashboard.strategyLabel}</div>
+                <div className="text-sm font-semibold text-ink truncate">
+                  {displayStratName}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={startAutoTune}
+                disabled={isAutoTuning || isTransitioning}
+                className="flex items-center gap-1.5 rounded-control border border-accent-line bg-accent-wash px-3 py-1 text-xs font-semibold text-accent-soft hover:bg-accent-fill/20 hover:text-ink transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isAutoTuning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5 text-accent" />
+                )}
+                <span>
+                  {isAutoTuning ? t.diagnostics.autoTuneRunning : t.dashboard.autoTuneBtn}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigateTab("presets")}
+                className="rounded-control px-3 py-1 text-xs font-medium text-ink4 hover:text-ink hover:bg-hovert border border-line transition-all cursor-pointer"
+              >
+                {t.dashboard.changeStrategy}
+              </button>
+            </div>
+            {autoTuneError && (
+              <p className="text-[11px] text-rose-400">{autoTuneError}</p>
+            )}
+
+            <div className="border-t border-line" />
+
+            <div className="grid grid-cols-2 divide-x divide-line">
+              <div className="flex items-center gap-2.5 pr-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-panel bg-raise/60 border border-line text-ink3">
+                  <Eye className="h-4 w-4" />
+                </div>
+                <p className="text-xs text-ink2 leading-snug">
+                  {watchdogOn
+                    ? `${t.dashboard.watchdogOnText} · ${t.dashboard.watchdogEvery.replace(
+                        "{n}",
+                        String(watchdogIntervalMinutes)
+                      )}`
+                    : t.dashboard.watchdogOffText}
+                </p>
+              </div>
+              <div className="flex items-center gap-2.5 pl-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-panel bg-raise/60 border border-line text-ink3">
+                  <AppWindow className="h-4 w-4" />
+                </div>
+                <p className="flex-1 min-w-0 text-xs text-ink2 leading-snug">{appSplitText}</p>
+                <button
+                  type="button"
+                  onClick={() => setIsAppSplitOpen(true)}
+                  className="rounded-control px-2.5 py-1 text-xs font-medium text-ink4 hover:text-ink hover:bg-hovert border border-line transition-all cursor-pointer shrink-0"
+                >
+                  {t.appSplit.configure}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+
+          {autoTuneModal}
+          <AppSplitModal
+            isOpen={isAppSplitOpen}
+            onClose={() => {
+              setIsAppSplitOpen(false);
+              void refreshAppSplitSummary();
+            }}
+          />
+          <CustomProfileModal
+            isOpen={isCustomModalOpen}
+            onClose={() => setIsCustomModalOpen(false)}
+            onSave={onSaveCustomProfile}
+            editingStrategy={null}
+          />
+        </motion.div>
+      );
+    }
+
+    // ------------------------------------------------------------------
+    // Эксперт: the full pre-redesign dashboard, nothing removed —
+    // hero with the tunnel-mode bar, raw probe matrix, transports,
+    // quick hub links.
+    // ------------------------------------------------------------------
+    return (
+      <motion.div
+        className="space-y-4 pb-4"
+        initial="hidden"
+        animate="show"
+        variants={listVariants}
+      >
+        {banners}
         {/* Hero Control Card */}
         <motion.div
-          variants={{
-            hidden: { opacity: 0, y: 18 },
-            show: {
-              opacity: 1,
-              y: 0,
-              transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
-            },
-          }}
+          variants={itemVariants}
           className="t-card relative overflow-hidden p-6 md:p-8"
         >
           {/* ambient glow that warms up when the bypass is on */}
@@ -249,32 +617,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-8">
             {/* Status and Active Info */}
             <div className="space-y-4 max-w-xl">
-              <span
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase ${
-                  isRunning
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.22)]"
-                    : isTransitioning
-                    ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
-                    : "border-linestrong bg-raise/60 text-ink4"
-                }`}
-              >
-                <span
-                  className={`h-2 w-2 rounded-full ${
-                    isRunning
-                      ? "bg-emerald-400"
-                      : isTransitioning
-                      ? "bg-amber-400 animate-pulse"
-                      : "bg-ink5"
-                  }`}
-                />
-                {isRunning
-                  ? t.dashboard.active
-                  : isStarting
-                  ? t.dashboard.connecting
-                  : isStopping
-                  ? t.dashboard.stopping
-                  : t.dashboard.stopped}
-              </span>
+              {statusPill}
 
               <h1
                 className={`text-3xl md:text-[2.6rem] font-extrabold tracking-tight leading-none ${
@@ -377,14 +720,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
 
         {/* Live Service Diagnostics Quick Matrix */}
         <motion.div
-          variants={{
-            hidden: { opacity: 0, y: 18 },
-            show: {
-              opacity: 1,
-              y: 0,
-              transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
-            },
-          }}
+          variants={itemVariants}
           className="grid grid-cols-1 md:grid-cols-2 gap-4"
         >
           {/* YouTube Probe Card */}
@@ -460,16 +796,14 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           </div>
         </motion.div>
 
+        {/* Camouflage transports (self-contained section) */}
+        <motion.div variants={itemVariants}>
+          <TransportsSection />
+        </motion.div>
+
         {/* Quick Hub Navigation Cards */}
         <motion.div
-          variants={{
-            hidden: { opacity: 0, y: 18 },
-            show: {
-              opacity: 1,
-              y: 0,
-              transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
-            },
-          }}
+          variants={itemVariants}
           className="grid grid-cols-1 md:grid-cols-3 gap-3"
         >
           {/* Card 1: Strategies */}

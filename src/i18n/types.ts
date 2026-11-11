@@ -655,6 +655,24 @@ export interface Translations {
     uptimeS: string;
     bypassOnHeadline: string;
     bypassOffHeadline: string;
+    simpleOnText: string;
+    simpleOffText: string;
+    servicesTitle: string;
+    checkBtn: string;
+    svcVoice: string;
+    svcWorks: string;
+    svcSlow: string;
+    svcDown: string;
+    svcChecking: string;
+    strategyLabel: string;
+    changeStrategy: string;
+    autoTuneBtn: string;
+    watchdogOnText: string;
+    watchdogOffText: string;
+    watchdogEvery: string;
+    appsOff: string;
+    appsOutside: string;
+    appsOnly: string;
 
   };
   telegram: {

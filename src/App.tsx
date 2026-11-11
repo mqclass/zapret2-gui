@@ -1096,6 +1096,9 @@ const AppContent: React.FC = () => {
               }
               onOpenUpdateDialog={handleOpenUpdateDialog}
               onDismissUpdate={handleDismissUpdate}
+              watchdogOn={watchdogOn}
+              watchdogIntervalMinutes={watchdogInterval}
+              onSaveCustomProfile={handleSaveCustomProfile}
             />
           )}
 
