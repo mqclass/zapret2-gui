@@ -22,7 +22,10 @@
 //! user's provider route, so measuring from anywhere else is pointless.
 //! Honest outcomes: when YouTube does not hand out stream data (bot
 //! wall, consent wall, datacenter IP), the result is `Unknown` and
-//! nothing is blocked.
+//! nothing is blocked. Since 2026-11-12, unreachable nodes are blocked
+//! too — but only when the same check found a live node (Dom.ru case,
+//! Flowseal #18730: foreign GGC cut off, the local cluster fine); a
+//! Fast+Unreachable mix is reported as `Mixed`, never as Fast.
 
 use std::collections::HashSet;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -132,6 +135,11 @@ pub enum NodeVerdict {
     Throttled,
     Unreachable,
     Unknown,
+    /// Aggregate-only: some nodes fast, some unreachable — never
+    /// assigned to a single node (see [`aggregate`]). Added 2026-11-12
+    /// so a check that found live nodes next to dead ones is not
+    /// reported as Fast: the player still hangs on the dead ones.
+    Mixed,
 }
 
 /// One measured node.
@@ -147,8 +155,9 @@ pub struct YoutubeNodeProbe {
 /// Full result of one user-initiated check, as returned to the UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YoutubeCheckResult {
-    /// Aggregate verdict: Throttled if any node throttles, else Fast if
-    /// any node measured fast, else Unreachable / Unknown.
+    /// Aggregate verdict: Throttled if any node throttles; else Mixed
+    /// when live nodes sit next to unreachable ones; else Fast if any
+    /// node measured fast, else Unreachable / Unknown.
     pub outcome: NodeVerdict,
     pub nodes: Vec<YoutubeNodeProbe>,
     /// Node name from redirector.googlevideo.com/report_mapping —
@@ -265,8 +274,17 @@ pub fn unique_node_urls(urls: &[String]) -> Vec<(String, String)> {
 /// The latest verdict for a cluster replaces older records of the same
 /// cluster in BOTH lists (a cluster is never recorded fast and
 /// throttled at once — the same rule the lane resolver applies), and
-/// records past the lane TTL are pruned. Unreachable/Unknown hosts
-/// change nothing.
+/// records past the lane TTL are pruned.
+///
+/// Since 2026-11-12 an Unreachable host is recorded as throttled too —
+/// but only when this same check found at least one Fast node: a dead
+/// node next to a live one is a node the provider cut off, and blocking
+/// it lets the player fail fast onto the live ones (Dom.ru, Flowseal
+/// #18730: foreign GGC unreachable, the Yekaterinburg cluster fine).
+/// When nothing measured fast — the whole check failed, or YouTube is
+/// fully unreachable — Unreachable still changes nothing: blocking
+/// everything would leave the player with nowhere to go. Unknown
+/// never changes anything.
 pub fn merge_measurements(
     throttled: &mut Vec<crate::platform::settings::YoutubeNodeRecord>,
     fast: &mut Vec<crate::platform::settings::YoutubeNodeRecord>,
@@ -277,9 +295,25 @@ pub fn merge_measurements(
     let ttl = crate::platform::smart_hosts::YOUTUBE_NODE_TTL_SECS;
     throttled.retain(|r| now.saturating_sub(r.measured_at) < ttl);
     fast.retain(|r| now.saturating_sub(r.measured_at) < ttl);
+    // Guard for the Unreachable rule, computed once from the whole
+    // check so record order cannot flip it. Only guard-valid node
+    // hosts count: a Fast verdict on a non-node host is not evidence
+    // of a live node the player could fail over to.
+
+    let any_fast = measured
+        .iter()
+        .any(|(h, v)| *v == NodeVerdict::Fast && cluster_prefix(h).is_some());
     for (host, verdict) in measured {
         let Some(cluster) = cluster_prefix(host) else {
             continue;
+        };
+        // An Unreachable host counts as throttled exactly when this
+        // check found a live node somewhere (see the doc comment
+        // above): same list, same TTL, same rr1..rr20 cluster
+        // expansion by the lane resolver as a Throttled verdict.
+        let verdict = match verdict {
+            NodeVerdict::Unreachable if any_fast => NodeVerdict::Throttled,
+            other => *other,
         };
         match verdict {
             NodeVerdict::Throttled => {
@@ -461,6 +495,12 @@ async fn probe_host(client: &reqwest::Client, url: &str, deadline: Instant) -> Y
 fn aggregate(nodes: &[YoutubeNodeProbe]) -> NodeVerdict {
     if nodes.iter().any(|n| n.verdict == NodeVerdict::Throttled) {
         NodeVerdict::Throttled
+    } else if nodes.iter().any(|n| n.verdict == NodeVerdict::Fast)
+        && nodes.iter().any(|n| n.verdict == NodeVerdict::Unreachable)
+    {
+        // Live nodes next to dead ones: the player hangs on the dead
+        // ones, so reporting Fast would be a lie.
+        NodeVerdict::Mixed
     } else if nodes.iter().any(|n| n.verdict == NodeVerdict::Fast) {
         NodeVerdict::Fast
     } else if nodes.iter().any(|n| n.verdict == NodeVerdict::Unreachable) {
@@ -727,7 +767,8 @@ mod tests {
         assert!(fast.is_empty());
         assert_eq!(throttled.len(), 1);
 
-        // Unreachable changes nothing; non-node hosts are ignored.
+        // Unreachable changes nothing when no node in the same check
+        // measured fast; non-node hosts are ignored.
         merge_measurements(
             &mut throttled,
             &mut fast,
@@ -739,5 +780,232 @@ mod tests {
         );
         assert_eq!(throttled.len(), 1);
         assert!(fast.is_empty());
+    }
+
+    #[test]
+    fn merge_measurements_blocks_unreachable_next_to_fast() {
+        use crate::platform::settings::YoutubeNodeRecord;
+        let now = 1_000_000;
+        let rec = |host: &str, ts: u64| YoutubeNodeRecord {
+            host: host.to_string(),
+            measured_at: ts,
+        };
+        // The dead cluster was previously recorded fast: an Unreachable
+        // verdict next to a live node must clear that, exactly like a
+        // Throttled verdict would.
+        let mut throttled = Vec::new();
+        let mut fast = vec![rec("rr5---sn-dead-bb.googlevideo.com", now - 100)];
+
+        merge_measurements(
+            &mut throttled,
+            &mut fast,
+            &[
+                ("rr1---sn-live-aa.googlevideo.com".to_string(), NodeVerdict::Fast),
+                ("rr2---sn-dead-bb.googlevideo.com".to_string(), NodeVerdict::Unreachable),
+            ],
+            now,
+        );
+        assert_eq!(throttled.len(), 1);
+        assert_eq!(throttled[0].host, "rr2---sn-dead-bb.googlevideo.com");
+        assert_eq!(fast.len(), 1);
+        assert_eq!(fast[0].host, "rr1---sn-live-aa.googlevideo.com");
+
+        // Same cluster, latest verdict wins (measurement order): a
+        // Fast host followed by an Unreachable host of the same
+        // cluster ends throttled.
+        merge_measurements(
+            &mut throttled,
+            &mut fast,
+            &[
+                ("rr1---sn-same-cc.googlevideo.com".to_string(), NodeVerdict::Fast),
+                ("rr2---sn-same-cc.googlevideo.com".to_string(), NodeVerdict::Unreachable),
+            ],
+            now,
+        );
+        assert!(fast
+            .iter()
+            .all(|r| cluster_prefix(&r.host).as_deref() != Some("sn-same-cc")));
+        assert_eq!(
+            throttled
+                .iter()
+                .filter(|r| cluster_prefix(&r.host).as_deref() == Some("sn-same-cc"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn merge_measurements_unreachable_before_fast_still_blocked() {
+        use crate::platform::settings::YoutubeNodeRecord;
+        let now = 1_000_000;
+        // Order inside the check does not matter: the guard is
+        // computed from the whole check before the loop, so an
+        // Unreachable listed before the Fast node is blocked all the
+        // same.
+        let mut throttled: Vec<YoutubeNodeRecord> = Vec::new();
+        let mut fast: Vec<YoutubeNodeRecord> = Vec::new();
+        merge_measurements(
+            &mut throttled,
+            &mut fast,
+            &[
+                ("rr7---sn-dead-dd.googlevideo.com".to_string(), NodeVerdict::Unreachable),
+                ("rr8---sn-live-ee.googlevideo.com".to_string(), NodeVerdict::Fast),
+            ],
+            now,
+        );
+        assert_eq!(throttled.len(), 1);
+        assert_eq!(throttled[0].host, "rr7---sn-dead-dd.googlevideo.com");
+        assert_eq!(fast.len(), 1);
+        assert_eq!(fast[0].host, "rr8---sn-live-ee.googlevideo.com");
+    }
+
+    #[test]
+    fn merge_measurements_fast_on_non_node_host_does_not_arm_guard() {
+        use crate::platform::settings::YoutubeNodeRecord;
+        let now = 1_000_000;
+        // A Fast verdict on a host that fails the node guard is not
+        // evidence of a live node: it must not arm the Unreachable
+        // rule (regression test for the guard-validity check).
+        let mut throttled: Vec<YoutubeNodeRecord> = Vec::new();
+        let mut fast: Vec<YoutubeNodeRecord> = Vec::new();
+        merge_measurements(
+            &mut throttled,
+            &mut fast,
+            &[
+                ("youtube.com".to_string(), NodeVerdict::Fast),
+                ("rr9---sn-dead-ff.googlevideo.com".to_string(), NodeVerdict::Unreachable),
+            ],
+            now,
+        );
+        assert!(throttled.is_empty());
+        assert!(fast.is_empty());
+    }
+
+    #[test]
+    fn merge_measurements_ignores_mixed_input() {
+        use crate::platform::settings::YoutubeNodeRecord;
+        let now = 1_000_000;
+        // Mixed is aggregate-only and never reaches merge from the
+        // detector; if it ever did, it must be a no-op, not a block.
+        let mut throttled: Vec<YoutubeNodeRecord> = Vec::new();
+        let mut fast: Vec<YoutubeNodeRecord> = Vec::new();
+        merge_measurements(
+            &mut throttled,
+            &mut fast,
+            &[
+                ("rr1---sn-mix-aa.googlevideo.com".to_string(), NodeVerdict::Mixed),
+                ("rr2---sn-live-bb.googlevideo.com".to_string(), NodeVerdict::Fast),
+            ],
+            now,
+        );
+        assert!(throttled.is_empty());
+        assert_eq!(fast.len(), 1);
+        assert_eq!(fast[0].host, "rr2---sn-live-bb.googlevideo.com");
+    }
+
+    #[test]
+    fn merge_measurements_unreachable_alone_changes_nothing() {
+        use crate::platform::settings::YoutubeNodeRecord;
+        let now = 1_000_000;
+        let rec = |host: &str, ts: u64| YoutubeNodeRecord {
+            host: host.to_string(),
+            measured_at: ts,
+        };
+        let mut throttled = vec![rec("rr3---sn-old-aa.googlevideo.com", now - 100)];
+        let mut fast = vec![rec("rr1---sn-old-bb.googlevideo.com", now - 100)];
+
+        // All-unreachable check: the guard (no Fast in this check)
+        // leaves both lists untouched.
+        merge_measurements(
+            &mut throttled,
+            &mut fast,
+            &[
+                ("rr1---sn-dead-aa.googlevideo.com".to_string(), NodeVerdict::Unreachable),
+                ("rr2---sn-dead-bb.googlevideo.com".to_string(), NodeVerdict::Unreachable),
+                ("rr3---sn-dead-cc.googlevideo.com".to_string(), NodeVerdict::Unknown),
+            ],
+            now,
+        );
+        assert_eq!(throttled.len(), 1);
+        assert_eq!(throttled[0].host, "rr3---sn-old-aa.googlevideo.com");
+        assert_eq!(fast.len(), 1);
+        assert_eq!(fast[0].host, "rr1---sn-old-bb.googlevideo.com");
+
+        // Throttled + Unreachable with no Fast: the throttled host is
+        // recorded as before, the unreachable one is not.
+        merge_measurements(
+            &mut throttled,
+            &mut fast,
+            &[
+                ("rr4---sn-slow-dd.googlevideo.com".to_string(), NodeVerdict::Throttled),
+                ("rr5---sn-dead-ee.googlevideo.com".to_string(), NodeVerdict::Unreachable),
+            ],
+            now,
+        );
+        assert_eq!(throttled.len(), 2);
+        assert!(throttled
+            .iter()
+            .any(|r| r.host == "rr4---sn-slow-dd.googlevideo.com"));
+        assert!(!throttled
+            .iter()
+            .any(|r| r.host == "rr5---sn-dead-ee.googlevideo.com"));
+    }
+
+    #[test]
+    fn aggregate_reports_mixed() {
+        let probe = |host: &str, verdict: NodeVerdict| YoutubeNodeProbe {
+            host: host.to_string(),
+            verdict,
+            mbps: 0.0,
+            bytes: 0,
+        };
+        // The Dom.ru shape: live nodes next to dead ones is Mixed,
+        // never Fast.
+        assert_eq!(
+            aggregate(&[
+                probe("rr1---sn-live-aa.googlevideo.com", NodeVerdict::Fast),
+                probe("rr2---sn-dead-bb.googlevideo.com", NodeVerdict::Unreachable),
+            ]),
+            NodeVerdict::Mixed
+        );
+        // One throttled node still dominates, even with dead ones.
+        assert_eq!(
+            aggregate(&[
+                probe("rr1---sn-live-aa.googlevideo.com", NodeVerdict::Fast),
+                probe("rr2---sn-slow-bb.googlevideo.com", NodeVerdict::Throttled),
+                probe("rr3---sn-dead-cc.googlevideo.com", NodeVerdict::Unreachable),
+            ]),
+            NodeVerdict::Throttled
+        );
+        // Pure outcomes are unchanged.
+        assert_eq!(
+            aggregate(&[probe("rr1---sn-live-aa.googlevideo.com", NodeVerdict::Fast)]),
+            NodeVerdict::Fast
+        );
+        assert_eq!(
+            aggregate(&[probe(
+                "rr1---sn-dead-aa.googlevideo.com",
+                NodeVerdict::Unreachable
+            )]),
+            NodeVerdict::Unreachable
+        );
+        // Unreachable next to Unknown is still Unreachable: the
+        // failure is real, the Unknown node only adds no data.
+        assert_eq!(
+            aggregate(&[
+                probe("rr1---sn-dead-aa.googlevideo.com", NodeVerdict::Unreachable),
+                probe("rr2---sn-myst-bb.googlevideo.com", NodeVerdict::Unknown),
+            ]),
+            NodeVerdict::Unreachable
+        );
+        assert_eq!(aggregate(&[]), NodeVerdict::Unknown);
+        // Unknown is "no data", not a failure: Fast + Unknown stays Fast.
+        assert_eq!(
+            aggregate(&[
+                probe("rr1---sn-live-aa.googlevideo.com", NodeVerdict::Fast),
+                probe("rr2---sn-myst-aa.googlevideo.com", NodeVerdict::Unknown),
+            ]),
+            NodeVerdict::Fast
+        );
     }
 }

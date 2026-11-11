@@ -164,6 +164,18 @@ export const DnsSpeedView: React.FC = React.memo(() => {
   const [ytResult, setYtResult] = useState<YoutubeCheckResult | null>(null);
   const [ytError, setYtError] = useState<string | null>(null);
 
+  // Unreachable nodes this check recorded as throttled: the backend
+  // records them only when the same check found a fast node (see
+  // merge_measurements in youtube_probe.rs). Whether the records are
+  // actually applied to hosts depends on the lane toggle — the
+  // applied/laneOff notes in the branches below say which. The
+  // throttled branch lists them too, so recorded unreachable hosts
+  // are not hidden.
+  const ytRecordedUnreachable =
+    ytResult && ytResult.nodes.some((n) => n.verdict === "fast")
+      ? ytResult.nodes.filter((n) => n.verdict === "unreachable")
+      : [];
+
   const handleToggleYtLane = async () => {
     setHostsBusy(true);
     setHostsError(null);
@@ -821,7 +833,13 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                 <>
                   <p>
                     {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}, {t.youtubeThrottle.throttledLabel}{" "}
-                    {ytResult.nodes.filter((n) => n.verdict === "throttled").length}. {t.youtubeThrottle.throttledText}
+                    {ytResult.nodes.filter((n) => n.verdict === "throttled").length}
+                    {ytRecordedUnreachable.length > 0 && (
+                      <>
+                        , {t.youtubeThrottle.unreachableLabel} {ytRecordedUnreachable.length}
+                      </>
+                    )}
+                    . {t.youtubeThrottle.throttledText}
                     {ytResult.applied
                       ? ` ${t.youtubeThrottle.appliedNote}`
                       : ytResult.lane_enabled
@@ -833,6 +851,30 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                       .filter((n) => n.verdict === "throttled")
                       .map((n) => n.host)
                       .join(", ")}
+                  </p>
+                  {ytRecordedUnreachable.length > 0 && (
+                    <p className="text-[10px] text-ink4">
+                      {t.youtubeThrottle.unreachableLabel}{" "}
+                      <span className="font-mono break-all">
+                        {ytRecordedUnreachable.map((n) => n.host).join(", ")}
+                      </span>
+                    </p>
+                  )}
+                </>
+              )}
+              {ytResult.outcome === "mixed" && (
+                <>
+                  <p>
+                    {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}, {t.youtubeThrottle.unreachableLabel}{" "}
+                    {ytRecordedUnreachable.length}. {t.youtubeThrottle.mixedText}
+                    {ytResult.applied
+                      ? ` ${t.youtubeThrottle.appliedNote}`
+                      : ytResult.lane_enabled
+                        ? ""
+                        : ` ${t.youtubeThrottle.laneOffNote}`}
+                  </p>
+                  <p className="font-mono text-[10px] text-ink4 break-all">
+                    {ytRecordedUnreachable.map((n) => n.host).join(", ")}
                   </p>
                 </>
               )}

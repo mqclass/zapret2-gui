@@ -418,10 +418,12 @@ export interface Translations {
     blockedNowLabel: string;
     checkedLabel: string;
     throttledLabel: string;
+    unreachableLabel: string;
     fastText: string;
     unreachableText: string;
     unknownText: string;
     throttledText: string;
+    mixedText: string;
     appliedNote: string;
     laneOffNote: string;
     applyErrorLabel: string;

@@ -268,7 +268,9 @@ export interface SmartHostsStatus {
   youtube_blocked_count: number;
 }
 
-export type YoutubeNodeVerdict = "fast" | "throttled" | "unreachable" | "unknown";
+// "mixed" is aggregate-only: some nodes fast, some unreachable. It is
+// never assigned to a single node probe (see youtube_probe.rs).
+export type YoutubeNodeVerdict = "fast" | "throttled" | "unreachable" | "unknown" | "mixed";
 
 export interface YoutubeNodeProbe {
   host: string;
