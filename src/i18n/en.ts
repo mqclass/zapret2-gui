@@ -102,6 +102,7 @@ export const en: Translations = {
       desyncApplied: "Bypass applied to {n} sites",
       probeLatencySpike: "{service} is responding slowly ({ms} ms)",
       engineReady: "Engine is ready",
+      supervisorConnected: "Bypass service connected",
       pickStrategy: "Pick a strategy to turn the bypass on",
       switchingStrategy: "Switching strategy: stopping the previous engine",
       startingBypass: "Starting the bypass…",
@@ -537,8 +538,6 @@ export const en: Translations = {
     expertView: "Expert",
   },
   settingsTab: {
-    title: "Settings & Maintenance",
-    subtitle: "Autostart, process cleanup, admin elevation and security validation",
     systemSection: "System Preferences",
     autostartDesc: "Start zapret2 automatically at Windows logon without UAC prompts (Task Scheduler InteractiveToken)",
     elevationTitle: "Administrator Privileges",
@@ -677,7 +676,7 @@ export const en: Translations = {
     presetsTitle: "Presets & Hosts",
     diagnosticsTitle: "Diagnostics & Logs",
     dnsTitle: "Speed & DNS",
-    settingsTitle: "Settings & Info",
+    settingsTitle: "Settings",
   },
   sidebar: {
     active: "Active",

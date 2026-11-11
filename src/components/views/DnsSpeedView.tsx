@@ -457,19 +457,13 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
                       : "border-line bg-cardin hover:border-line hover:bg-raise"
                   }`}
                 >
+                  {/* No badge next to the name: the button on the right
+                      already shows the same "active" state (check +
+                      label), so a badge here only repeated it. */}
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-xs font-semibold text-ink truncate" title={p.name}>
                       {displayName}
                     </span>
-                    {isCurrent && (
-                      <span className={`rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase shrink-0 ${
-                        splitActive
-                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                          : "bg-accent-wash text-accent-soft"
-                      }`}>
-                        {splitActive ? t.dns.splitActiveBadge : t.dns.activeBadge}
-                      </span>
-                    )}
                   </div>
                   <button
                     type="button"
@@ -898,15 +892,9 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-ink">{p.name}</span>
-                    {isCurrent && (
-                      <span className={`rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
-                        dnsStatus.split_dns_active
-                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                          : "bg-accent-wash text-accent-soft"
-                      }`}>
-                        {dnsStatus.split_dns_active ? t.dns.splitActiveBadge : t.dns.activeBadge}
-                      </span>
-                    )}
+                    {/* No "active" badge here either: the button on the
+                        right already shows the same state (check +
+                        label) — same dedup as the simple rows above. */}
                     {p.is_doh_capable && (
                       <span className="rounded-chip bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
                         {t.dns.dohBadge}

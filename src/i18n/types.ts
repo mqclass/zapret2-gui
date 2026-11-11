@@ -106,6 +106,7 @@ export interface Translations {
       desyncApplied: string;
       probeLatencySpike: string;
       engineReady: string;
+      supervisorConnected: string;
       pickStrategy: string;
       switchingStrategy: string;
       startingBypass: string;
@@ -545,8 +546,6 @@ export interface Translations {
     expertView: string;
   };
   settingsTab: {
-    title: string;
-    subtitle: string;
     systemSection: string;
     autostartDesc: string;
     elevationTitle: string;

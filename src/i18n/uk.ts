@@ -102,6 +102,7 @@ export const uk: Translations = {
       desyncApplied: "Обхід застосовано до {n} сайтів",
       probeLatencySpike: "{service} відповідає повільно ({ms} мс)",
       engineReady: "Рушій готовий до роботи",
+      supervisorConnected: "Службу обходу підключено",
       pickStrategy: "Виберіть стратегію, щоб увімкнути обхід",
       switchingStrategy: "Перемикаю стратегію: зупиняю попередній рушій",
       startingBypass: "Запускаю обхід…",
@@ -537,8 +538,6 @@ export const uk: Translations = {
     expertView: "Експерт",
   },
   settingsTab: {
-    title: "Налаштування та Керування",
-    subtitle: "Конфігурація автозавантаження, привілеїв, очищення та перевірка оригінальності",
     systemSection: "Системні параметри",
     autostartDesc: "Запуск zapret2 при вході в систему без вікон UAC (через Task Scheduler InteractiveToken)",
     elevationTitle: "Права Адміністратора",
@@ -677,7 +676,7 @@ export const uk: Translations = {
     presetsTitle: "Пресети та хости",
     diagnosticsTitle: "Діагностика та логи",
     dnsTitle: "Прискорення та DNS",
-    settingsTitle: "Параметри та Інформація",
+    settingsTitle: "Налаштування",
   },
   sidebar: {
     active: "Активна",

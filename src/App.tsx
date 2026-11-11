@@ -21,6 +21,7 @@ import {
 import { Sidebar, NavTab } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { ConflictBanner } from "./components/ConflictBanner";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { UpdateDialog, UpdatePhase } from "./components/UpdateDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DashboardView } from "./components/views/DashboardView";
@@ -1020,6 +1021,21 @@ const AppContent: React.FC = () => {
             isResolving={isResolvingConflicts}
           />
 
+          {/* Update availability banner (announces only — no silent
+              downloads). Global, above every tab, like the conflict
+              banner — it used to live in DashboardView only. */}
+          {updateInfo?.update_available &&
+            !(
+              dismissedUpdateVersion &&
+              updateInfo.latest_version === dismissedUpdateVersion
+            ) && (
+              <UpdateBanner
+                info={updateInfo}
+                onOpenDialog={handleOpenUpdateDialog}
+                onDismiss={handleDismissUpdate}
+              />
+            )}
+
           {/* Error Alert Banner */}
           {errorAlert && (
             <div className="flex items-start justify-between rounded-panel border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300 backdrop-blur-md">
@@ -1072,13 +1088,6 @@ const AppContent: React.FC = () => {
               onRefreshProbes={handleRefreshProbes}
               isRefreshingProbes={isRefreshingProbes}
               onNavigateTab={setActiveTab}
-              updateInfo={
-                dismissedUpdateVersion && updateInfo?.latest_version === dismissedUpdateVersion
-                  ? null
-                  : updateInfo
-              }
-              onOpenUpdateDialog={handleOpenUpdateDialog}
-              onDismissUpdate={handleDismissUpdate}
               watchdogOn={watchdogOn}
               watchdogIntervalMinutes={watchdogInterval}
               onSaveCustomProfile={handleSaveCustomProfile}

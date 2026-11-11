@@ -82,6 +82,16 @@ const RULES: Rule[] = [
   },
   // --- Supervisor lifecycle (supervisor.rs) ---
   {
+    // stub.js mock of the svc-pipe connect line (no such literal in
+    // supervisor.rs — the stand invented the wording, but the digest
+    // shows it on every boot, so it gets a human phrase too). Kept
+    // distinct from engineReady ("Движок готов к работе"): both lines
+    // appear in the same boot sequence, and two near-identical digest
+    // rows would read as a duplicate.
+    match: /^Супервизор инициализирован, пайп zapret2-svc подключён$/,
+    render: (_m, { t }) => t.diagTab.logHuman.supervisorConnected,
+  },
+  {
     // supervisor.rs:406 — version varies, so match the shape.
     match: /^zapret2 v\d+(\.\d+)* initialized\. WinDivert and WFP subsystem ready\.$/,
     render: (_m, { t }) => t.diagTab.logHuman.engineReady,

@@ -213,12 +213,15 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
             title={`${strat.name} — ${getFriendlyDescription(strat)}`}
           >
             <span className="text-xs font-semibold text-ink">{strat.name}</span>
-            {isActive && (
-              <span className="ml-1.5 rounded-chip bg-emerald-500/20 border border-emerald-500/50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
-                {t.strategies.cardActive}
-              </span>
-            )}
           </div>
+          {/* The active badge lives OUTSIDE the truncating name box:
+              inside it, a very long custom-config name pushed the
+              badge past the edge and clipped it. */}
+          {isActive && (
+            <span className="shrink-0 whitespace-nowrap rounded-chip bg-emerald-500/20 border border-emerald-500/50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
+              {t.strategies.cardActive}
+            </span>
+          )}
           {isCustom && (
             <span className="flex items-center gap-0.5 shrink-0">
               <button

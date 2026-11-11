@@ -196,7 +196,10 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(
                         : "border-amber-400/30 bg-amber-500/20 text-amber-300"
                     } ${isStarting || isStopping ? "animate-pulse" : ""}`}
                   >
-                    {isRunning ? "ON" : "OFF"}
+                    {/* While the engine is starting/stopping the badge
+                        shows an ellipsis, not OFF: OFF would claim the
+                        bypass is down when it is only mid-transition. */}
+                    {isRunning ? "ON" : isStarting || isStopping ? "…" : "OFF"}
                   </span>
                 )}
               </button>

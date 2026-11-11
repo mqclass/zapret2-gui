@@ -24,13 +24,11 @@ import {
   DiagnosticsReport,
   LuaStrategy,
   SplitTunnelMode,
-  UpdateInfo,
   ProbeMetric,
 } from "../../types";
 import { useI18n } from "../../i18n";
 import { HeroOrb, OrbState } from "../HeroOrb";
 import { Sparkline } from "../Sparkline";
-import { UpdateBanner } from "../UpdateBanner";
 import { TransportsSection } from "../TransportsSection";
 import { GoalPicker } from "../GoalPicker";
 import { useAutoTune } from "../AutoTuneModal";
@@ -53,9 +51,6 @@ interface DashboardViewProps {
   onRefreshProbes: () => void;
   isRefreshingProbes: boolean;
   onNavigateTab: (tab: NavTab) => void;
-  updateInfo: UpdateInfo | null;
-  onOpenUpdateDialog: () => void;
-  onDismissUpdate: () => void;
   /** Strategy watchdog state, for the simple view's status-only row. */
   watchdogOn: boolean;
   watchdogIntervalMinutes: number;
@@ -91,9 +86,6 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
     onRefreshProbes,
     isRefreshingProbes,
     onNavigateTab,
-    updateInfo,
-    onOpenUpdateDialog,
-    onDismissUpdate,
     watchdogOn,
     watchdogIntervalMinutes,
     onSaveCustomProfile,
@@ -222,14 +214,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
 
     const banners = (
       <>
-        {/* Update availability banner (announces only — no silent downloads) */}
-        {updateInfo?.update_available && (
-          <UpdateBanner
-            info={updateInfo}
-            onOpenDialog={onOpenUpdateDialog}
-            onDismiss={onDismissUpdate}
-          />
-        )}
+        {/* The update banner lives in App now (global, above every tab). */}
         {/* WinDivert conflict: the engine died with exit code 10 because the
             driver is held by another bypass tool. Shown until the next
             successful start clears it; hidden while running. */}

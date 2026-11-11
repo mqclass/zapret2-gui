@@ -239,7 +239,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     // служба, уведомления, экспорт диагностики, сплит приложений)
     // lives in the expert branch below. All handlers are the same
     // ones the full view uses; the update dialog and banner stay
-    // global (opened from the dashboard banner).
+    // global (the banner sits above every tab in App).
     // ------------------------------------------------------------------
     if (!expertMode) {
       const currentFill = currentAccentFill(accentColor);
@@ -248,11 +248,18 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
       const intervalOptions = [...new Set([5, 15, 30, 60, watchdogInterval])].sort(
         (a, b) => a - b
       );
+      // Simple-view cards use p-3 (not the p-4 of the expert cards):
+      // at p-4 the "show all settings" link sat a few pixels from the
+      // bottom edge at 1050x760, and another locale or font scale
+      // would push it into the scroll. The tighter padding buys ~30px
+      // of slack below the link. No bottom padding of our own: the
+      // shell's main already has py-5, and even pb-2 left the view
+      // 7px scrollable at 1050x760.
       return (
-        <div className="space-y-3 pb-3 max-w-4xl">
+        <div className="space-y-3 max-w-4xl">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {/* Accent color — full width */}
-            <div className="t-card p-4 space-y-2 lg:col-span-2 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
+            <div className="t-card p-3 space-y-2 lg:col-span-2 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent">
                   <Palette className="h-4 w-4" />
@@ -308,7 +315,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 height, so the buttons sit centered in the leftover
                 space. No language code here: "Українська" + "UK" did
                 not fit a third of a half-width card and truncated. */}
-            <div className="t-card p-4 flex flex-col stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
+            <div className="t-card p-3 flex flex-col stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent">
                   <Globe className="h-4 w-4" />
@@ -340,7 +347,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             </div>
 
             {/* Watchdog */}
-            <div className="t-card p-4 space-y-2 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
+            <div className="t-card p-3 space-y-2 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent">
@@ -406,7 +413,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             </div>
 
             {/* Updates — full width */}
-            <div className="t-card p-4 space-y-2 lg:col-span-2 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
+            <div className="t-card p-3 space-y-2 lg:col-span-2 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent">
                   <ArrowDownToLine className="h-4 w-4" />
@@ -1032,7 +1039,14 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               <span className="font-mono text-accent font-semibold">{t.header.version}</span>
             </div>
             <div className="font-mono text-[11px] text-ink5">
-              WinWS v2.1.8 • WinDivert v2.2.2-F • Tauri v2
+              {/* Each "name + version" pair is unbreakable, and the "•"
+                  separator is glued to the pair on its LEFT: a wrap can
+                  then only happen after a "•", never before one, so the
+                  separator can never land at the start of a line and a
+                  name can never split from its version. */}
+              <span className="whitespace-nowrap">WinWS v2.1.8 •</span>{" "}
+              <span className="whitespace-nowrap">WinDivert v2.2.2-F •</span>{" "}
+              <span className="whitespace-nowrap">Tauri v2</span>
             </div>
             <div className="font-mono text-[10px] text-ink5">
               Telegram bridge: tg-ws-proxy-rs v2.5.4 (MIT, © valnesfjord)

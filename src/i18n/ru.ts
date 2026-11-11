@@ -102,6 +102,7 @@ export const ru: Translations = {
       desyncApplied: "Обход применён к {n} сайтам",
       probeLatencySpike: "{service} отвечает медленно ({ms} мс)",
       engineReady: "Движок готов к работе",
+      supervisorConnected: "Служба обхода подключена",
       pickStrategy: "Выберите стратегию, чтобы включить обход",
       switchingStrategy: "Переключаю стратегию: останавливаю предыдущий движок",
       startingBypass: "Запускаю обход…",
@@ -537,8 +538,6 @@ export const ru: Translations = {
     expertView: "Эксперт",
   },
   settingsTab: {
-    title: "Настройки и Управление",
-    subtitle: "Конфигурация автозагрузки, привилегий, очистка и проверка оригинальности",
     systemSection: "Системные параметры",
     autostartDesc: "Запуск zapret2 при входе в систему без всплывающих окон UAC (через Task Scheduler InteractiveToken)",
     elevationTitle: "Права Администратора",
@@ -677,7 +676,7 @@ export const ru: Translations = {
     presetsTitle: "Пресеты и Хосты",
     diagnosticsTitle: "Диагностика и Логи",
     dnsTitle: "Ускорение и DNS",
-    settingsTitle: "Параметры и Информация",
+    settingsTitle: "Настройки",
   },
   sidebar: {
     active: "Активна",

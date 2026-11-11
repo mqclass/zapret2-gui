@@ -42,16 +42,24 @@ interface PresetsViewProps {
  */
 const HostlistSummary: React.FC<{
   autoHostlistOn: boolean;
+  supervisorState: SupervisorState;
   onToggleAutoHostlist: () => void;
   onEditLists: () => void;
   disabled?: boolean;
-}> = ({ autoHostlistOn, onToggleAutoHostlist, onEditLists, disabled = false }) => {
+}> = ({ autoHostlistOn, supervisorState, onToggleAutoHostlist, onEditLists, disabled = false }) => {
   const { t } = useI18n();
   const [counts, setCounts] = useState<{ general: number | null; auto: number | null }>({
     general: null,
     auto: null,
   });
 
+  // Counts re-read not only on mount and on the auto-hostlist toggle,
+  // but also on every engine state change: toggling auto-hostlist
+  // restarts the engine, and list-auto.txt is (re)generated at engine
+  // start — a read taken right after the toggle can still see the
+  // pre-restart file, so the transition to "running" re-reads it.
+  // Edits in the expert editor are covered by remount: switching back
+  // to the simple view mounts a fresh summary.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -76,7 +84,7 @@ const HostlistSummary: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [autoHostlistOn]);
+  }, [autoHostlistOn, supervisorState]);
 
   const fmt = (n: number | null) => (n === null ? "—" : String(n));
 
@@ -176,6 +184,7 @@ export const PresetsView: React.FC<PresetsViewProps> = React.memo(
           />
           <HostlistSummary
             autoHostlistOn={autoHostlistOn}
+            supervisorState={supervisorState}
             onToggleAutoHostlist={onToggleAutoHostlist}
             onEditLists={() => onExpertModeChange(true)}
             disabled={disabled}
