@@ -626,7 +626,7 @@ export const uk: Translations = {
   tabMeta: {
     dashboardTitle: "Центр керування обходом",
     dashboardSubtitle: "Основний шлюз фільтрації пакетів WFP / WinDivert",
-    presetsTitle: "Пресети та списки доменів",
+    presetsTitle: "Пресети та хости",
     presetsSubtitle: "Стратегії обходу та домени, до яких вони застосовуються",
     diagnosticsTitle: "Діагностика мережі",
     diagnosticsSubtitle: "Моніторинг пінгу сервісів, автопідбір стратегії та лікування мережі",

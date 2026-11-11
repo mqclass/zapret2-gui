@@ -38,7 +38,10 @@ interface StrategySelectorProps {
   /**
    * Redesign stage 3: "full" is the old card grid with category tabs
    * and technical details; "simple" is a compact grouped list in
-   * plain words — name + one-line description + active mark.
+   * plain words — name + active mark. (The full description used to
+   * sit in the simple row too, but in the two-column grid it
+   * truncated to useless stubs — it lives in the expert cards and
+   * in the row's hover tooltip instead.)
    */
   variant?: "full" | "simple";
 }
@@ -199,8 +202,12 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                 : "bg-ink5"
             }`}
           />
-          {/* One line: name — description, truncated. Two lines per row
-              cannot fit 22+ profiles into 1050x760 without scrolling. */}
+          {/* One line: name (+ active badge) only. The description
+              used to follow after an em dash, but in the two-column
+              grid it truncated to useless stubs ("Альтернативная ст…",
+              "Д…"). Names already carry the meaning (family headers +
+              descriptive names); the full text is in the expert cards
+              and in the hover tooltip below. */}
           <div
             className="min-w-0 flex-1 truncate"
             title={`${strat.name} — ${getFriendlyDescription(strat)}`}
@@ -211,10 +218,6 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                 {t.strategies.cardActive}
               </span>
             )}
-            <span className="text-[11px] text-ink4">
-              {" — "}
-              {getFriendlyDescription(strat)}
-            </span>
           </div>
           {isCustom && (
             <span className="flex items-center gap-0.5 shrink-0">

@@ -626,7 +626,7 @@ export const en: Translations = {
   tabMeta: {
     dashboardTitle: "Bypass Control Center",
     dashboardSubtitle: "Main WFP / WinDivert packet filtering gateway",
-    presetsTitle: "Presets and domain lists",
+    presetsTitle: "Presets & Hosts",
     presetsSubtitle: "Bypass strategies and the domains they apply to",
     diagnosticsTitle: "Network Diagnostics",
     diagnosticsSubtitle: "Service ping monitoring, strategy auto-tuning and network healing",
