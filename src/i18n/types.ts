@@ -86,6 +86,17 @@ export interface Translations {
     showAll: string;
     blockedShort: string;
   };
+  /** Redesign stage 5: the unified "Диагностика и Логи" tab. */
+  diagTab: {
+    logDigestTitle: string;
+    logDigestEmpty: string;
+    copyDiagnostics: string;
+    copied: string;
+    showFullLog: string;
+    levelError: string;
+    levelWarn: string;
+    levelInfo: string;
+  };
   strategies: {
     title: string;
     discovered: string;
@@ -496,7 +507,6 @@ export interface Translations {
     settingsSub: string;
     simpleView: string;
     expertView: string;
-    logsSection: string;
   };
   settingsTab: {
     title: string;

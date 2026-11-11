@@ -33,10 +33,14 @@ interface DiagnosticsCardProps {
   isRefreshing?: boolean;
   onSelectAndStartStrategy?: (strategyId: string) => void;
   onNavigateTab?: (tab: NavTab) => void;
+  /** Redesign stage 5: "simple" renders four compact service cards
+   * (YouTube / Discord / Voice / Telegram) instead of the six
+   * detailed metric cards + custom ping. */
+  variant?: "full" | "simple";
 }
 
 export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
-  ({ report, onRefresh, isRefreshing, onSelectAndStartStrategy, onNavigateTab }) => {
+  ({ report, onRefresh, isRefreshing, onSelectAndStartStrategy, onNavigateTab, variant = "full" }) => {
     const { t } = useI18n();
 
     // Custom Target Ping State
@@ -153,22 +157,140 @@ export const DiagnosticsCard: React.FC<DiagnosticsCardProps> = React.memo(
       );
     };
 
-    return (
-      <div className="space-y-3">
-        {actionError && (
-          <div className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
-            <span className="leading-relaxed">{actionError}</span>
+    // Compact service card for the simple view: the dashboard's
+    // service-row pattern (icon, name, status word + latency).
+    const renderServiceMiniCard = (
+      name: string,
+      metric: ProbeMetric | undefined,
+      icon: React.ReactNode,
+      tileClass: string
+    ) => {
+      const st = metric?.status ?? "checking";
+      const word =
+        st === "operational"
+          ? t.dashboard.svcWorks
+          : st === "degraded"
+            ? t.dashboard.svcSlow
+            : st === "blocked"
+              ? t.dashboard.svcDown
+              : t.dashboard.svcChecking;
+      const dot =
+        st === "operational"
+          ? "bg-emerald-400"
+          : st === "degraded"
+            ? "bg-amber-400"
+            : st === "blocked"
+              ? "bg-rose-400"
+              : "bg-amber-400 animate-pulse";
+      return (
+        <div className="t-card p-2.5 flex items-center gap-3">
+          <div
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-panel border ${tileClass}`}
+          >
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-ink truncate">{name}</div>
+            <div className="text-[11px] text-ink4 mt-0.5 flex items-center gap-1.5">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
+              <span className="truncate">
+                {word}
+                {metric?.latency_ms != null ? ` ${metric.latency_ms} ms` : ""}
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // Shared by both variants: visible error for user-initiated
+    // actions (auto-tune, custom ping).
+    const errorBanner = actionError && (
+      <div className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+        <span className="leading-relaxed">{actionError}</span>
+        <button
+          type="button"
+          onClick={() => setActionError(null)}
+          className="ml-auto shrink-0 text-rose-400 hover:text-rose-200 cursor-pointer"
+          aria-label={t.doctor.closeBtn}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+
+    if (variant === "simple") {
+      return (
+        <div className="space-y-2.5">
+          {errorBanner}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-accent" />
+              <h2 className="text-[13px] font-bold text-ink">{t.dashboard.servicesTitle}</h2>
+              {onRefresh && (
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  disabled={isRefreshing}
+                  title={t.diagnostics.refreshTooltip}
+                  className="p-1 rounded-chip text-ink4 hover:text-ink hover:bg-raise transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin text-accent" : ""}`} />
+                </button>
+              )}
+            </div>
+
             <button
               type="button"
-              onClick={() => setActionError(null)}
-              className="ml-auto shrink-0 text-rose-400 hover:text-rose-200 cursor-pointer"
-              aria-label={t.doctor.closeBtn}
+              onClick={startAutoTune}
+              disabled={isAutoTuning}
+              className="flex items-center gap-1.5 rounded-control border border-accent-line bg-accent-wash px-2.5 py-1 text-xs font-semibold text-accent-soft hover:bg-accent-fill/20 hover:text-ink transition-all cursor-pointer shadow-sm shadow-accent/10 disabled:opacity-50"
             >
-              <X className="h-3.5 w-3.5" />
+              {isAutoTuning ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5 text-accent" />
+              )}
+              <span>{isAutoTuning ? t.diagnostics.autoTuneRunning : t.dashboard.autoTuneBtn}</span>
             </button>
           </div>
-        )}
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {renderServiceMiniCard(
+              "YouTube",
+              report.youtube,
+              <Youtube className="h-4 w-4 text-red-400" />,
+              "bg-red-500/10 border-red-500/20 text-red-400"
+            )}
+            {renderServiceMiniCard(
+              "Discord",
+              report.discord,
+              <MessageSquare className="h-4 w-4 text-indigo-400" />,
+              "bg-indigo-500/10 border-indigo-500/20 text-indigo-300"
+            )}
+            {renderServiceMiniCard(
+              t.dashboard.svcVoice,
+              report.discord_voice,
+              <Volume2 className="h-4 w-4 text-violet-400" />,
+              "bg-violet-500/10 border-violet-500/20 text-violet-300"
+            )}
+            {renderServiceMiniCard(
+              "Telegram",
+              report.telegram,
+              <Send className="h-4 w-4 text-sky-400" />,
+              "bg-sky-500/10 border-sky-500/20 text-sky-300"
+            )}
+          </div>
+
+          {autoTuneModal}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        {errorBanner}
         {/* Top Header with Auto-Tune and Refresh */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">

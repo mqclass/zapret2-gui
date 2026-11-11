@@ -87,6 +87,16 @@ export const uk: Translations = {
     showAll: "Показати всі DNS-сервери",
     blockedShort: "Заблоковано",
   },
+  diagTab: {
+    logDigestTitle: "Останні події",
+    logDigestEmpty: "Подій поки немає",
+    copyDiagnostics: "Скопіювати діагностику",
+    copied: "Скопійовано",
+    showFullLog: "Показати весь журнал",
+    levelError: "Помилка",
+    levelWarn: "Попередження",
+    levelInfo: "Подія",
+  },
   strategies: {
     title: "Режим обходу блокувань",
     discovered: "профілів доступно",
@@ -493,7 +503,6 @@ export const uk: Translations = {
     settingsSub: "Запуск і сторож",
     simpleView: "Простий вигляд",
     expertView: "Експерт",
-    logsSection: "Журнал подій",
   },
   settingsTab: {
     title: "Налаштування та Керування",
@@ -633,7 +642,7 @@ export const uk: Translations = {
     dashboardSubtitle: "Основний шлюз фільтрації пакетів WFP / WinDivert",
     presetsTitle: "Пресети та хости",
     presetsSubtitle: "Стратегії обходу та домени, до яких вони застосовуються",
-    diagnosticsTitle: "Діагностика мережі",
+    diagnosticsTitle: "Діагностика та логи",
     diagnosticsSubtitle: "Моніторинг пінгу сервісів, автопідбір стратегії та лікування мережі",
     dnsTitle: "Прискорення та DNS",
     dnsSubtitle: "Захист від підміни DNS провайдером і замір реального відеопотоку",

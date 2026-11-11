@@ -87,6 +87,16 @@ export const ru: Translations = {
     showAll: "Показать все DNS-серверы",
     blockedShort: "Заблокировано",
   },
+  diagTab: {
+    logDigestTitle: "Последние события",
+    logDigestEmpty: "Событий пока нет",
+    copyDiagnostics: "Скопировать диагностику",
+    copied: "Скопировано",
+    showFullLog: "Показать весь журнал",
+    levelError: "Ошибка",
+    levelWarn: "Предупреждение",
+    levelInfo: "Событие",
+  },
   strategies: {
     title: "Режим обхода блокировок",
     discovered: "профилей доступно",
@@ -493,7 +503,6 @@ export const ru: Translations = {
     settingsSub: "Запуск и сторож",
     simpleView: "Простой вид",
     expertView: "Эксперт",
-    logsSection: "Журнал событий",
   },
   settingsTab: {
     title: "Настройки и Управление",
@@ -633,7 +642,7 @@ export const ru: Translations = {
     dashboardSubtitle: "Основной шлюз фильтрации пакетов WFP / WinDivert",
     presetsTitle: "Пресеты и Хосты",
     presetsSubtitle: "Стратегии обхода и домены, к которым они применяются",
-    diagnosticsTitle: "Диагностика сети",
+    diagnosticsTitle: "Диагностика и Логи",
     diagnosticsSubtitle: "Мониторинг пинга сервисов, автоподбор стратегии и лечение сети",
     dnsTitle: "Ускорение и DNS",
     dnsSubtitle: "Защита от подмены DNS провайдером и замер реального видеопотока",

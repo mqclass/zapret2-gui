@@ -25,9 +25,8 @@ import { UpdateDialog, UpdatePhase } from "./components/UpdateDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DashboardView } from "./components/views/DashboardView";
 import { PresetsView } from "./components/views/PresetsView";
-import { DiagnosticsView } from "./components/views/DiagnosticsView";
 import { DnsView } from "./components/views/DnsView";
-import { LogsView } from "./components/views/LogsView";
+import { DiagnosticsLogsView } from "./components/views/DiagnosticsLogsView";
 import { SettingsView } from "./components/views/SettingsView";
 import { AlertCircle, CheckCircle2, ShieldAlert, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
@@ -45,19 +44,6 @@ import { useWatchdog } from "./utils/useWatchdog";
 import { save } from "@tauri-apps/plugin-dialog";
 
 const EXPERT_MODE_STORAGE_KEY = "zapret2.expert_mode";
-
-/** Divider with a small caps label between the stacked legacy views on
- *  the composite redesign tabs (stage 1: old screens in the new shell). */
-const CompositeSectionHeader: React.FC<{ label: string }> = React.memo(
-  ({ label }) => (
-    <div className="flex items-center gap-3 pt-2" aria-hidden="true">
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-ink4">
-        {label}
-      </span>
-      <span className="h-px flex-1 bg-[rgb(var(--c-line)/var(--line-alpha))]" />
-    </div>
-  )
-);
 
 const AppContent: React.FC = () => {
   const { t } = useI18n();
@@ -1124,24 +1110,19 @@ const AppContent: React.FC = () => {
           )}
 
           {activeTab === "diagnostics" && (
-            <>
-              <DiagnosticsView
-                expertMode={expertMode}
-                diagnostics={diagnostics}
-                onRefreshProbes={handleRefreshProbes}
-                isRefreshingProbes={isRefreshingProbes}
-                onSelectAndStartStrategy={handleStartStrategy}
-                onNavigateTab={setActiveTab}
-              />
-              <CompositeSectionHeader label={t.nav.logsSection} />
-              <LogsView
-                expertMode={expertMode}
-                logs={logs}
-                onClearLogs={handleClearLogs}
-                onRefreshLogs={handleRefreshLogs}
-                isRefreshing={isRefreshingLogs}
-              />
-            </>
+            <DiagnosticsLogsView
+              expertMode={expertMode}
+              diagnostics={diagnostics}
+              onRefreshProbes={handleRefreshProbes}
+              isRefreshingProbes={isRefreshingProbes}
+              onSelectAndStartStrategy={handleStartStrategy}
+              onNavigateTab={setActiveTab}
+              logs={logs}
+              onClearLogs={handleClearLogs}
+              onRefreshLogs={handleRefreshLogs}
+              isRefreshingLogs={isRefreshingLogs}
+              onExpertModeChange={handleExpertModeChange}
+            />
           )}
 
           {activeTab === "dns" && (

@@ -87,6 +87,16 @@ export const en: Translations = {
     showAll: "Show all DNS servers",
     blockedShort: "Blocked",
   },
+  diagTab: {
+    logDigestTitle: "Recent events",
+    logDigestEmpty: "No events yet",
+    copyDiagnostics: "Copy diagnostics",
+    copied: "Copied",
+    showFullLog: "Show full log",
+    levelError: "Error",
+    levelWarn: "Warning",
+    levelInfo: "Event",
+  },
   strategies: {
     title: "Bypass Mode Profile",
     discovered: "profiles available",
@@ -493,7 +503,6 @@ export const en: Translations = {
     settingsSub: "Startup and watchdog",
     simpleView: "Simple view",
     expertView: "Expert",
-    logsSection: "Event log",
   },
   settingsTab: {
     title: "Settings & Maintenance",
@@ -633,7 +642,7 @@ export const en: Translations = {
     dashboardSubtitle: "Main WFP / WinDivert packet filtering gateway",
     presetsTitle: "Presets & Hosts",
     presetsSubtitle: "Bypass strategies and the domains they apply to",
-    diagnosticsTitle: "Network Diagnostics",
+    diagnosticsTitle: "Diagnostics & Logs",
     diagnosticsSubtitle: "Service ping monitoring, strategy auto-tuning and network healing",
     dnsTitle: "Speed & DNS",
     dnsSubtitle: "Protection against ISP DNS spoofing and real video stream measurement",
