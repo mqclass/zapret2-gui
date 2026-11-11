@@ -1121,6 +1121,7 @@ const AppContent: React.FC = () => {
               onClearLogs={handleClearLogs}
               onRefreshLogs={handleRefreshLogs}
               isRefreshingLogs={isRefreshingLogs}
+              strategies={strategies}
               onExpertModeChange={handleExpertModeChange}
             />
           )}

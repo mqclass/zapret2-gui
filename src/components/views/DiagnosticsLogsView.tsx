@@ -1,5 +1,5 @@
 import React from "react";
-import { DiagnosticsReport, LogEntry } from "../../types";
+import { DiagnosticsReport, LogEntry, LuaStrategy } from "../../types";
 import { NavTab } from "../Sidebar";
 import { DiagnosticsView } from "./DiagnosticsView";
 import { LogsView } from "./LogsView";
@@ -16,6 +16,8 @@ interface DiagnosticsLogsViewProps {
   onClearLogs: () => void;
   onRefreshLogs?: () => void;
   isRefreshingLogs?: boolean;
+  /** Strategy catalog for human names in the simple digest. */
+  strategies?: LuaStrategy[];
   /** Switch the shell to expert mode (the log digest's "show full log"). */
   onExpertModeChange: (expert: boolean) => void;
 }
@@ -43,6 +45,7 @@ export const DiagnosticsLogsView: React.FC<DiagnosticsLogsViewProps> = React.mem
     onClearLogs,
     onRefreshLogs,
     isRefreshingLogs,
+    strategies,
     onExpertModeChange,
   }) => {
     if (!expertMode) {
@@ -63,6 +66,7 @@ export const DiagnosticsLogsView: React.FC<DiagnosticsLogsViewProps> = React.mem
             onRefreshLogs={onRefreshLogs}
             isRefreshing={isRefreshingLogs}
             onShowExpert={() => onExpertModeChange(true)}
+            strategies={strategies}
           />
         </div>
       );

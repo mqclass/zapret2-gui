@@ -96,6 +96,42 @@ export interface Translations {
     levelError: string;
     levelWarn: string;
     levelInfo: string;
+    /** Human phrases for frequent engine/supervisor log lines in the
+     * simple-view digest (stage 5 fix). Placeholders: {strategy} — human
+     * strategy name (or id), {n} — grouped count, {ms} — latency,
+     * {service} — probe service name, {transport} — transport id. */
+    logHuman: {
+      engineStarted: string;
+      driverActive: string;
+      desyncApplied: string;
+      probeLatencySpike: string;
+      engineReady: string;
+      pickStrategy: string;
+      switchingStrategy: string;
+      startingBypass: string;
+      stoppingBypass: string;
+      stoppingEngine: string;
+      bypassOff: string;
+      bypassOn: string;
+      engineExited: string;
+      startingStrategy: string;
+      paramsApplied: string;
+      splitDisabled: string;
+      splitFlowseal: string;
+      splitEnforced: string;
+      splitUnavailable: string;
+      transportApplied: string;
+      launchRetry: string;
+      windivertConflictRetry: string;
+      windivertFilterFailed: string;
+      recoveryFailed: string;
+      autoHostlistCleanupFailed: string;
+      binariesNotFound: string;
+      argsBuildFailed: string;
+      transportRefused: string;
+      spawnFailed: string;
+      statusCheckFailed: string;
+    };
   };
   strategies: {
     title: string;

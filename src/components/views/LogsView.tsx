@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { LogViewer, formatLogTime, formatLogsForClipboard } from "../LogViewer";
-import { LogEntry } from "../../types";
+import { LogEntry, LuaStrategy } from "../../types";
 import { Check, Copy, Terminal } from "lucide-react";
 import { useI18n } from "../../i18n";
+import { humanizeLogMessage } from "../../utils/humanizeLog";
 
 interface LogsViewProps {
   logs: LogEntry[];
@@ -14,14 +15,17 @@ interface LogsViewProps {
   variant?: "full" | "simple";
   /** Switch the shell to expert mode (the digest's "show full log"). */
   onShowExpert?: () => void;
+  /** Strategy catalog for human names in the simple digest; ids pass
+   * through when the catalog is absent or an id is unknown. */
+  strategies?: LuaStrategy[];
 }
 
 /** How many recent events the simple digest shows. */
 const DIGEST_COUNT = 5;
 
 export const LogsView: React.FC<LogsViewProps> = React.memo(
-  ({ logs, onClearLogs, onRefreshLogs, isRefreshing, variant = "full", onShowExpert }) => {
-    const { t } = useI18n();
+  ({ logs, onClearLogs, onRefreshLogs, isRefreshing, variant = "full", onShowExpert, strategies }) => {
+    const { t, language } = useI18n();
     const [copied, setCopied] = useState(false);
     const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -106,8 +110,11 @@ export const LogsView: React.FC<LogsViewProps> = React.memo(
                       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
                       <span className="text-ink3">{word}</span>
                     </span>
-                    <span className="text-ink2 truncate" title={log.message}>
-                      {log.message}
+                    <span
+                      className="text-ink2 truncate"
+                      title={log.message}
+                    >
+                      {humanizeLogMessage(log.message, t, language, strategies)}
                     </span>
                   </li>
                 );
