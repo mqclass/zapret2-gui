@@ -129,6 +129,21 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
       ? t.dashboard.pleaseWait
       : t.dashboard.startBypass;
 
+    // Hero copy follows the transition: while starting/stopping the
+    // headline must not claim the bypass is off (stage 7 follow-up).
+    const heroHeadline = isRunning
+      ? t.dashboard.bypassOnHeadline
+      : isStarting
+      ? t.dashboard.bypassStartingHeadline
+      : isStopping
+      ? t.dashboard.bypassStoppingHeadline
+      : t.dashboard.bypassOffHeadline;
+    const heroTransitionText = isStarting
+      ? t.dashboard.bypassStartingText
+      : isStopping
+      ? t.dashboard.bypassStoppingText
+      : null;
+
     const activeStrat = strategies.find((s) => s.id === status.active_strategy);
     const selectedStrat = strategies.find((s) => s.id === selectedStrategyId);
 
@@ -332,10 +347,10 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                       : "text-ink"
                   }`}
                 >
-                  {isRunning ? t.dashboard.bypassOnHeadline : t.dashboard.bypassOffHeadline}
+                  {heroHeadline}
                 </h1>
                 <p className="text-sm text-ink3 leading-relaxed">
-                  {isRunning ? t.dashboard.simpleOnText : t.dashboard.simpleOffText}
+                  {isRunning ? t.dashboard.simpleOnText : heroTransitionText ?? t.dashboard.simpleOffText}
                 </p>
                 {isRunning && status.uptime_secs > 0 && (
                   <div className="text-xs text-ink4">
@@ -549,7 +564,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                     : "text-ink"
                 }`}
               >
-                {isRunning ? t.dashboard.bypassOnHeadline : t.dashboard.bypassOffHeadline}
+                {heroHeadline}
               </h1>
               <p className="text-sm text-ink3 leading-relaxed">
                 {isRunning ? (
@@ -561,7 +576,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                     .{" "}{t.dashboard.filteringNote}
                   </>
                 ) : (
-                  t.dashboard.hint
+                  heroTransitionText ?? t.dashboard.hint
                 )}
               </p>
               {isRunning && (status.uptime_secs > 0 || status.pid) && (

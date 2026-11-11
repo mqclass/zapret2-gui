@@ -715,6 +715,10 @@ export interface Translations {
     uptimeS: string;
     bypassOnHeadline: string;
     bypassOffHeadline: string;
+    bypassStartingHeadline: string;
+    bypassStoppingHeadline: string;
+    bypassStartingText: string;
+    bypassStoppingText: string;
     simpleOnText: string;
     simpleOffText: string;
     servicesTitle: string;
