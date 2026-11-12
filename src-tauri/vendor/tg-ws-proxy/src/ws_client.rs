@@ -106,6 +106,15 @@ impl<K: Eq + Hash> CooldownMap<K> {
 static CF_EDGE_TLS_FAIL: CooldownMap<IpAddr> = CooldownMap::new();
 static CF_EDGE_PLAINTEXT_FAIL: CooldownMap<IpAddr> = CooldownMap::new();
 
+/// Per-relay failure memory for the Cloudflare proxy domain walk, keyed by the
+/// base relay domain (shared across DCs: a relay that is down is down for every
+/// DC). Without it, every client connection re-walks all configured relays and
+/// re-pays each one's connect timeout — the storm that saturates the engine
+/// when the relays are unreachable. A relay that fails TLS/upgrade is skipped
+/// for `cf_fail_cooldown`, then probed again on expiry, so recovery is automatic
+/// and needs no restart.
+static CF_DOMAIN_FAIL: CooldownMap<String> = CooldownMap::new();
+
 /// Cloudflare-specific dial settings shared by proxy, Worker, and pool paths.
 #[derive(Clone, Copy)]
 pub struct CfDialOpts<'a> {
@@ -916,8 +925,22 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
     let media = media_tag(is_media);
     let mut all_redirects = true;
     let mut attempts = CfAttempts::with_offset(dc, cf_domains, first_domain);
+    let cooldown = opts.fail_cooldown;
 
     while let Some(domain) = attempts.next_domain() {
+        // Relay domain without the kws{N}. prefix: a relay that is down is
+        // down for every DC, so one cooldown entry covers them all.
+        let base = domain.split_once('.').map_or(domain.as_str(), |(_, b)| b);
+
+        // Skip a relay still in its failure cooldown rather than re-paying its
+        // connect timeout on every connection. Expiry re-probes it, so a relay
+        // that recovers is picked up again without a restart.
+        if !cooldown.is_zero() && CF_DOMAIN_FAIL.active(base) {
+            attempts.note_timed_out();
+            all_redirects = false;
+            continue;
+        }
+
         debug!("CF WS trying DC{}{} → {}", dc, media, domain);
 
         match connect_cf_with_path(
@@ -932,6 +955,7 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
         .await
         {
             WsConnectResult::Connected(ws) => {
+                CF_DOMAIN_FAIL.clear(base);
                 return (Some(ws), Some(domain), false);
             }
             WsConnectResult::Redirect(code) => {
@@ -939,15 +963,24 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
                     "CF WS DC{}{} got {} from {} (redirect)",
                     dc, media, code, domain
                 );
+                // A redirect means the relay answered (Telegram moved WS off
+                // it), not a transport failure — never cool it down for that.
+                CF_DOMAIN_FAIL.clear(base);
             }
             WsConnectResult::Failed(reason) => {
                 warn!("CF WS DC{}{} failed on {}: {}", dc, media, domain, reason);
                 all_redirects = false;
+                if !cooldown.is_zero() {
+                    CF_DOMAIN_FAIL.set(base.to_string(), cooldown);
+                }
             }
             WsConnectResult::TimedOut | WsConnectResult::ConnectTimedOut(_) => {
                 warn!("CF WS DC{}{} timed out on {}", dc, media, domain);
                 attempts.note_timed_out();
                 all_redirects = false;
+                if !cooldown.is_zero() {
+                    CF_DOMAIN_FAIL.set(base.to_string(), cooldown);
+                }
             }
         }
     }
