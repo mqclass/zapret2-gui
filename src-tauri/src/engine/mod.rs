@@ -15,6 +15,11 @@ pub mod supervisor;
 pub mod youtube_probe;
 pub mod tgproxy;
 pub mod transport;
+// WARP mode, stage 2: the sing-box config generator. Nothing calls it
+// yet - stage 3 (SingBoxManager) wires it up - so without this the
+// whole API surface reads as dead code in both binaries.
+#[allow(dead_code)]
+pub mod singbox_config;
 pub use events::{EventSink, NullSink, SinkSlot, TauriSink};
 pub use logger::FileLogger;
 pub use managed::ManagedSidecar;
