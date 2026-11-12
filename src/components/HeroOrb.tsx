@@ -9,6 +9,8 @@ interface HeroOrbProps {
   onToggle: () => void;
   disabled?: boolean;
   label: string;
+  /** Smaller disc for dense layouts (simple-view hero); default size unchanged. */
+  compact?: boolean;
 }
 
 /**
@@ -23,7 +25,7 @@ interface HeroOrbProps {
  * Spring physics on press (stiffness 380, damping 28).
  */
 export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
-  ({ state, onToggle, disabled, label }) => {
+  ({ state, onToggle, disabled, label, compact = false }) => {
     const [shockKey, setShockKey] = useState(0);
     const prevState = useRef<OrbState>(state);
 
@@ -48,17 +50,18 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
         ? "bg-accent/25"
         : "bg-accent/15";
 
+    const iconClass = compact ? "h-9 w-9" : "h-11 w-11";
     const icon =
       state === "connecting" ? (
-        <Loader2 className="h-11 w-11 animate-spin text-white/90" strokeWidth={1.75} />
+        <Loader2 className={`${iconClass} animate-spin text-white/90`} strokeWidth={1.75} />
       ) : state === "connected" ? (
-        <ShieldCheck className="h-11 w-11 text-emerald-300" strokeWidth={1.75} />
+        <ShieldCheck className={`${iconClass} text-emerald-300`} strokeWidth={1.75} />
       ) : (
-        <Power className="h-11 w-11 text-white/90" strokeWidth={1.75} />
+        <Power className={`${iconClass} text-white/90`} strokeWidth={1.75} />
       );
 
     return (
-      <div className="flex flex-col items-center gap-4">
+      <div className={`flex flex-col items-center ${compact ? "gap-3" : "gap-4"}`}>
         <motion.button
           type="button"
           onClick={() => onToggle()}
@@ -66,7 +69,9 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
           whileTap={{ scale: 0.92 }}
           whileHover={{ scale: 1.03 }}
           transition={{ type: "spring", stiffness: 380, damping: 28, mass: 0.8 }}
-          className={`orb ${orbClass} group relative h-40 w-40 md:h-44 md:w-44 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer`}
+          className={`orb ${orbClass} group relative ${
+            compact ? "h-32 w-32" : "h-40 w-40 md:h-44 md:w-44"
+          } disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer`}
           aria-label={label}
           title={label}
         >

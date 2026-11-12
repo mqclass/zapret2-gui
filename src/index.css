@@ -445,6 +445,73 @@
     color: rgb(var(--c-ink2));
   }
 
+  /* Redesign shell: two-line nav items (label + sub) with an icon tile,
+     adapted from the liquid-glass mockup onto the accent token system. */
+  .t-navitem-lg {
+    padding: 0.5rem 0.75rem;
+  }
+  .t-navitem-tile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid transparent;
+    background: rgb(255 255 255 / 0.04);
+    color: rgb(var(--c-ink4));
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+  }
+  .t-navitem:hover .t-navitem-tile {
+    color: rgb(var(--c-ink2));
+  }
+  .t-navitem-active .t-navitem-tile {
+    background: var(--c-accent-wash);
+    border-color: var(--c-accent-line);
+    color: rgb(var(--c-accent-soft));
+  }
+
+  /* Mode switch (Простой вид / Эксперт) segmented control. The active
+     segment is accent-driven, never a hardcoded hue. */
+  .t-modeswitch {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: var(--r-control);
+    background: rgb(var(--c-cardin) / 0.72);
+    border: 1px solid rgb(var(--c-line) / var(--line-alpha));
+  }
+  .t-modeswitch-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: calc(var(--r-control) - 2px);
+    border: 1px solid transparent;
+    font-size: 11px;
+    font-weight: 500;
+    color: rgb(var(--c-ink4));
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+  .t-modeswitch-btn:hover {
+    color: rgb(var(--c-ink2));
+  }
+  .t-modeswitch-btn-active {
+    background: var(--c-accent-wash);
+    border-color: var(--c-accent-line);
+    color: rgb(var(--c-ink));
+    font-weight: 600;
+  }
+  .t-modeswitch-btn-active svg {
+    color: rgb(var(--c-accent-soft));
+  }
+
   /* ══ Dividers ══════════════════════════════════════════ */
   .t-divider {
     border-color: rgb(var(--c-line) / var(--line-alpha));

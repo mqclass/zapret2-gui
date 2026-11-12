@@ -13,7 +13,6 @@ export interface Translations {
     adminRequiredTooltip: string;
     cleanProcesses: string;
     cleanProcessesTooltip: string;
-    cleanShort: string;
     autostart: string;
     autostartEnabledTooltip: string;
     autostartDisabledTooltip: string;
@@ -67,6 +66,73 @@ export interface Translations {
     switchTitle: string;
 
   };
+  /** Redesign stage 3: the unified "Пресеты и Хосты" tab. */
+  presetsTab: {
+    familyFlowseal: string;
+    familyZapret2: string;
+    familyKinlay0: string;
+    listsTitle: string;
+    listsGeneral: string;
+    listsAuto: string;
+    listsEdit: string;
+    tunnelModeLine: string;
+    changeMode: string;
+  };
+  /** Redesign stage 4: the unified "Ускорение и DNS" tab. */
+  dnsTab: {
+    customAndSplit: string;
+    bridgeSettings: string;
+    showAll: string;
+    blockedShort: string;
+  };
+  /** Redesign stage 5: the unified "Диагностика и Логи" tab. */
+  diagTab: {
+    logDigestTitle: string;
+    logDigestEmpty: string;
+    copyDiagnostics: string;
+    copied: string;
+    showFullLog: string;
+    levelError: string;
+    levelWarn: string;
+    levelInfo: string;
+    /** Human phrases for frequent engine/supervisor log lines in the
+     * simple-view digest (stage 5 fix). Placeholders: {strategy} — human
+     * strategy name (or id), {n} — grouped count, {ms} — latency,
+     * {service} — probe service name, {transport} — transport id. */
+    logHuman: {
+      engineStarted: string;
+      driverActive: string;
+      desyncApplied: string;
+      probeLatencySpike: string;
+      engineReady: string;
+      supervisorConnected: string;
+      pickStrategy: string;
+      switchingStrategy: string;
+      startingBypass: string;
+      stoppingBypass: string;
+      stoppingEngine: string;
+      bypassOff: string;
+      bypassOn: string;
+      engineExited: string;
+      startingStrategy: string;
+      paramsApplied: string;
+      splitDisabled: string;
+      splitFlowseal: string;
+      splitEnforced: string;
+      splitUnavailable: string;
+      transportApplied: string;
+      launchRetry: string;
+      windivertConflictRetry: string;
+      windivertFilterFailed: string;
+      recoveryFailed: string;
+      autoHostlistCleanupFailed: string;
+      binariesNotFound: string;
+      argsBuildFailed: string;
+      transportRefused: string;
+      spawnFailed: string;
+      statusCheckFailed: string;
+    };
+  };
   strategies: {
     title: string;
     discovered: string;
@@ -93,6 +159,9 @@ export interface Translations {
     editCustom: string;
     deleteCustom: string;
     noStrategiesInTab: string;
+    showAllSimple: string;
+    /** Simple view: one-line pointer above the strategy rows. */
+    simpleHint: string;
     goalTitle: string;
     goalSubtitle: string;
     goalYoutube: string;
@@ -103,6 +172,12 @@ export interface Translations {
     goalAllDesc: string;
     goalCustom: string;
     goalCustomDesc: string;
+    /** Simple view: the gate shown instead of the expert custom-profile
+     * modal when the «Свой конфиг» goal is picked. */
+    customGateTitle: string;
+    customGateText: string;
+    customGateGoExpert: string;
+    customGateCancel: string;
 
   };
   modal: {
@@ -345,6 +420,12 @@ export interface Translations {
     introItem6: string;
     bannerDesc: string;
     bannerBtn: string;
+    /** Simple view: plain-words subtitle and intro steps for the modal. */
+    bannerDescSimple: string;
+    simpleStep1: string;
+    simpleStep2: string;
+    simpleStep3: string;
+    simpleStep4: string;
 
   };
   dns: {
@@ -364,6 +445,14 @@ export interface Translations {
     scopeSplitTitle: string;
     scopeSplitDesc: string;
     splitActiveBadge: string;
+    /** Simple view: plain-words DNS hint, split status, provider hints. */
+    simpleHint: string;
+    splitActiveSimple: string;
+    hintSystem: string;
+    hintCloudflare: string;
+    hintComss: string;
+    hintGoogle: string;
+    hintQuad9: string;
     scopeBannerTitle: string;
     scopeBannerScope: string;
     scopeBannerScopeDesc: string;
@@ -469,17 +558,19 @@ export interface Translations {
   };
   nav: {
     dashboard: string;
-    strategies: string;
-    diagnostics: string;
+    dashboardSub: string;
+    presets: string;
+    presetsSub: string;
     dns: string;
-    lists: string;
-    logs: string;
-    telegram: string;
+    dnsSub: string;
+    diagnostics: string;
+    diagnosticsSub: string;
     settings: string;
+    settingsSub: string;
+    simpleView: string;
+    expertView: string;
   };
   settingsTab: {
-    title: string;
-    subtitle: string;
     systemSection: string;
     autostartDesc: string;
     elevationTitle: string;
@@ -504,6 +595,7 @@ export interface Translations {
     notificationsBtnDisable: string;
     watchdogTitle: string;
     watchdogDesc: string;
+    watchdogShort: string;
     watchdogOn: string;
     watchdogOff: string;
     watchdogBtnEnable: string;
@@ -538,6 +630,7 @@ export interface Translations {
     elevatedYes: string;
     elevatedNo: string;
     flowsealLink: string;
+    showAllSettings: string;
 
   };
   update: {
@@ -557,7 +650,6 @@ export interface Translations {
     upToDate: string;
     checkFailed: string;
     availableTitle: string;
-    availableDesc: string;
     changelogTitle: string;
     notesEmpty: string;
     viewRelease: string;
@@ -602,21 +694,10 @@ export interface Translations {
   };
   tabMeta: {
     dashboardTitle: string;
-    dashboardSubtitle: string;
-    strategiesTitle: string;
-    strategiesSubtitle: string;
+    presetsTitle: string;
     diagnosticsTitle: string;
-    diagnosticsSubtitle: string;
     dnsTitle: string;
-    dnsSubtitle: string;
-    listsTitle: string;
-    listsSubtitle: string;
-    logsTitle: string;
-    logsSubtitle: string;
-    telegramTitle: string;
-    telegramSubtitle: string;
     settingsTitle: string;
-    settingsSubtitle: string;
   };
   sidebar: {
     active: string;
@@ -658,6 +739,28 @@ export interface Translations {
     uptimeS: string;
     bypassOnHeadline: string;
     bypassOffHeadline: string;
+    bypassStartingHeadline: string;
+    bypassStoppingHeadline: string;
+    bypassStartingText: string;
+    bypassStoppingText: string;
+    simpleOnText: string;
+    simpleOffText: string;
+    servicesTitle: string;
+    checkBtn: string;
+    svcVoice: string;
+    svcWorks: string;
+    svcSlow: string;
+    svcDown: string;
+    svcChecking: string;
+    strategyLabel: string;
+    changeStrategy: string;
+    autoTuneBtn: string;
+    watchdogOnText: string;
+    watchdogOffText: string;
+    watchdogEvery: string;
+    appsOff: string;
+    appsOutside: string;
+    appsOnly: string;
 
   };
   telegram: {

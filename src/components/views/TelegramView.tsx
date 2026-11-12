@@ -23,7 +23,12 @@ import { notifyUser } from "../../utils/notify";
 import { QRCodeSVG } from "qrcode.react";
 
 interface TelegramViewProps {
+  /** Redesign stage 4: "simple" is one compact card (status + connect);
+      "full" is the pre-redesign view, shown in expert mode. */
+  variant?: "simple" | "full";
   logs: LogEntry[];
+  /** Switch the shell to expert mode (simple card's "settings" action). */
+  onShowExpert?: () => void;
 }
 
 type BusyKind = "idle" | "toggle" | "save" | "secret";
@@ -39,7 +44,7 @@ const formatUptime = (secs: number, h: string, m: string, s: string) => {
   return `${sec}${s}`;
 };
 
-export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) => {
+export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ variant = "full", logs, onShowExpert }) => {
   const { t } = useI18n();
   const [status, setStatus] = useState<TgProxyStatus | null>(null);
   const [busy, setBusy] = useState<BusyKind>("idle");
@@ -267,6 +272,184 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
     ? t.telegram.error
     : t.telegram.stopped;
 
+  // The two secret banners are functional, not decorative: they stay
+  // in the simple view too (redesign stage 4), so they live in one
+  // shared fragment used by both variants. Conditions are unchanged.
+  const bridgeBanners = (
+    <>
+      {/* Stale-secret banner: persistent while the backend state is live,
+          never a toast. It states the bridge health and the client problem
+          as two separate facts: the running pill above still says the
+          bridge itself is fine, and the self-check result stays untouched.
+          The secret itself is never printed here; copying the link reuses
+          the existing clipboard mechanism from the connection card. */}
+      {isRunning && (status?.stale_secret_detected ?? false) && !staleDismissed && (
+        <div className="flex items-start gap-3 rounded-card border border-danger-line bg-danger-wash p-4 text-xs text-ink2 leading-relaxed">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <div className="space-y-2 flex-1 min-w-0">
+            <p>
+              <span className="font-semibold">{t.telegram.staleTitle}. </span>
+              {t.telegram.staleBody}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => status?.tg_link && handleCopy("tg_link", status.tg_link)}
+                disabled={!status?.tg_link}
+                className="t-btn t-btn-ghost"
+              >
+                <Copy className="h-4 w-4" />
+                {t.telegram.copyCurrentLink}
+              </button>
+              {copiedKey === "tg_link" && (
+                <span className="text-xs text-accent">{t.telegram.copied}</span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setStaleDismissed(true)}
+            className="t-btn t-btn-ghost !px-2 !py-1 shrink-0"
+            title={t.telegram.dismiss}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+      {/* Rotation banner: only while the bridge runs. A stopped bridge
+          must not warn about a rotation the user cannot act on yet, and
+          the red stale banner takes priority when both flags are live. */}
+      {isRunning &&
+        !(status?.stale_secret_detected ?? false) &&
+        (status?.secret_rotated ?? false) &&
+        !rotationDismissed && (
+          <div className="flex items-start gap-3 rounded-card border border-warnline bg-warnwash p-4 text-xs text-ink2 leading-relaxed">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div className="space-y-2 flex-1 min-w-0">
+              <p>
+                <span className="font-semibold">{t.telegram.rotatedTitle}. </span>
+                {t.telegram.rotatedBody}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => status?.tg_link && handleCopy("tg_link", status.tg_link)}
+                  disabled={!status?.tg_link}
+                  className="t-btn t-btn-ghost"
+                >
+                  <Copy className="h-4 w-4" />
+                  {t.telegram.copyCurrentLink}
+                </button>
+                {copiedKey === "tg_link" && (
+                  <span className="text-xs text-accent">{t.telegram.copied}</span>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => setRotationDismissed(true)}
+              className="t-btn t-btn-ghost !px-2 !py-1 shrink-0"
+              title={t.telegram.dismiss}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+    </>
+  );
+
+  // Redesign stage 4, simple view: one compact card — bridge status
+  // and the connect action — plus the functional banners above.
+  // Connection parameters, settings (mode, LAN, QR, port, secret)
+  // and logs live in the full view.
+  if (variant === "simple") {
+    return (
+      <div className="space-y-3">
+        <div className="t-card p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-accent-wash text-accent border border-accent-line">
+                <Send className="h-4 w-4 shrink-0" />
+              </div>
+              <h3 className="text-xs font-semibold text-ink truncate">{t.telegram.title}</h3>
+            </div>
+            <span
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase shrink-0 ${pillClass}`}
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  isRunning
+                    ? "bg-accent"
+                    : isTransitioning
+                    ? "bg-ink3 animate-pulse"
+                    : isError
+                    ? "bg-ink2"
+                    : "bg-ink5"
+                }`}
+              />
+              {stateLabel}
+            </span>
+          </div>
+
+          {isRunning && (status?.uptime_secs ?? 0) > 0 && (
+            <span className="block text-xs font-mono text-ink4">
+              {t.telegram.uptime}:{" "}
+              {formatUptime(
+                status?.uptime_secs ?? 0,
+                t.telegram.uptimeH,
+                t.telegram.uptimeM,
+                t.telegram.uptimeS
+              )}
+            </span>
+          )}
+
+          {(error || status?.last_error) && (
+            <div className="flex items-start gap-2 rounded-panel border border-danger-line bg-danger-wash p-3 text-xs text-ink2">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>
+                <span className="font-semibold">{t.telegram.lastError}: </span>
+                {error ?? status?.last_error}
+              </span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleToggle}
+              disabled={busy !== "idle"}
+              className={`t-btn ${isRunning ? "t-btn-danger" : "t-btn-primary"}`}
+            >
+              {busy === "toggle" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isRunning ? (
+                <Square className="h-4 w-4" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              {isRunning ? t.telegram.disable : t.telegram.enable}
+            </button>
+            {isRunning && (
+              <button
+                onClick={handleOpenInTelegram}
+                disabled={!hasSecret}
+                className="t-btn t-btn-accent-soft"
+              >
+                <ExternalLink className="h-4 w-4" />
+                {t.telegram.openInTelegram}
+              </button>
+            )}
+            {onShowExpert && (
+              <button
+                type="button"
+                onClick={onShowExpert}
+                className="text-[11px] font-medium text-accent-soft hover:text-accent transition-colors cursor-pointer ml-auto"
+              >
+                {t.dnsTab.bridgeSettings} →
+              </button>
+            )}
+          </div>
+        </div>
+        {bridgeBanners}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 pb-6">
       {/* Header / status card */}
@@ -342,80 +525,7 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ logs }) =
         </div>
       </div>
 
-      {/* Stale-secret banner: persistent while the backend state is live,
-          never a toast. It states the bridge health and the client problem
-          as two separate facts: the running pill above still says the
-          bridge itself is fine, and the self-check result stays untouched.
-          The secret itself is never printed here; copying the link reuses
-          the existing clipboard mechanism from the connection card. */}
-      {isRunning && (status?.stale_secret_detected ?? false) && !staleDismissed && (
-        <div className="flex items-start gap-3 rounded-card border border-danger-line bg-danger-wash p-4 text-xs text-ink2 leading-relaxed">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          <div className="space-y-2 flex-1 min-w-0">
-            <p>
-              <span className="font-semibold">{t.telegram.staleTitle}. </span>
-              {t.telegram.staleBody}
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => status?.tg_link && handleCopy("tg_link", status.tg_link)}
-                disabled={!status?.tg_link}
-                className="t-btn t-btn-ghost"
-              >
-                <Copy className="h-4 w-4" />
-                {t.telegram.copyCurrentLink}
-              </button>
-              {copiedKey === "tg_link" && (
-                <span className="text-xs text-accent">{t.telegram.copied}</span>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={() => setStaleDismissed(true)}
-            className="t-btn t-btn-ghost !px-2 !py-1 shrink-0"
-            title={t.telegram.dismiss}
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-      {/* Rotation banner: only while the bridge runs. A stopped bridge
-          must not warn about a rotation the user cannot act on yet, and
-          the red stale banner takes priority when both flags are live. */}
-      {isRunning &&
-        !(status?.stale_secret_detected ?? false) &&
-        (status?.secret_rotated ?? false) &&
-        !rotationDismissed && (
-          <div className="flex items-start gap-3 rounded-card border border-warnline bg-warnwash p-4 text-xs text-ink2 leading-relaxed">
-            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            <div className="space-y-2 flex-1 min-w-0">
-              <p>
-                <span className="font-semibold">{t.telegram.rotatedTitle}. </span>
-                {t.telegram.rotatedBody}
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => status?.tg_link && handleCopy("tg_link", status.tg_link)}
-                  disabled={!status?.tg_link}
-                  className="t-btn t-btn-ghost"
-                >
-                  <Copy className="h-4 w-4" />
-                  {t.telegram.copyCurrentLink}
-                </button>
-                {copiedKey === "tg_link" && (
-                  <span className="text-xs text-accent">{t.telegram.copied}</span>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={() => setRotationDismissed(true)}
-              className="t-btn t-btn-ghost !px-2 !py-1 shrink-0"
-              title={t.telegram.dismiss}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
+      {bridgeBanners}
 
       {/* Connection parameters */}
         <div className="t-card p-6 space-y-4 hover-lift stagger-item"

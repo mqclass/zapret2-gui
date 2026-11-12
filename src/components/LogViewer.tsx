@@ -22,6 +22,21 @@ interface LogViewerProps {
   fullHeight?: boolean;
 }
 
+/** Log timestamp (epoch seconds) as `HH:MM:SS`. Shared by the viewer,
+ * the clipboard formatter, and the simple-view digest. */
+export const formatLogTime = (epochSeconds: number) =>
+  new Date(epochSeconds * 1000).toTimeString().split(" ")[0];
+
+/** One log line as plain text: `[HH:MM:SS] [LEVEL] message`. */
+const formatLogLine = (log: LogEntry) =>
+  `[${formatLogTime(log.timestamp)}] [${log.level.toUpperCase()}] ${log.message}`;
+
+/** The whole log as clipboard text. Shared by the full viewer and the
+ * simple-view digest ("Скопировать диагностику"), so both copy the
+ * same format. */
+export const formatLogsForClipboard = (logs: LogEntry[]) =>
+  logs.map(formatLogLine).join("\n");
+
 export const LogViewer: React.FC<LogViewerProps> = React.memo(
   ({ logs, onClearLogs, onRefreshLogs, isRefreshing = false, fullHeight = false }) => {
     const { t } = useI18n();
@@ -65,11 +80,6 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
       }
     }, [displayLogs.length, autoScroll]);
 
-    const formatTimestamp = (epoch: number) => {
-      const d = new Date(epoch * 1000);
-      return d.toTimeString().split(" ")[0];
-    };
-
     const getLevelStyle = (level: string) => {
       switch (level) {
         case "stderr":
@@ -103,10 +113,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
 
     const handleCopyLogs = async () => {
       try {
-        const text = logs
-          .map((l) => `[${formatTimestamp(l.timestamp)}] [${l.level.toUpperCase()}] ${l.message}`)
-          .join("\n");
-        await navigator.clipboard.writeText(text);
+        await navigator.clipboard.writeText(formatLogsForClipboard(logs));
         setCopied(true);
         if (copiedTimerRef.current) {
           clearTimeout(copiedTimerRef.current);
@@ -267,7 +274,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(
                 className="flex items-start gap-2.5 py-1 hover:bg-raise rounded-chip px-1.5 transition-colors"
               >
                 <span className="text-ink5 shrink-0 select-none font-mono">
-                  {formatTimestamp(log.timestamp)}
+                  {formatLogTime(log.timestamp)}
                 </span>
                 <span
                   className={`rounded-chip px-1.5 py-0.5 text-[9px] uppercase font-bold shrink-0 ${getLevelStyle(

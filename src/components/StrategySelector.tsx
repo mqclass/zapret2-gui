@@ -16,14 +16,12 @@ import {
   Layers,
   Cpu,
   Wrench,
-  Youtube,
-  MessageCircle,
-  Globe2,
-  Settings2,
 } from "lucide-react";
 import { useI18n } from "../i18n";
 import { CustomProfileModal } from "./CustomProfileModal";
+import { CustomConfigGateModal } from "./CustomConfigGateModal";
 import { ConfigGuideModal } from "./ConfigGuideModal";
+import { GoalPicker } from "./GoalPicker";
 
 interface StrategySelectorProps {
   strategies: LuaStrategy[];
@@ -36,6 +34,20 @@ interface StrategySelectorProps {
   onSaveCustomProfile: (strategy: LuaStrategy) => Promise<void>;
   onDeleteCustomProfile: (id: string) => Promise<void>;
   disabled?: boolean;
+  /** Simple variant only: jump to the full list (expert mode). */
+  onShowAllStrategies?: () => void;
+  /** Simple variant only: switch the shell to expert mode (the
+      «Свой конфиг» gate's "go to Expert" button). */
+  onShowExpert?: () => void;
+  /**
+   * Redesign stage 3: "full" is the old card grid with category tabs
+   * and technical details; "simple" is a compact grouped list in
+   * plain words — name + active mark. (The full description used to
+   * sit in the simple row too, but in the two-column grid it
+   * truncated to useless stubs — it lives in the expert cards and
+   * in the row's hover tooltip instead.)
+   */
+  variant?: "full" | "simple";
 }
 
 type TabType = "all" | "flowseal" | "zapret2" | "custom";
@@ -52,12 +64,17 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
     onSaveCustomProfile,
     onDeleteCustomProfile,
     disabled = false,
+    variant = "full",
+    onShowAllStrategies,
+    onShowExpert,
   }) => {
     const { t } = useI18n();
+    const isSimple = variant === "simple";
 
     const [activeTab, setActiveTab] = useState<TabType>("flowseal");
     const [isGuideOpen, setIsGuideOpen] = useState(false);
     const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
+    const [isCustomGateOpen, setIsCustomGateOpen] = useState(false);
     const [editingStrategy, setEditingStrategy] = useState<LuaStrategy | null>(null);
 
     const getFriendlyDescription = (strat: LuaStrategy) => {
@@ -78,7 +95,14 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
       return true;
     });
 
+    // Creating a custom profile is an expert action: in the simple
+    // view both entry points (the wizard's «Свой конфиг» goal and the
+    // header's "add" button) show the gate instead of the expert modal.
     const handleCreateCustom = () => {
+      if (isSimple) {
+        setIsCustomGateOpen(true);
+        return;
+      }
       setEditingStrategy(null);
       setIsCustomModalOpen(true);
     };
@@ -96,95 +120,204 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
       }
     };
 
+    // Simple variant: compact grouped rows, one line per strategy.
+    // Families in display order: Flowseal, zapret2, kinlay0 set, custom.
+    // Imported kinlay0 strategies carry "kinlay0-" ids and live in the
+    // zapret2 category on the backend — they get their own group here.
+    const simpleGroups: { label: string; items: LuaStrategy[] }[] = [
+      {
+        label: t.presetsTab.familyFlowseal,
+        items: strategies.filter((s) => s.category === "flowseal"),
+      },
+      {
+        label: t.presetsTab.familyZapret2,
+        items: strategies.filter(
+          (s) => s.category === "zapret2" && !s.id.startsWith("kinlay0-")
+        ),
+      },
+      {
+        label: t.presetsTab.familyKinlay0,
+        items: strategies.filter((s) => s.id.startsWith("kinlay0-")),
+      },
+      {
+        label: t.strategies.tabCustom,
+        items: strategies.filter((s) => s.category === "custom"),
+      },
+    ].filter((g) => g.items.length > 0);
+
+    // The simple view must fit 1050x760 without scrolling, so each
+    // family shows at most three rows here — a hard cap, in every
+    // state. The active and the selected strategy always stay
+    // visible: when they sit past the cap they take the last slots.
+    // (A filter that merely *adds* them past the cap would let a
+    // diverged active/selected pair grow a family to five rows and
+    // push the tab over the viewport.) The hidden remainder is one
+    // click away in expert mode.
+    const SIMPLE_PER_FAMILY = 3;
+    const visibleSimpleGroups = isSimple
+      ? simpleGroups.map((g) => {
+          const shown = g.items.slice(0, SIMPLE_PER_FAMILY);
+          const mustShow = [...new Set([activeStrategyId, selectedStrategyId])].filter(
+            (id): id is string =>
+              id !== null && !shown.some((s) => s.id === id),
+          );
+          mustShow.forEach((id, k) => {
+            const extra = g.items.find((s) => s.id === id);
+            if (extra && k < shown.length) {
+              shown[shown.length - 1 - k] = extra;
+            }
+          });
+          return { ...g, items: shown };
+        })
+      : simpleGroups;
+    const hiddenSimpleCount = isSimple
+      ? simpleGroups.reduce((n, g) => n + g.items.length, 0) -
+        visibleSimpleGroups.reduce((n, g) => n + g.items.length, 0)
+      : 0;
+
+    const renderSimpleRow = (strat: LuaStrategy) => {
+      const isSelected = selectedStrategyId === strat.id;
+      const isActive = supervisorState === "running" && activeStrategyId === strat.id;
+      const isTransitioning =
+        supervisorState === "starting" || supervisorState === "stopping";
+      const isStartingThis =
+        supervisorState === "starting" && selectedStrategyId === strat.id;
+      const isStoppingThis =
+        supervisorState === "stopping" && activeStrategyId === strat.id;
+      const isBypassRunning = supervisorState === "running";
+      const isCustom = strat.category === "custom";
+      return (
+        <div
+          key={strat.id}
+          onClick={() => onSelectStrategy(strat.id)}
+          onDoubleClick={() => {
+            if (isTransitioning) return;
+            if (isActive) {
+              onStopStrategy();
+            } else {
+              onStartStrategy(strat.id);
+            }
+          }}
+          className={`flex items-center gap-2.5 rounded-panel border px-3 py-1 cursor-pointer transition-all ${
+            isActive
+              ? "border-emerald-500/60 bg-okwash shadow-sm"
+              : isSelected
+              ? "border-accent-line bg-accent-wash shadow-sm"
+              : "border-line bg-cardin hover:border-linestrong hover:bg-hovert"
+          } ${isTransitioning ? "opacity-75" : ""}`}
+        >
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              isActive
+                ? "bg-emerald-400 animate-pulse"
+                : isSelected
+                ? "bg-accent"
+                : "bg-ink5"
+            }`}
+          />
+          {/* One line: name (+ active badge) only. The description
+              used to follow after an em dash, but in the two-column
+              grid it truncated to useless stubs ("Альтернативная ст…",
+              "Д…"). Names already carry the meaning (family headers +
+              descriptive names); the full text is in the expert cards
+              and in the hover tooltip below. */}
+          <div
+            className="min-w-0 flex-1 truncate"
+            title={`${strat.name} — ${getFriendlyDescription(strat)}`}
+          >
+            <span className="text-xs font-semibold text-ink">{strat.name}</span>
+          </div>
+          {/* The active badge lives OUTSIDE the truncating name box:
+              inside it, a very long custom-config name pushed the
+              badge past the edge and clipped it. */}
+          {isActive && (
+            <span className="shrink-0 whitespace-nowrap rounded-chip bg-emerald-500/20 border border-emerald-500/50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
+              {t.strategies.cardActive}
+            </span>
+          )}
+          {/* Same recommended mark as the expert cards (flowseal-alt):
+              the one orienting badge in the simple list. Hidden while
+              the strategy is active — the active badge says it all. */}
+          {!isActive && strat.id === "flowseal-alt" && (
+            <span className="shrink-0 whitespace-nowrap rounded-chip bg-accent-wash border border-accent-line px-1.5 py-0.5 text-[9px] font-bold text-accent-soft">
+              {t.strategies.badgeRecommended}
+            </span>
+          )}
+          {/* Simple rows offer delete only: editing a custom profile
+              opens the expert modal, so it stays an expert action. */}
+          {isCustom && (
+            <span className="flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                onClick={(e) => handleDeleteCustom(strat.id, e)}
+                disabled={isTransitioning}
+                className="p-1 rounded-control text-ink4 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                title={t.strategies.deleteCustom}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          )}
+          {isActive ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStopStrategy();
+              }}
+              disabled={isTransitioning}
+              className="shrink-0 rounded-panel bg-rose-500/15 border border-rose-500/35 hover:bg-rose-500/25 text-rose-300 px-2.5 py-0.5 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-50"
+            >
+              {isStoppingThis ? t.controls.stopping : t.strategies.cardStop}
+            </button>
+          ) : isBypassRunning ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartStrategy(strat.id);
+              }}
+              disabled={isTransitioning}
+              className="shrink-0 rounded-panel bg-accent-fill hover:bg-accent text-ink px-2.5 py-0.5 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-50"
+            >
+              {isStartingThis ? t.controls.starting : t.strategies.cardSwitch}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartStrategy(strat.id);
+              }}
+              disabled={isTransitioning}
+              className={`shrink-0 rounded-panel px-2.5 py-0.5 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-50 ${
+                isSelected
+                  ? "bg-accent-fill hover:bg-accent text-ink"
+                  : "bg-raise hover:bg-hovert text-ink2 border border-line"
+              }`}
+            >
+              {isStartingThis ? t.controls.starting : t.strategies.cardStart}
+            </button>
+          )}
+        </div>
+      );
+    };
+
     return (
       <div className="space-y-4">
         {/* Goal picker: plain-language entry point for ordinary users */}
-        <div className="t-card p-5">
-          <div className="mb-3">
-            <h2 className="text-sm font-semibold text-ink">{t.strategies.goalTitle}</h2>
-            <p className="text-xs text-ink4 mt-0.5">{t.strategies.goalSubtitle}</p>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-            {(
-              [
-                {
-                  key: "youtube",
-                  icon: Youtube,
-                  title: t.strategies.goalYoutube,
-                  desc: t.strategies.goalYoutubeDesc,
-                  presetId: "flowseal-alt",
-                  tint: "text-red-400",
-                },
-                {
-                  key: "discord",
-                  icon: MessageCircle,
-                  title: t.strategies.goalDiscord,
-                  desc: t.strategies.goalDiscordDesc,
-                  presetId: "flowseal-fake-tls-auto",
-                  tint: "text-indigo-400",
-                },
-                {
-                  key: "all",
-                  icon: Globe2,
-                  title: t.strategies.goalAll,
-                  desc: t.strategies.goalAllDesc,
-                  presetId: "flowseal-alt11",
-                  tint: "text-emerald-400",
-                },
-                {
-                  key: "custom",
-                  icon: Settings2,
-                  title: t.strategies.goalCustom,
-                  desc: t.strategies.goalCustomDesc,
-                  presetId: null as string | null,
-                  tint: "text-amber-400",
-                },
-              ] as const
-            ).map((g) => {
-              const isCurrent =
-                g.presetId !== null && selectedStrategyId === g.presetId;
-              const presetMissing =
-                g.presetId !== null &&
-                !strategies.some((s) => s.id === g.presetId);
-              return (
-                <button
-                  key={g.key}
-                  type="button"
-                  disabled={disabled || presetMissing}
-                  onClick={() => {
-                    if (g.presetId) {
-                      onSelectStrategy(g.presetId);
-                      onStartStrategy(g.presetId);
-                    } else {
-                      setIsCustomModalOpen(true);
-                    }
-                  }}
-                  className={`group flex flex-col gap-2 rounded-panel border p-3.5 text-left transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
-                    isCurrent
-                      ? "border-accent-line bg-accent-wash shadow-glow"
-                      : "border-line bg-cardin hover:border-linestrong hover:bg-raise"
-                  }`}
-                >
-                  <g.icon className={`h-5 w-5 ${g.tint}`} />
-                  <div>
-                    <div className="text-xs font-semibold text-ink flex items-center gap-1.5">
-                      {g.title}
-                      {isCurrent && (
-                        <span className="t-badge t-badge-accent">
-                          <Check className="h-3 w-3" />
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-ink4 mt-0.5 leading-snug">{g.desc}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      <div className="t-card p-4">
+        <GoalPicker
+          strategies={strategies}
+          selectedStrategyId={selectedStrategyId}
+          disabled={disabled}
+          onSelectStrategy={onSelectStrategy}
+          onStartStrategy={onStartStrategy}
+          onCustomGoal={handleCreateCustom}
+          compact={isSimple}
+        />
+      <div className="t-card p-3">
         {/* Header with Title and Modals Triggers */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 mb-2">
           <div className="flex items-center gap-2">
             <Sliders className="h-4 w-4 text-accent" />
             <h2 className="text-sm font-semibold text-ink">{t.strategies.title}</h2>
@@ -194,14 +327,16 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsGuideOpen(true)}
-              className="flex items-center gap-1.5 rounded-control border border-linestrong bg-raise/80 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-linestrong hover:text-emerald-300 transition-colors cursor-pointer"
-            >
-              <HelpCircle className="h-3.5 w-3.5" />
-              <span>{t.strategies.configGuideBtn}</span>
-            </button>
+            {!isSimple && (
+              <button
+                type="button"
+                onClick={() => setIsGuideOpen(true)}
+                className="flex items-center gap-1.5 rounded-control border border-linestrong bg-raise/80 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-linestrong hover:text-emerald-300 transition-colors cursor-pointer"
+              >
+                <HelpCircle className="h-3.5 w-3.5" />
+                <span>{t.strategies.configGuideBtn}</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -215,6 +350,39 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
           </div>
         </div>
 
+        {isSimple ? (
+          <div className="space-y-3">
+            {/* One orienting line instead of per-strategy descriptions
+                (rejected in stage 3): the auto-pick lives on the main
+                tab, so the hint points there. */}
+            <p className="text-[11px] text-ink4 leading-snug px-1">
+              {t.strategies.simpleHint}
+            </p>
+            {/* No family headers here: "Flowseal" / "zapret2" / "Набор
+                kinlay0" mean nothing to an ordinary user, and the
+                groups only exist to cap the visible rows. */}
+            {visibleSimpleGroups.map((g) => (
+              <div key={g.label}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                  {g.items.map((strat) => renderSimpleRow(strat))}
+                </div>
+              </div>
+            ))}
+            {hiddenSimpleCount > 0 && onShowAllStrategies && (
+              <button
+                type="button"
+                onClick={onShowAllStrategies}
+                className="w-full rounded-panel border border-line bg-raise px-3 py-1.5 text-xs font-medium text-ink3 hover:bg-hovert hover:text-ink transition-colors cursor-pointer"
+              >
+                {t.strategies.showAllSimple.replace(
+                  "{count}",
+                  String(hiddenSimpleCount),
+                )}
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
         {/* Category Tabs */}
         <div className="flex items-center gap-1.5 border-b border-line pb-3 mb-4 overflow-x-auto text-xs">
           <button
@@ -502,6 +670,8 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
             })}
           </div>
         )}
+          </>
+        )}
 
         {/* Modals */}
         <CustomProfileModal
@@ -509,6 +679,15 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
           onClose={() => setIsCustomModalOpen(false)}
           onSave={onSaveCustomProfile}
           editingStrategy={editingStrategy}
+        />
+
+        <CustomConfigGateModal
+          isOpen={isCustomGateOpen}
+          onClose={() => setIsCustomGateOpen(false)}
+          onGoExpert={() => {
+            setIsCustomGateOpen(false);
+            onShowExpert?.();
+          }}
         />
 
         <ConfigGuideModal
