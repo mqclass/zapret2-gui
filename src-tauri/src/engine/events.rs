@@ -15,6 +15,7 @@ use parking_lot::RwLock;
 use tauri::{AppHandle, Emitter};
 
 use super::probes::DiagnosticsReport;
+use super::singbox::TunnelState;
 use super::supervisor::{LogEntry, SupervisorState};
 
 /// Destination for engine UI events. All methods are fire-and-forget and must
@@ -30,6 +31,11 @@ pub trait EventSink: Send + Sync {
     fn emit_logs_cleared(&self);
     /// The Telegram bridge state changed.
     fn emit_tgproxy_state(&self, state: SupervisorState);
+    /// The WARP tunnel state changed (stage 5). Emitted by
+    /// SingBoxManager on every transition; the GUI listens on the
+    /// "tunnel-state" channel, the svc forwards it as
+    /// [`SvcEvent::TunnelState`](crate::svc_ipc::SvcEvent::TunnelState).
+    fn emit_tunnel_state(&self, state: TunnelState);
 }
 
 /// Drops every event. Used before a real sink is installed and in contexts
@@ -42,6 +48,7 @@ impl EventSink for NullSink {
     fn emit_probe_update(&self, _report: &DiagnosticsReport) {}
     fn emit_logs_cleared(&self) {}
     fn emit_tgproxy_state(&self, _state: SupervisorState) {}
+    fn emit_tunnel_state(&self, _state: TunnelState) {}
 }
 
 /// Forwards events into a Tauri frontend via `AppHandle::emit`.
@@ -71,6 +78,9 @@ impl EventSink for TauriSink {
     }
     fn emit_tgproxy_state(&self, state: SupervisorState) {
         let _ = self.handle.emit("tgproxy-state", state);
+    }
+    fn emit_tunnel_state(&self, state: TunnelState) {
+        let _ = self.handle.emit("tunnel-state", state);
     }
 }
 
@@ -107,6 +117,9 @@ impl SinkSlot {
     }
     pub fn emit_tgproxy_state(&self, state: SupervisorState) {
         self.inner.read().emit_tgproxy_state(state);
+    }
+    pub fn emit_tunnel_state(&self, state: TunnelState) {
+        self.inner.read().emit_tunnel_state(state);
     }
 }
 

@@ -278,10 +278,17 @@ pub struct GeneratedSingBoxConfig {
     /// Random Clash API secret (32 hex chars).
     pub clash_api_secret: String,
     /// Random mixed (health-check) inbound port on 127.0.0.1.
+    /// Not read yet: the warmup measures the exit through the Clash
+    /// API, not the mixed inbound. Kept on the struct so the
+    /// manager (and later health checks) can use it without
+    /// re-deriving it from the rendered config.
+    #[allow(dead_code)]
     pub mixed_port: u16,
     /// Random mixed inbound password (24 hex chars).
+    #[allow(dead_code)]
     pub mixed_password: String,
     /// Echo of the input cache path, for the manager.
+    #[allow(dead_code)]
     pub cache_file_path: PathBuf,
 }
 
@@ -320,6 +327,9 @@ pub enum SingBoxConfigError {
 #[derive(Debug, Clone)]
 pub struct SingBoxCheckOutcome {
     pub success: bool,
+    /// Captured for debugging; only `success` and `stderr` drive
+    /// decisions (a rejected config explains itself on stderr).
+    #[allow(dead_code)]
     pub stdout: String,
     pub stderr: String,
 }

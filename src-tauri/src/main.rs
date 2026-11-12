@@ -103,12 +103,13 @@ async fn main() {
             // WARP tunnel sidecar (stage 4): `install_update` fails
             // closed while the tunnel is active, so the installation
             // directory is never renamed out from under a running
-            // sing-box. Caveat: this is the LOCAL manager - when the
-            // GUI is attached to the svc, the tunnel lives in the svc
-            // and this manager is Stopped, so the updater cannot see
-            // it there yet (stage 5/6 follow-up: IPC TunnelGetStatus).
-            // The Telegram bridge runs in-process, so it is not a
-            // sidecar and needs no entry here.
+            // sing-box. This is the LOCAL manager: when the GUI is
+            // attached to the svc, the tunnel lives in the svc and
+            // this manager is Stopped - the updater and
+            // `get_sidecar_statuses` ask the svc over IPC instead
+            // (stage 5: TunnelGetStatus). The Telegram bridge runs
+            // in-process, so it is not a sidecar and needs no entry
+            // here.
             sidecars: vec![singbox_sidecar],
             tgproxy: tgproxy_backend,
             classifier_lock: Arc::new(tokio::sync::Mutex::new(())),
@@ -462,6 +463,9 @@ async fn main() {
             commands::get_tgproxy_status,
             commands::start_tgproxy,
             commands::stop_tgproxy,
+            commands::get_tunnel_status,
+            commands::tunnel_start,
+            commands::tunnel_stop,
             commands::set_tgproxy_config,
             commands::regenerate_tgproxy_secret,
             commands::set_tgproxy_mode,

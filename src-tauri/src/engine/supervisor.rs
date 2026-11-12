@@ -294,6 +294,11 @@ pub struct SupervisorStatus {
     /// restart would change anything.
     #[serde(default)]
     pub split_tunnel_applied_mode: Option<String>,
+    /// WARP tunnel snapshot (stage 5): always present, Stopped when
+    /// the tunnel never ran. The UI reads the tunnel state from
+    /// here (heartbeat snapshot) and from `TunnelState` events.
+    #[serde(default)]
+    pub tunnel: SingBoxStatus,
 }
 
 /// App split outcome of the last launch, kept so get_status() can report
@@ -380,6 +385,14 @@ pub struct Supervisor {
     /// desync needs a restart. Cleared when a new real start
     /// attempt begins and on stop.
     warp_args_applied: Arc<AtomicBool>,
+    /// Whether the running desync engine is winws v1 (Flowseal)
+    /// rather than winws2 (stage 5, stage 4 review O1). The WARP
+    /// args are not applicable under v1 at all (no --wf-raw-filter,
+    /// no Lua recipe), so `start_tunnel` must not restart the
+    /// desync for them - even when the desync launched with the
+    /// switch off and step 3c never made the decision. Set at
+    /// spawn, cleared with the other launch state.
+    desync_is_winws1: Arc<AtomicBool>,
     /// Whether the one-shot WinDivert recovery restart already ran for the
     /// current user-initiated start. Re-armed by user starts only, after the
     /// early-return checks in start_inner; never by the recovery restart
@@ -411,12 +424,17 @@ impl Supervisor {
         let (log_tx, log_rx) = channel::<LogEntry>(2_000);
         let (recovery_tx, recovery_rx) = unbounded_channel::<(u64, Option<String>, Option<Vec<String>>)>();
 
+        // The event slot is created before the tunnel manager: the
+        // manager gets a clone so its state transitions reach the
+        // GUI and the svc pipe clients (stage 5).
+        let sink = SinkSlot::new();
         // WARP tunnel sidecar (stage 3): shares the Job Object, the
         // log channel, and the file logger with the supervisor.
         let singbox = Arc::new(SingBoxManager::new(
             job_object.clone(),
             log_tx.clone(),
             file_logger.clone(),
+            sink.clone(),
         ));
 
         let supervisor = Self {
@@ -435,7 +453,7 @@ impl Supervisor {
             ring_buffer,
             log_tx,
             file_logger: file_logger.clone(),
-            sink: SinkSlot::new(),
+            sink,
             probes_started: Arc::new(AtomicBool::new(false)),
             last_engine_error: Arc::new(RwLock::new(None)),
             app_split_launch: Arc::new(RwLock::new(AppSplitLaunchState::default())),
@@ -444,6 +462,7 @@ impl Supervisor {
             windivert_recovery_done: Arc::new(AtomicBool::new(false)),
             capture_started: Arc::new(AtomicBool::new(false)),
             warp_args_applied: Arc::new(AtomicBool::new(false)),
+            desync_is_winws1: Arc::new(AtomicBool::new(false)),
             last_start_params: Arc::new(RwLock::new((None, None))),
             generation: Arc::new(RwLock::new(0)),
             recovery_tx,
@@ -650,6 +669,7 @@ impl Supervisor {
             app_split_enforced,
             app_split_not_enforced_reason,
             split_tunnel_applied_mode,
+            tunnel: self.singbox.status(),
         }
     }
 
@@ -874,6 +894,10 @@ impl Supervisor {
         // the args flag at step 3c).
         self.capture_started.store(false, Ordering::SeqCst);
         self.warp_args_applied.store(false, Ordering::SeqCst);
+        // Stage 5 (O1): the engine type belongs to the launch, and
+        // this attempt has not spawned yet - a failed start must
+        // not leave a stale "winws1" claim behind.
+        self.desync_is_winws1.store(false, Ordering::SeqCst);
         let is_custom_args = custom_args.is_some();
 
         // A real start attempt (not a no-op early return above) re-arms the
@@ -1389,6 +1413,9 @@ impl Supervisor {
         *self.active_child.lock() = Some(child);
         *self.active_pid.write() = Some(pid);
         *self.active_strategy.write() = Some(active_id);
+        // Stage 5 (O1): record the engine type of this launch so
+        // start_tunnel can skip the pointless restart under v1.
+        self.desync_is_winws1.store(use_winws1, Ordering::SeqCst);
         self.active_custom_args
             .store(is_custom_args, Ordering::SeqCst);
         *self.start_time.write() = Some(Instant::now());
@@ -1516,6 +1543,10 @@ impl Supervisor {
                     *supervisor_clone.app_split_launch.write() =
                         AppSplitLaunchState::default();
                     *supervisor_clone.split_tunnel_launch.write() = None;
+                    // Stage 5 (O1): no engine, no engine type.
+                    supervisor_clone
+                        .desync_is_winws1
+                        .store(false, Ordering::SeqCst);
                 }
 
                 // Capture the generation and params BEFORE the grace poll: a
@@ -1707,6 +1738,8 @@ impl Supervisor {
             // Stage 4: no engine, no capture, no warp args.
             self.capture_started.store(false, Ordering::SeqCst);
             self.warp_args_applied.store(false, Ordering::SeqCst);
+            // Stage 5 (O1): no engine, no engine type.
+            self.desync_is_winws1.store(false, Ordering::SeqCst);
         }
 
         self.emit_state_change(SupervisorState::Stopped);
@@ -1718,6 +1751,17 @@ impl Supervisor {
     // ------------------------------------------------------------------
     // WARP tunnel: the second switch (stage 4)
     // ------------------------------------------------------------------
+
+    /// Whether enabling the tunnel needs a desync restart: the
+    /// running desync launched without the WARP args AND the args
+    /// apply to its engine. Under winws v1 (Flowseal) they do not
+    /// (no --wf-raw-filter, no Lua recipe), so restarting would
+    /// change nothing - the tunnel just starts ProxyOnly and goes
+    /// through WinDivert (the honest stage 4 limitation). Pure, so
+    /// the truth table is unit-tested without a live engine.
+    fn tunnel_needs_desync_restart(warp_args_applied: bool, desync_is_winws1: bool) -> bool {
+        !warp_args_applied && !desync_is_winws1
+    }
 
     /// Start the WARP tunnel: the tunnel side of the two switches
     /// (design section 3). Sets the durable `warp_enabled` switch,
@@ -1750,9 +1794,31 @@ impl Supervisor {
     /// everything - the alternative (a check-then-start race) could
     /// leave a tunnel running after the user stopped the bypass.
     ///
-    /// Not called yet: stage 5 wires it to the IPC tunnel toggle.
-    #[allow(dead_code)]
+    /// Wired to the IPC tunnel toggle (stage 5): the GUI calls it
+    /// through `TunnelStart`, the svc dispatches it here.
+    ///
+    /// A failed start is recorded on the manager (Error state +
+    /// last_error, emitted to the UI sink) before the error is
+    /// returned: the svc `TunnelStart` handler is fire-and-forget,
+    /// so the remote GUI learns about the failure only through the
+    /// tunnel state (stage 5 review m1). `singbox.start()` records
+    /// its own failures the same way; this wrapper covers the early
+    /// returns that fail before the manager is ever started.
     pub async fn start_tunnel(self: Arc<Self>) -> Result<SingBoxStatus, ProcessError> {
+        match self.clone().start_tunnel_attempt().await {
+            Ok(status) => Ok(status),
+            Err(error) => {
+                self.singbox.fail_start(error.to_string());
+                Err(error)
+            }
+        }
+    }
+
+    /// The start itself: switch, idempotency, desync restart when
+    /// needed, capture readiness, then the manager start. Split out
+    /// of `start_tunnel` so the wrapper above can record every
+    /// failure on the manager in one place.
+    async fn start_tunnel_attempt(self: Arc<Self>) -> Result<SingBoxStatus, ProcessError> {
         // The switch is set first: the desync restart below (and the
         // reconcile it spawns) reads it to decide the tunnel must run.
         let _ = crate::platform::settings::update_settings(|s| {
@@ -1812,7 +1878,17 @@ impl Supervisor {
         // applies the args and spawns the reconcile task, which
         // starts the tunnel. The restart is forced: start_locked
         // would otherwise no-op on "same strategy, no custom args".
-        if WARP_ARGS_SUPPORTED && !self.warp_args_applied.load(Ordering::SeqCst) {
+        // No restart under winws v1 (stage 5, stage 4 review O1):
+        // the args are not applicable there at all, so a restart
+        // would change nothing - this also covers the launch that
+        // started with the switch off, where step 3c never made
+        // the decision and warp_args_applied is still false.
+        if WARP_ARGS_SUPPORTED
+            && Self::tunnel_needs_desync_restart(
+                self.warp_args_applied.load(Ordering::SeqCst),
+                self.desync_is_winws1.load(Ordering::SeqCst),
+            )
+        {
             self.log(
                 "info",
                 "desync is running without the WARP launch args: restarting it so the tunnel stays out of the WinDivert capture",
@@ -1844,8 +1920,8 @@ impl Supervisor {
     /// while the tunnel is stopped (the switch is still turned off -
     /// the caller's intent is explicit).
     ///
-    /// Not called yet: stage 5 wires it to the IPC tunnel toggle.
-    #[allow(dead_code)]
+    /// Wired to the IPC tunnel toggle (stage 5): the GUI calls it
+    /// through `TunnelStop`, the svc dispatches it here.
     pub async fn stop_tunnel(&self) -> Result<(), ProcessError> {
         let _ = crate::platform::settings::update_settings(|s| {
             s.warp_enabled = false;
@@ -3389,6 +3465,19 @@ impl Supervisor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tunnel_restart_decision_truth_table() {
+        // Stage 5 (O1): the restart is needed exactly when the
+        // running desync lacks the WARP args AND the args apply to
+        // its engine. Under winws v1 they never apply, so no
+        // restart - including the launch that started with the
+        // switch off, where step 3c never made the decision.
+        assert!(Supervisor::tunnel_needs_desync_restart(false, false));
+        assert!(!Supervisor::tunnel_needs_desync_restart(true, false));
+        assert!(!Supervisor::tunnel_needs_desync_restart(false, true));
+        assert!(!Supervisor::tunnel_needs_desync_restart(true, true));
+    }
 
     #[test]
     fn test_strict_split_tunnel_must_preserve_wf_filters() {

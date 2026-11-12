@@ -68,6 +68,32 @@ export interface SupervisorStatus {
   app_split_not_enforced_reason?: string | null;
   /** Split tunnel mode the running engine was launched with ("full" | "strict" | "game_mode"); null when it does not apply to the active strategy. Absent from older backends. */
   split_tunnel_applied_mode?: string | null;
+  /** WARP tunnel snapshot (stage 5); absent from older backends. */
+  tunnel?: SingBoxStatus;
+}
+
+/** WARP tunnel (sing-box sidecar) state, mirroring the Rust `TunnelState` enum (lowercase serde). */
+export type TunnelState =
+  | "stopped"
+  | "starting"
+  | "running"
+  | "stopping"
+  | "error"
+  | "degraded"
+  | "unregistered";
+
+/** WARP tunnel snapshot (IPC `get_tunnel_status` / `SupervisorStatus.tunnel`). */
+export interface SingBoxStatus {
+  state: TunnelState;
+  pid: number | null;
+  /** Engine version line from `sing-box version`; null until the first start. */
+  engine_version: string | null;
+  /** Random Clash API port on 127.0.0.1; null while stopped. */
+  clash_api_port: number | null;
+  /** Warmup exit delay in ms; null when the exit did not answer. */
+  warmup_delay_ms: number | null;
+  /** Last failure, human-readable; null when healthy. */
+  last_error: string | null;
 }
 
 export interface TgProxyStatus {
@@ -303,6 +329,8 @@ export interface YoutubeCheckResult {
   mapping_node: string | null;
   lane_enabled: boolean;
   smart_hosts_enabled: boolean;
+  /** True when the check ran while the WARP tunnel was up: the measurement went through the tunnel, so no blocks were applied from it. Absent from older backends. */
+  via_tunnel?: boolean;
   applied: boolean;
   blocked_now: number;
   apply_error: string | null;

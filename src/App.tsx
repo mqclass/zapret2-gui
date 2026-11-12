@@ -659,6 +659,27 @@ const AppContent: React.FC = () => {
       }));
     });
 
+    // 5b. Listen for WARP tunnel state transitions (stage 5): merge
+    // the new state into the heartbeat snapshot defensively - the
+    // 2.5 s heartbeat refreshes the full snapshot anyway, so a
+    // missing `tunnel` field (old backend) just stays missing.
+    const unlistenTunnelPromise = listen<string>("tunnel-state", (event) => {
+      setStatus((prev) => ({
+        ...prev,
+        tunnel: {
+          ...(prev.tunnel ?? {
+            state: "stopped",
+            pid: null,
+            engine_version: null,
+            clash_api_port: null,
+            warmup_delay_ms: null,
+            last_error: null,
+          }),
+          state: event.payload as any,
+        },
+      }));
+    });
+
     // 6. Listen for real-time probe diagnostics updates
     const unlistenProbesPromise = listen<DiagnosticsReport>("probe-update", (event) => {
       setDiagnostics(event.payload);
@@ -703,6 +724,7 @@ const AppContent: React.FC = () => {
       clearInterval(conflictsTimer);
       unlistenLogsPromise.then((unlisten) => unlisten());
       unlistenStatePromise.then((unlisten) => unlisten());
+      unlistenTunnelPromise.then((unlisten) => unlisten());
       unlistenProbesPromise.then((unlisten) => unlisten());
       unlistenClearPromise.then((unlisten) => unlisten());
     };

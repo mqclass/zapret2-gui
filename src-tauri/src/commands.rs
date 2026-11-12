@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use tauri::State;
 
 use crate::engine::probes::{DiagnosticsReport, DiagnosticsService};
+use crate::engine::singbox::{SingBoxStatus, TunnelState, SINGBOX_SIDECAR_NAME};
 use crate::engine::supervisor::{LogEntry, SupervisorState, SupervisorStatus};
 use crate::engine::tgproxy::TgProxyStatus;
 use crate::platform::conflicts::{
@@ -150,6 +151,70 @@ pub async fn get_supervisor_status(state: State<'_, AppState>) -> Result<Supervi
     })
 }
 
+/// Attach to the svc when the engine backend needs it (stage 5).
+///
+/// Shared by `start_supervisor` and the tunnel toggle: the tunnel must
+/// live in the same process as the engine, so starting it from a Local
+/// backend while a svc binary sits on disk would strand it in the GUI
+/// process - invisible after a later attach.
+///
+/// `allow_spawn`: when true, a missing svc is spawned (the Start-button
+/// policy). When false, only the fast path is tried - connect to an
+/// already-running svc plus Hello - and the svc is never spawned just
+/// to stop something (`tunnel_stop`: a tunnel can only live in a svc
+/// that is already running).
+async fn attach_svc_if_available(
+    state: &State<'_, AppState>,
+    app: &tauri::AppHandle,
+    allow_spawn: bool,
+) {
+    let backend = state.backend.read().clone();
+    if !crate::svc_client::backend_needs_attach(&backend).await {
+        return;
+    }
+    // If the Telegram bridge runs in-process, stop it BEFORE the svc is
+    // spawned: the svc autostarts its own bridge from the persisted flag
+    // and must find the listen port free, and the local copy must not be
+    // left running unmanaged after the pointer moves to Remote.
+    let tgproxy = state.tgproxy.read().clone();
+    let bridge_was_running = tgproxy.stop_local_for_migration().await;
+    let attached = if allow_spawn {
+        crate::svc_client::ensure_svc_attached(std::time::Duration::from_secs(10)).await
+    } else {
+        // Probe only: connect + Hello, no spawn.
+        match crate::svc_client::SvcClient::connect().await {
+            Ok(client) => {
+                if client.hello().await.is_ok() {
+                    Ok(std::sync::Arc::new(client))
+                } else {
+                    Err("svc hello failed".to_string())
+                }
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    };
+    match attached {
+        Ok(client) => {
+            *state.backend.write() = crate::svc_client::SupervisorBackend::Remote(client.clone());
+            // The Telegram bridge follows the engine into the svc.
+            *state.tgproxy.write() = crate::svc_client::TgproxyBackend::Remote(client);
+            // Re-check the local copy: it may have been (re)started
+            // while the attach was in flight.
+            tgproxy.stop_local_for_migration().await;
+            let app_clone = app.clone();
+            tokio::spawn(async move {
+                crate::svc_client::SvcClient::forward_events(app_clone).await;
+            });
+        }
+        Err(e) => {
+            eprintln!("svc attach failed, falling back to in-process engine: {e}");
+            if bridge_was_running {
+                tgproxy.restart_local().await;
+            }
+        }
+    }
+}
+
 /// Starts `winws2.exe` using the specified strategy and options.
 ///
 /// Prefers the detached `zapret2-svc.exe` service when its binary is present:
@@ -166,39 +231,7 @@ pub async fn start_supervisor(
     // itself (and inside the svc), so tray/autostart callers get the same
     // protection. This command only translates the error for the UI
     // (ADMIN_REQUIRED -> admin modal).
-    let backend = state.backend.read().clone();
-    if crate::svc_client::backend_needs_attach(&backend).await
-    {
-        // If the Telegram bridge runs in-process, stop it BEFORE the svc is
-        // spawned: the svc autostarts its own bridge from the persisted flag
-        // and must find the listen port free, and the local copy must not be
-        // left running unmanaged after the pointer moves to Remote.
-        let tgproxy = state.tgproxy.read().clone();
-        let bridge_was_running = tgproxy.stop_local_for_migration().await;
-        match crate::svc_client::ensure_svc_attached(std::time::Duration::from_secs(10)).await
-        {
-            Ok(client) => {
-                *state.backend.write() =
-                    crate::svc_client::SupervisorBackend::Remote(client.clone());
-                // The Telegram bridge follows the engine into the svc.
-                *state.tgproxy.write() =
-                    crate::svc_client::TgproxyBackend::Remote(client);
-                // Re-check the local copy: it may have been (re)started
-                // while the attach was in flight.
-                tgproxy.stop_local_for_migration().await;
-                let app_clone = app.clone();
-                tokio::spawn(async move {
-                    crate::svc_client::SvcClient::forward_events(app_clone).await;
-                });
-            }
-            Err(e) => {
-                eprintln!("svc attach failed, falling back to in-process engine: {e}");
-                if bridge_was_running {
-                    tgproxy.restart_local().await;
-                }
-            }
-        }
-    }
+    attach_svc_if_available(&state, &app, true).await;
     let backend = state.backend.read().clone();
     backend.start(strategy_id, custom_args).await
 }
@@ -672,6 +705,43 @@ pub async fn test_tgproxy_connection(state: State<'_, AppState>) -> Result<u64, 
 pub async fn set_tgproxy_lan(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
     let tgproxy = state.tgproxy.read().clone();
     tgproxy.set_lan(enabled).await
+}
+
+// ---------------------------------------------------------------------------
+// WARP tunnel (stage 5): the second switch
+// ---------------------------------------------------------------------------
+
+/// Returns the WARP tunnel status snapshot (local or via svc pipe).
+/// No attach: like `get_status`, it reports whatever backend the GUI
+/// currently has - the toggle commands attach before they act.
+#[tauri::command]
+pub async fn get_tunnel_status(state: State<'_, AppState>) -> Result<SingBoxStatus, String> {
+    let backend = state.backend.read().clone();
+    Ok(backend.tunnel_get_status().await)
+}
+
+/// Starts the WARP tunnel (the sing-box sidecar). Attaches to the svc
+/// first when one is available, so the tunnel lives next to the engine
+/// and survives a GUI restart. Idempotent: starting an already-running
+/// tunnel returns its current snapshot.
+#[tauri::command]
+pub async fn tunnel_start(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<SingBoxStatus, String> {
+    attach_svc_if_available(&state, &app, true).await;
+    let backend = state.backend.read().clone();
+    backend.tunnel_start().await
+}
+
+/// Stops the WARP tunnel and turns the `warp_enabled` switch off.
+/// Probes for a running svc (no spawn) so a tunnel owned by a
+/// surviving svc is stopped over IPC instead of a local no-op.
+#[tauri::command]
+pub async fn tunnel_stop(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+    attach_svc_if_available(&state, &app, false).await;
+    let backend = state.backend.read().clone();
+    backend.tunnel_stop().await
 }
 
 /// Migrates the Telegram-bridge backend to follow the supervisor backend:
@@ -1187,10 +1257,27 @@ pub async fn set_youtube_throttle_enabled(
 /// throughput per googlevideo node from this machine, records the
 /// verdicts and (lane + smart hosts on) applies the updated lane.
 /// With the lane off the check is diagnostic only.
+///
+/// Stage 5 (detector guard): a measurement taken while the tunnel
+/// runs goes through it - the probe cannot tell a throttled node
+/// from a dead exit, so no blocks are applied from such a run and
+/// the result is marked `via_tunnel` for the UI. Running, Degraded
+/// and Unregistered all route traffic through the TUN device;
+/// Starting is not counted (the TUN is not up yet when the check
+/// begins) and Error/Stopped mean no tunnel at all. The state is
+/// read once at check start: a tunnel that comes up mid-check is a
+/// known race (see the design's stage 6 notes).
 #[tauri::command]
 pub async fn run_youtube_throttle_check(
+    state: State<'_, AppState>,
 ) -> Result<crate::engine::youtube_probe::YoutubeCheckResult, String> {
-    Ok(crate::engine::youtube_probe::run_youtube_throttle_check().await)
+    let backend = state.backend.read().clone();
+    let tunnel_state = backend.get_status().await.tunnel.state;
+    let via_tunnel = matches!(
+        tunnel_state,
+        TunnelState::Running | TunnelState::Degraded | TunnelState::Unregistered
+    );
+    Ok(crate::engine::youtube_probe::run_youtube_throttle_check(via_tunnel).await)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1269,6 +1356,20 @@ pub async fn install_update(state: State<'_, AppState>) -> Result<(), String> {
     // (local or svc) would rename files out from under it.
     let backend = state.backend.read().clone();
     let engine_state = backend.get_status().await.state;
+    // Stage 5: when attached, the tunnel lives in the svc - the local
+    // sidecar registration reports Stopped and cannot see it, so ask
+    // over IPC before the blocking install. The refusal matches the
+    // local check's SIDECAR_RUNNING format exactly. An IPC failure
+    // fails closed: tunnel_get_status answers Error, which is active.
+    if backend.is_remote() {
+        let tunnel = backend.tunnel_get_status().await;
+        if tunnel.state != TunnelState::Stopped {
+            return Err(format!(
+                "SIDECAR_RUNNING: {} is still active — stop it before installing the update",
+                SINGBOX_SIDECAR_NAME
+            ));
+        }
+    }
     let sidecars = state.sidecars.clone();
     tokio::task::spawn_blocking(move || {
         crate::platform::updater::install_update(engine_state, &sidecars)
@@ -1293,12 +1394,28 @@ pub async fn cancel_update_download() -> Result<(), String> {
 pub async fn get_sidecar_statuses(
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::platform::updater::SidecarStatusView>, String> {
+    let backend = state.backend.read().clone();
+    // Stage 5: when attached, the tunnel lives in the svc - the local
+    // sidecar registration reports Stopped, so ask over IPC and
+    // override the sing-box entry. An IPC failure fails closed:
+    // tunnel_get_status answers Error, which counts as active.
+    let tunnel_active_remote = if backend.is_remote() {
+        Some(backend.tunnel_get_status().await.state != TunnelState::Stopped)
+    } else {
+        None
+    };
     Ok(state
         .sidecars
         .iter()
-        .map(|s| crate::platform::updater::SidecarStatusView {
-            name: s.name().to_string(),
-            active: s.is_active(),
+        .map(|s| {
+            let active = match tunnel_active_remote {
+                Some(remote) if s.name() == SINGBOX_SIDECAR_NAME => remote,
+                _ => s.is_active(),
+            };
+            crate::platform::updater::SidecarStatusView {
+                name: s.name().to_string(),
+                active,
+            }
         })
         .collect())
 }

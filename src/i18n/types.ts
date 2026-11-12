@@ -520,6 +520,29 @@ export interface Translations {
     applyErrorLabel: string;
     dohNote: string;
     mappingLabel: string;
+    viaTunnelNote: string;
+  };
+  warp: {
+    title: string;
+    hint: string;
+    experimentalBadge: string;
+    statusOff: string;
+    statusConnecting: string;
+    statusWorking: string;
+    statusDegraded: string;
+    statusUnregistered: string;
+    statusError: string;
+    statusStopping: string;
+    statusUnavailable: string;
+    enableBtn: string;
+    disableBtn: string;
+    enabling: string;
+    disabling: string;
+    engineVersionLabel: string;
+    clashPortLabel: string;
+    delayLabel: string;
+    detailsLink: string;
+    dashboardIndicator: string;
   };
   speedtest: {
     title: string;

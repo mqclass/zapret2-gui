@@ -198,32 +198,62 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
       void refreshAppSplitSummary();
     }, [refreshAppSplitSummary]);
 
+    // Stage 5: compact WARP indicator next to the engine pill - the
+    // tunnel is a second switch, so its state deserves a glanceable
+    // marker on the dashboard. No second toggle here: the switch
+    // lives on the DNS tab (WarpCard).
+    const tunnelState = status.tunnel?.state;
+    const tunnelActive =
+      tunnelState === "running" ||
+      tunnelState === "degraded" ||
+      tunnelState === "unregistered" ||
+      tunnelState === "starting";
+
     const statusPill = (
-      <span
-        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase ${
-          isRunning
-            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.22)]"
-            : isTransitioning
-            ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
-            : "border-linestrong bg-raise/60 text-ink4"
-        }`}
-      >
+      <span className="inline-flex items-center gap-2 flex-wrap">
         <span
-          className={`h-2 w-2 rounded-full ${
+          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase ${
             isRunning
-              ? "bg-emerald-400"
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.22)]"
               : isTransitioning
-              ? "bg-amber-400 animate-pulse"
-              : "bg-ink5"
+              ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+              : "border-linestrong bg-raise/60 text-ink4"
           }`}
-        />
-        {isRunning
-          ? t.dashboard.active
-          : isStarting
-          ? t.dashboard.connecting
-          : isStopping
-          ? t.dashboard.stopping
-          : t.dashboard.stopped}
+        >
+          <span
+            className={`h-2 w-2 rounded-full ${
+              isRunning
+                ? "bg-emerald-400"
+                : isTransitioning
+                ? "bg-amber-400 animate-pulse"
+                : "bg-ink5"
+            }`}
+          />
+          {isRunning
+            ? t.dashboard.active
+            : isStarting
+            ? t.dashboard.connecting
+            : isStopping
+            ? t.dashboard.stopping
+            : t.dashboard.stopped}
+        </span>
+        {tunnelActive && (
+          <span
+            title={t.warp.dashboardIndicator}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-wide uppercase ${
+              tunnelState === "running"
+                ? "border-sky-500/30 bg-sky-500/10 text-sky-400"
+                : "border-amber-500/30 bg-amber-500/10 text-amber-400"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                tunnelState === "running" ? "bg-sky-400" : "bg-amber-400 animate-pulse"
+              }`}
+            />
+            WARP
+          </span>
+        )}
       </span>
     );
 

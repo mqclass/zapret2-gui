@@ -36,12 +36,14 @@
 //! Boundaries: no IPC, no UI - the manager is internal. The
 //! supervisor holds it as a field, starts it (stage 4: order,
 //! `--wf-raw-filter`, the api.cloudflareclient.com recipe) and stops
-//! it on engine stop; stage 5 exposes it over IPC. The manager is
-//! registered in `AppState::sidecars` (stage 4, `main.rs`), so
-//! `install_update` refuses while the tunnel is active - in the GUI
-//! process only; when the GUI is attached to the svc, the tunnel
-//! lives in the svc and the local manager is Stopped, so the updater
-//! cannot see it there yet (stage 5/6 follow-up: IPC TunnelGetStatus).
+//! it on engine stop; stage 5 exposes it over IPC (TunnelStart /
+//! TunnelStop / TunnelGetStatus, `TunnelState` events, the `tunnel`
+//! field of `SupervisorStatus`). The manager is registered in
+//! `AppState::sidecars` (stage 4, `main.rs`), so `install_update`
+//! refuses while the tunnel is active; when the GUI is attached to
+//! the svc, the updater consults the svc's tunnel over IPC instead
+//! (stage 5: the local manager is Stopped there, the tunnel lives
+//! in the svc).
 
 use std::collections::{HashSet, VecDeque};
 use std::net::IpAddr;
@@ -57,6 +59,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::Sender;
 
 use crate::engine::clash_api::{ClashApiClient, ClashApiError};
+use crate::engine::events::SinkSlot;
 use crate::engine::logger::FileLogger;
 use crate::engine::managed::ManagedSidecar;
 use crate::engine::singbox_config::{
@@ -147,6 +150,22 @@ pub struct SingBoxStatus {
     pub clash_api_port: Option<u16>,
     pub warmup_delay_ms: Option<u64>,
     pub last_error: Option<String>,
+}
+
+impl Default for SingBoxStatus {
+    /// The stopped snapshot: what a status field defaults to when
+    /// no tunnel ever ran (and what `#[serde(default)]` on
+    /// `SupervisorStatus.tunnel` produces for older snapshots).
+    fn default() -> Self {
+        Self {
+            state: TunnelState::Stopped,
+            pid: None,
+            engine_version: None,
+            clash_api_port: None,
+            warmup_delay_ms: None,
+            last_error: None,
+        }
+    }
 }
 
 /// Everything `start()` needs that the manager cannot read itself.
@@ -268,6 +287,12 @@ fn linux_ipv6_available() -> bool {
 
 /// Does `/proc/net/if_inet6` list any interface? An empty file means
 /// no interface has an IPv6 address.
+///
+/// Non-Windows-only in production (the `/proc` reader is
+/// `#[cfg(not(windows))]`); kept in test builds so the truth table
+/// stays covered on Windows - the mirror of
+/// `disabled_components_disables_ipv6` (stage 5 review m2).
+#[cfg(any(not(windows), test))]
 fn if_inet6_has_entries(content: &str) -> bool {
     content.lines().any(|line| !line.trim().is_empty())
 }
@@ -431,7 +456,10 @@ fn ipv6_disabled_by_registry() -> bool {
 }
 
 /// Bit 0x10 of `DisabledComponents` disables IPv6 on all non-tunnel
-/// adapters; any other bit combination leaves it on.
+/// adapters; any other bit combination leaves it on. Windows-only in
+/// production (the registry reader is `#[cfg(windows)]`); kept in
+/// test builds so the truth table stays covered on Linux.
+#[cfg(any(windows, test))]
 fn disabled_components_disables_ipv6(value: u32) -> bool {
     value & 0x10 != 0
 }
@@ -638,6 +666,12 @@ pub struct SingBoxManager {
     job_object: Arc<JobObject>,
     log_tx: Sender<LogEntry>,
     file_logger: Arc<FileLogger>,
+    /// UI event sink (stage 5): a clone of the supervisor's slot,
+    /// so tunnel state transitions reach the GUI (Tauri sink) and
+    /// the svc pipe clients (PipeSink) exactly like the desync
+    /// engine's own events. The sink is swappable at runtime; the
+    /// manager reads the current one on every emit.
+    sink: SinkSlot,
     lifecycle: Arc<tokio::sync::Mutex<()>>,
     generation: Arc<RwLock<u64>>,
     state: Arc<RwLock<TunnelState>>,
@@ -658,15 +692,19 @@ impl SingBoxManager {
     /// Build a manager. Cheap and infallible; nothing is started
     /// here. `log_tx` feeds the shared in-memory log, `file_logger`
     /// the shared log file - both get `[SINGBOX]`-prefixed lines.
+    /// `sink` is the supervisor's event slot (stage 5): every state
+    /// transition is emitted through it.
     pub fn new(
         job_object: Arc<JobObject>,
         log_tx: Sender<LogEntry>,
         file_logger: Arc<FileLogger>,
+        sink: SinkSlot,
     ) -> Self {
         Self {
             job_object,
             log_tx,
             file_logger,
+            sink,
             lifecycle: Arc::new(tokio::sync::Mutex::new(())),
             generation: Arc::new(RwLock::new(0)),
             state: Arc::new(RwLock::new(TunnelState::Stopped)),
@@ -678,6 +716,16 @@ impl SingBoxManager {
             last_error: Arc::new(RwLock::new(None)),
             tun_scope: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Write a new tunnel state and emit it to the UI sink (stage
+    /// 5). Every state transition goes through here (except
+    /// `on_engine_gone`, which checks-then-sets under one guard and
+    /// emits inline) so the GUI and the svc pipe clients always see
+    /// the same lifecycle the manager sees.
+    fn set_state(&self, state: TunnelState) {
+        *self.state.write() = state;
+        self.sink.emit_tunnel_state(state);
     }
 
     /// Current tunnel status (never contains the Clash secret).
@@ -729,7 +777,7 @@ impl SingBoxManager {
         // while the state stayed Running/Degraded forever.
         *self.generation.write() += 1;
 
-        *self.state.write() = TunnelState::Starting;
+        self.set_state(TunnelState::Starting);
         self.set_last_error(None);
         *self.warmup_delay_ms.write() = None;
         *self.engine_version.write() = None;
@@ -749,10 +797,31 @@ impl SingBoxManager {
                 *self.clash_api_port.write() = None;
                 *self.tun_scope.write() = None;
                 self.set_last_error(Some(error.to_string()));
-                *self.state.write() = TunnelState::Error;
+                self.set_state(TunnelState::Error);
                 self.log("error", &format!("failed to start sing-box: {error}"));
                 Err(error)
             }
+        }
+    }
+
+    /// Record a failed tunnel start from outside `start()`: the
+    /// error text plus the Error state, emitted to the UI sink.
+    /// `start()` does this itself on its own failures; the
+    /// supervisor calls it for failures that happen before the
+    /// manager is ever started (no binary, desync restart failed,
+    /// capture never became ready), so the remote GUI learns about
+    /// them through the tunnel state - the svc `TunnelStart`
+    /// handler is fire-and-forget and the `Result` never reaches it
+    /// (stage 5 review m1). The text is updated even when already
+    /// in Error (a retry that fails early must not leave a stale
+    /// message); the state transition - and its event and log line -
+    /// fires only once, so a failure already recorded by `start()`
+    /// does not double-emit.
+    pub fn fail_start(&self, error: String) {
+        self.set_last_error(Some(error.clone()));
+        if self.state() != TunnelState::Error {
+            self.log("error", &format!("failed to start tunnel: {error}"));
+            self.set_state(TunnelState::Error);
         }
     }
 
@@ -1002,12 +1071,12 @@ impl SingBoxManager {
         {
             Ok(delay) => {
                 *self.warmup_delay_ms.write() = Some(delay);
-                *self.state.write() = TunnelState::Running;
+                self.set_state(TunnelState::Running);
                 self.log("info", &format!("warp exit warm: {delay} ms"));
                 Ok(())
             }
             Err(ClashApiError::ExitFailed(message)) if is_tunnel_not_initialized(&message) => {
-                *self.state.write() = TunnelState::Unregistered;
+                self.set_state(TunnelState::Unregistered);
                 self.log(
                     "warn",
                     "engine is up but warp is not registered yet (tunnel not initialized)",
@@ -1015,7 +1084,7 @@ impl SingBoxManager {
                 Ok(())
             }
             Err(error) => {
-                *self.state.write() = TunnelState::Degraded;
+                self.set_state(TunnelState::Degraded);
                 self.log(
                     "warn",
                     &format!("warp exit did not answer during warmup: {error}"),
@@ -1094,6 +1163,9 @@ impl SingBoxManager {
             *state = TunnelState::Error;
             drop(state);
             self.set_last_error(Some(reason.to_string()));
+            // The check-then-set above holds the guard, so this
+            // transition cannot go through set_state - emit inline.
+            self.sink.emit_tunnel_state(TunnelState::Error);
             self.log("error", reason);
         }
     }
@@ -1114,7 +1186,7 @@ impl SingBoxManager {
         ) {
             return Ok(());
         }
-        *self.state.write() = TunnelState::Stopping;
+        self.set_state(TunnelState::Stopping);
         self.log("info", "stopping sing-box...");
 
         self.kill_child().await;
@@ -1123,7 +1195,7 @@ impl SingBoxManager {
         *self.clash_api_port.write() = None;
         *self.warmup_delay_ms.write() = None;
         *self.tun_scope.write() = None;
-        *self.state.write() = TunnelState::Stopped;
+        self.set_state(TunnelState::Stopped);
         self.file_logger.flush();
         self.log("info", "sing-box stopped");
         Ok(())
@@ -1223,11 +1295,21 @@ impl SingBoxManager {
 }
 
 // Registered in `AppState::sidecars` (stage 4, `main.rs`), so
-// `install_update` refuses while the tunnel is active - in the GUI
-// process only (see the module docs for the svc caveat).
+// `install_update` refuses while the tunnel is active. This is the
+// local manager: when the GUI is attached to the svc, the tunnel
+// lives in the svc and the updater asks it over IPC instead (stage
+// 5: `TunnelGetStatus`, see `commands.rs`).
+/// The sidecar name `get_sidecar_statuses` matches on to override
+/// the entry with the IPC status when attached to the svc (stage 5).
+/// GUI-only: read by `commands.rs`, never by the svc binary (its
+/// `name()` is never called there), hence the allow - without it
+/// the svc build warns (stage 5 review m2).
+#[allow(dead_code)]
+pub const SINGBOX_SIDECAR_NAME: &str = "sing-box (WARP tunnel)";
+
 impl ManagedSidecar for SingBoxManager {
     fn name(&self) -> &'static str {
-        "sing-box (WARP tunnel)"
+        SINGBOX_SIDECAR_NAME
     }
 
     fn is_active(&self) -> bool {
@@ -1244,7 +1326,7 @@ mod tests {
         let job = JobObject::create().expect("test job object");
         let (log_tx, _rx) = tokio::sync::mpsc::channel(100);
         let file_logger = Arc::new(FileLogger::new());
-        SingBoxManager::new(Arc::new(job), log_tx, file_logger)
+        SingBoxManager::new(Arc::new(job), log_tx, file_logger, SinkSlot::new())
     }
 
     fn test_options(binary: PathBuf, home_dir: PathBuf) -> SingBoxStartOptions {

@@ -19,7 +19,10 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::Mutex;
 
-use crate::engine::{LogEntry, Supervisor, SupervisorStatus, TgProxyManager, TgProxyStatus};
+use crate::engine::{
+    LogEntry, SingBoxStatus, Supervisor, SupervisorStatus, TgProxyManager, TgProxyStatus,
+    TunnelState,
+};
 use crate::svc_ipc::{ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION};
 #[cfg(windows)]
 use crate::svc_ipc::SVC_PIPE_NAME;
@@ -332,6 +335,38 @@ impl SvcClient {
         Self::into_response(msg).map(|_| ())
     }
 
+    // -- WARP tunnel (stage 5) --------------------------------------
+
+    pub async fn tunnel_start(&self) -> Result<(), String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TunnelStart)
+            .await
+            .map_err(|e| e.to_string())?;
+        Self::into_response(msg).map(|_| ())
+    }
+
+    pub async fn tunnel_stop(&self) -> Result<(), String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TunnelStop)
+            .await
+            .map_err(|e| e.to_string())?;
+        Self::into_response(msg).map(|_| ())
+    }
+
+    pub async fn tunnel_get_status(&self) -> Result<SingBoxStatus, String> {
+        let msg = self
+            .roundtrip(&ClientMessage::TunnelGetStatus)
+            .await
+            .map_err(|e| e.to_string())?;
+        match Self::into_response(msg)? {
+            ServerMessage::Response {
+                tunnel_status: Some(s),
+                ..
+            } => Ok(s),
+            _ => Err("svc returned no tunnel status".to_string()),
+        }
+    }
+
     /// Asks the svc to stop its engine and terminate. Used by the
     /// updater/installer so the svc executable can be replaced.
     pub async fn shutdown(&self) -> Result<(), String> {
@@ -400,6 +435,9 @@ impl SvcClient {
                 SvcEvent::TgproxyState { state } => {
                     let _ = app.emit("tgproxy-state", state);
                 }
+                SvcEvent::TunnelState { state } => {
+                    let _ = app.emit("tunnel-state", state);
+                }
             }
         }
     }
@@ -428,25 +466,75 @@ impl SupervisorBackend {
                 Ok(s) => s,
                 // Transient pipe failure: report last known state instead of
                 // fabricating "Error" (which prompts users to hammer start).
-                Err(_) => {
-                    c.last_known_status().await.unwrap_or(SupervisorStatus {
-                        state: crate::engine::SupervisorState::Error,
-                        pid: None,
-                        active_strategy: None,
-                        active_custom_args: false,
-                        active_transport: None,
-                        binary_path: None,
-                        uptime_secs: 0,
-                        total_logs_buffered: 0,
-                        last_engine_error: None,
-                        app_split_configured_mode: None,
-                        app_split_applied_mode: None,
-                        app_split_enforced: false,
-                        app_split_not_enforced_reason: None,
-                        split_tunnel_applied_mode: None,
-                    })
-                }
+                Err(_) => c.last_known_status().await.unwrap_or(SupervisorStatus {
+                    state: crate::engine::SupervisorState::Error,
+                    pid: None,
+                    active_strategy: None,
+                    active_custom_args: false,
+                    active_transport: None,
+                    binary_path: None,
+                    uptime_secs: 0,
+                    total_logs_buffered: 0,
+                    last_engine_error: None,
+                    app_split_configured_mode: None,
+                    app_split_applied_mode: None,
+                    app_split_enforced: false,
+                    app_split_not_enforced_reason: None,
+                    split_tunnel_applied_mode: None,
+                    tunnel: Default::default(),
+                }),
             },
+        }
+    }
+
+    // -- WARP tunnel (stage 5) --------------------------------------
+
+    /// Start the WARP tunnel. Local: the in-process supervisor;
+    /// Remote: the svc owns the tunnel. Returns the snapshot after
+    /// the start. The svc answers TunnelStart immediately
+    /// (fire-and-forget: a start can outlast the 30 s pipe
+    /// roundtrip), so the Remote snapshot is the in-progress state
+    /// - the caller tracks completion through TunnelState events
+    /// and the status poll. If the read-back fails, a synthetic
+    /// Starting snapshot is returned instead of an error: the start
+    /// was accepted, and the events and poll correct it within
+    /// seconds (stage 5 review m4).
+    pub async fn tunnel_start(&self) -> Result<SingBoxStatus, String> {
+        match self {
+            Self::Local(s) => s.clone().start_tunnel().await.map_err(|e| e.to_string()),
+            Self::Remote(c) => {
+                c.tunnel_start().await?;
+                Ok(c.tunnel_get_status().await.unwrap_or(SingBoxStatus {
+                    state: TunnelState::Starting,
+                    ..Default::default()
+                }))
+            }
+        }
+    }
+
+    /// Stop the WARP tunnel and turn the `warp_enabled` switch off.
+    pub async fn tunnel_stop(&self) -> Result<(), String> {
+        match self {
+            Self::Local(s) => s.stop_tunnel().await.map_err(|e| e.to_string()),
+            Self::Remote(c) => c.tunnel_stop().await,
+        }
+    }
+
+    /// Tunnel snapshot. Local: the in-process manager; Remote: the
+    /// svc owns the tunnel. On an IPC error, an Error snapshot
+    /// (never a hard failure): the callers are the status UI and
+    /// the updater guard, and both must fail closed, not crash.
+    pub async fn tunnel_get_status(&self) -> SingBoxStatus {
+        match self {
+            Self::Local(s) => s.singbox().status(),
+            Self::Remote(c) => c.tunnel_get_status().await.unwrap_or(SingBoxStatus {
+                state: TunnelState::Error,
+                pid: None,
+                engine_version: None,
+                clash_api_port: None,
+                warmup_delay_ms: None,
+                last_error: Some("svc unreachable".to_string()),
+            }),
         }
     }
 

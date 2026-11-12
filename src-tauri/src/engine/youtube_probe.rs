@@ -222,6 +222,12 @@ pub struct YoutubeCheckResult {
     pub lane_enabled: bool,
     /// Whether smart hosts is on (the lane lives in its section).
     pub smart_hosts_enabled: bool,
+    /// Whether this check ran while the WARP tunnel was up (stage 5):
+    /// the measurement went through the tunnel, so no blocks were
+    /// applied from it. The UI shows a note instead of an apply
+    /// result. Defaults to false for old serialized results.
+    #[serde(default)]
+    pub via_tunnel: bool,
     /// Whether this check re-applied the hosts section.
     pub applied: bool,
     /// Lane entries in effect after the check (or last known count).
@@ -340,13 +346,23 @@ pub fn unique_node_urls(urls: &[String]) -> Vec<(String, String)> {
 /// fully unreachable — Unreachable still changes nothing: blocking
 /// everything would leave the player with nowhere to go. Unknown
 /// never changes anything.
+///
+/// Stage 5 (detector guard): when `via_tunnel` is true the whole
+/// measurement went through the WARP tunnel, so the probe cannot tell
+/// a throttled node from a dead exit — the function is a no-op and
+/// both lists stay byte-identical (not even the TTL prune runs: a
+/// tunneled measurement changes nothing, period).
 pub fn merge_measurements(
     throttled: &mut Vec<crate::platform::settings::YoutubeNodeRecord>,
     fast: &mut Vec<crate::platform::settings::YoutubeNodeRecord>,
     measured: &[(String, NodeVerdict)],
     now: u64,
+    via_tunnel: bool,
 ) {
     use crate::platform::settings::YoutubeNodeRecord;
+    if via_tunnel {
+        return;
+    }
     let ttl = crate::platform::smart_hosts::YOUTUBE_NODE_TTL_SECS;
     throttled.retain(|r| now.saturating_sub(r.measured_at) < ttl);
     fast.retain(|r| now.saturating_sub(r.measured_at) < ttl);
@@ -707,7 +723,11 @@ async fn run_substitution_tests(
 /// outcome it also runs the substitution phase (see
 /// [`run_substitution_tests`]): dead nodes re-measured against live
 /// IPs, diagnostic only, inside the same overall deadline.
-pub async fn run_youtube_throttle_check() -> YoutubeCheckResult {
+///
+/// `via_tunnel` (stage 5): the measurement went through the WARP
+/// tunnel, so nothing is recorded and hosts is never re-applied -
+/// the check is diagnostic only and the result is marked for the UI.
+pub async fn run_youtube_throttle_check(via_tunnel: bool) -> YoutubeCheckResult {
     let settings = crate::platform::settings::load_settings();
     let lane_enabled = settings.youtube_throttle_enabled;
     let smart_hosts_enabled = settings.smart_hosts_enabled;
@@ -718,6 +738,7 @@ pub async fn run_youtube_throttle_check() -> YoutubeCheckResult {
         mapping_node: None,
         lane_enabled,
         smart_hosts_enabled,
+        via_tunnel,
         applied: false,
         blocked_now: settings.youtube_throttle_blocked_count,
         apply_error: None,
@@ -778,12 +799,17 @@ pub async fn run_youtube_throttle_check() -> YoutubeCheckResult {
             &mut s.youtube_fast_nodes,
             &measured,
             now,
+            via_tunnel,
         );
     }) {
         eprintln!("youtube-probe: failed to persist measurements: {}", e);
     }
 
-    if lane_enabled && smart_hosts_enabled {
+    // Stage 5: a tunneled measurement never re-applies hosts, even
+    // with the lane on - merge_measurements above was a no-op, so a
+    // refresh here would only re-apply the old state and claim
+    // `applied`, which the UI would read as "this check blocked".
+    if lane_enabled && smart_hosts_enabled && !via_tunnel {
         match crate::platform::smart_hosts::refresh_smart_hosts().await {
             Ok(st) => {
                 result.applied = true;
@@ -953,6 +979,7 @@ mod tests {
             &mut fast,
             &[("rr9---sn-aaaa-bb.googlevideo.com".to_string(), NodeVerdict::Fast)],
             now,
+            false,
         );
         assert!(throttled.is_empty());
         assert_eq!(fast.len(), 1); // expired one pruned, fresh one kept
@@ -964,6 +991,7 @@ mod tests {
             &mut fast,
             &[("rr9---sn-aaaa-bb.googlevideo.com".to_string(), NodeVerdict::Throttled)],
             now,
+            false,
         );
         assert!(fast.is_empty());
         assert_eq!(throttled.len(), 1);
@@ -978,6 +1006,7 @@ mod tests {
                 ("youtube.com".to_string(), NodeVerdict::Throttled),
             ],
             now,
+            false,
         );
         assert_eq!(throttled.len(), 1);
         assert!(fast.is_empty());
@@ -1005,6 +1034,7 @@ mod tests {
                 ("rr2---sn-dead-bb.googlevideo.com".to_string(), NodeVerdict::Unreachable),
             ],
             now,
+            false,
         );
         assert_eq!(throttled.len(), 1);
         assert_eq!(throttled[0].host, "rr2---sn-dead-bb.googlevideo.com");
@@ -1022,6 +1052,7 @@ mod tests {
                 ("rr2---sn-same-cc.googlevideo.com".to_string(), NodeVerdict::Unreachable),
             ],
             now,
+            false,
         );
         assert!(fast
             .iter()
@@ -1053,6 +1084,7 @@ mod tests {
                 ("rr8---sn-live-ee.googlevideo.com".to_string(), NodeVerdict::Fast),
             ],
             now,
+            false,
         );
         assert_eq!(throttled.len(), 1);
         assert_eq!(throttled[0].host, "rr7---sn-dead-dd.googlevideo.com");
@@ -1077,6 +1109,7 @@ mod tests {
                 ("rr9---sn-dead-ff.googlevideo.com".to_string(), NodeVerdict::Unreachable),
             ],
             now,
+            false,
         );
         assert!(throttled.is_empty());
         assert!(fast.is_empty());
@@ -1098,6 +1131,7 @@ mod tests {
                 ("rr2---sn-live-bb.googlevideo.com".to_string(), NodeVerdict::Fast),
             ],
             now,
+            false,
         );
         assert!(throttled.is_empty());
         assert_eq!(fast.len(), 1);
@@ -1126,6 +1160,7 @@ mod tests {
                 ("rr3---sn-dead-cc.googlevideo.com".to_string(), NodeVerdict::Unknown),
             ],
             now,
+            false,
         );
         assert_eq!(throttled.len(), 1);
         assert_eq!(throttled[0].host, "rr3---sn-old-aa.googlevideo.com");
@@ -1142,6 +1177,7 @@ mod tests {
                 ("rr5---sn-dead-ee.googlevideo.com".to_string(), NodeVerdict::Unreachable),
             ],
             now,
+            false,
         );
         assert_eq!(throttled.len(), 2);
         assert!(throttled
@@ -1150,6 +1186,61 @@ mod tests {
         assert!(!throttled
             .iter()
             .any(|r| r.host == "rr5---sn-dead-ee.googlevideo.com"));
+    }
+
+    #[test]
+    fn merge_measurements_via_tunnel_changes_nothing() {
+        use crate::platform::settings::YoutubeNodeRecord;
+        let now = 1_000_000;
+        let rec = |host: &str, ts: u64| YoutubeNodeRecord {
+            host: host.to_string(),
+            measured_at: ts,
+        };
+        // Pre-existing records, one of them long expired: the guard
+        // must leave both lists byte-identical - no recording, no
+        // clearing, not even the TTL prune.
+        let mut throttled = vec![
+            rec("rr3---sn-old-aa.googlevideo.com", now - 100),
+            rec("rr4---sn-ancient-bb.googlevideo.com", 10),
+        ];
+        let mut fast = vec![rec("rr1---sn-old-cc.googlevideo.com", now - 100)];
+        let before_throttled = throttled.clone();
+        let before_fast = fast.clone();
+
+        // A measurement that would otherwise block two clusters and
+        // record a third as fast - all of it ignored through the
+        // tunnel (the probe cannot tell a throttled node from a
+        // dead exit there).
+        merge_measurements(
+            &mut throttled,
+            &mut fast,
+            &[
+                (
+                    "rr1---sn-live-dd.googlevideo.com".to_string(),
+                    NodeVerdict::Fast,
+                ),
+                (
+                    "rr2---sn-slow-ee.googlevideo.com".to_string(),
+                    NodeVerdict::Throttled,
+                ),
+                (
+                    "rr3---sn-dead-ff.googlevideo.com".to_string(),
+                    NodeVerdict::Unreachable,
+                ),
+            ],
+            now,
+            true,
+        );
+        assert_eq!(throttled.len(), before_throttled.len());
+        assert!(throttled
+            .iter()
+            .zip(&before_throttled)
+            .all(|(a, b)| { a.host == b.host && a.measured_at == b.measured_at }));
+        assert_eq!(fast.len(), before_fast.len());
+        assert!(fast
+            .iter()
+            .zip(&before_fast)
+            .all(|(a, b)| { a.host == b.host && a.measured_at == b.measured_at }));
     }
 
     #[test]

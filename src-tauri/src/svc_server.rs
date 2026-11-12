@@ -35,12 +35,14 @@ use windows::Win32::System::Pipes::{
     CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 
-use crate::engine::{EventSink, LogEntry, Supervisor, SupervisorState, TgProxyManager};
-use crate::svc_ipc::{ClientMessage, ServerMessage, PROTOCOL_VERSION};
+use crate::engine::DiagnosticsReport;
+use crate::engine::{
+    EventSink, LogEntry, Supervisor, SupervisorState, TgProxyManager, TunnelState,
+};
+use crate::svc_ipc::SvcEvent;
 #[cfg(windows)]
 use crate::svc_ipc::SVC_PIPE_NAME;
-use crate::svc_ipc::SvcEvent;
-use crate::engine::DiagnosticsReport;
+use crate::svc_ipc::{ClientMessage, ServerMessage, PROTOCOL_VERSION};
 
 /// Broadcasts engine events to subscribed pipe clients.
 pub struct PipeSink {
@@ -72,6 +74,9 @@ impl EventSink for PipeSink {
     }
     fn emit_tgproxy_state(&self, state: SupervisorState) {
         let _ = self.tx.send(SvcEvent::TgproxyState { state });
+    }
+    fn emit_tunnel_state(&self, state: TunnelState) {
+        let _ = self.tx.send(SvcEvent::TunnelState { state });
     }
 }
 
@@ -139,6 +144,7 @@ async fn handle_client<S>(
                             status: Some(supervisor.get_status()),
                             logs: None,
                             tgproxy_status: None,
+                            tunnel_status: None,
                             secret: None,
                             rtt_ms: None,
                         }).await;
@@ -170,6 +176,7 @@ async fn handle_client<S>(
                             status: None,
                             logs: Some(logs),
                             tgproxy_status: None,
+                            tunnel_status: None,
                             secret: None,
                             rtt_ms: None,
                         }).await;
@@ -216,6 +223,7 @@ async fn handle_client<S>(
                             status: None,
                             logs: None,
                             tgproxy_status: Some(tgproxy.get_status()),
+                            tunnel_status: None,
                             secret: None,
                             rtt_ms: None,
                         }).await;
@@ -235,6 +243,7 @@ async fn handle_client<S>(
                                 status: None,
                                 logs: None,
                                 tgproxy_status: None,
+                                tunnel_status: None,
                                 secret: Some(secret),
                                 rtt_ms: None,
                             },
@@ -257,6 +266,7 @@ async fn handle_client<S>(
                                 status: None,
                                 logs: None,
                                 tgproxy_status: None,
+                                tunnel_status: None,
                                 secret: None,
                                 rtt_ms: Some(rtt.as_millis() as u64),
                             },
@@ -270,6 +280,45 @@ async fn handle_client<S>(
                             Err(e) => ServerMessage::err(e.to_string()),
                         };
                         let _ = write_msg(&writer, &reply).await;
+                    }
+                    ClientMessage::TunnelStart => {
+                        // Fire-and-forget: a tunnel start takes seconds
+                        // in the common case but up to ~60 s worst case
+                        // (readiness 20 s + warmup 10 s, times two on a
+                        // bind retry), while a pipe roundtrip times out
+                        // at 30 s - and a timeout desyncs the client,
+                        // refusing all further roundtrips until a fresh
+                        // attach. The GUI tracks the start through
+                        // TunnelState events and its status poll; a
+                        // failure surfaces as the Error state with
+                        // last_error. start_tunnel serializes on the
+                        // lifecycle lock, so a second start racing
+                        // this one is an idempotent no-op.
+                        let supervisor = supervisor.clone();
+                        tokio::spawn(async move {
+                            let _ = supervisor.start_tunnel().await;
+                        });
+                        let _ = write_msg(&writer, &ServerMessage::ok()).await;
+                    }
+                    ClientMessage::TunnelStop => {
+                        let r = supervisor.stop_tunnel().await;
+                        let reply = match r {
+                            Ok(()) => ServerMessage::ok(),
+                            Err(e) => ServerMessage::err(e.to_string()),
+                        };
+                        let _ = write_msg(&writer, &reply).await;
+                    }
+                    ClientMessage::TunnelGetStatus => {
+                        let _ = write_msg(&writer, &ServerMessage::Response {
+                            ok: true,
+                            error: None,
+                            status: None,
+                            logs: None,
+                            tgproxy_status: None,
+                            tunnel_status: Some(supervisor.singbox().status()),
+                            secret: None,
+                            rtt_ms: None,
+                        }).await;
                     }
                 }
             }

@@ -22,6 +22,7 @@ import {
 import { DnsStatus, SpeedtestResult, SmartHostsStatus, YoutubeCheckResult } from "../../types";
 import { useI18n } from "../../i18n";
 import { DnsSplitModal } from "../DnsSplitModal";
+import { WarpCard } from "../WarpCard";
 
 interface DnsSpeedViewProps {
   /** Redesign stage 4: "simple" renders compact cards for the unified
@@ -546,6 +547,10 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
           )}
         </div>
 
+        {/* WARP tunnel, compact (stage 5): rows become DNS / WARP+hosts
+            / YouTube+speedtest / Telegram. */}
+        <WarpCard variant="simple" onShowExpert={onShowExpert} />
+
         {/* Smart hosts, compact */}
         <div className="t-card p-4 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
@@ -716,6 +721,9 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
                     </p>
                   )}
                 </>
+              )}
+              {ytResult.via_tunnel && (
+                <p className="text-amber-300/90">{t.youtubeThrottle.viaTunnelNote}</p>
               )}
               {ytResult.apply_error && (
                 <p className="text-rose-300">
@@ -1318,6 +1326,9 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
                   <span className="font-mono text-[10px]">{ytResult.mapping_node}</span>
                 </p>
               )}
+              {ytResult.via_tunnel && (
+                <p className="text-amber-300/90">{t.youtubeThrottle.viaTunnelNote}</p>
+              )}
               {ytResult.apply_error && (
                 <p className="text-rose-300">
                   {t.youtubeThrottle.applyErrorLabel} {ytResult.apply_error}
@@ -1459,6 +1470,10 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
           </div>
         </div>
       </div>
+
+      {/* WARP tunnel (stage 5): third grid item, under the DNS card. */}
+      <WarpCard variant="full" />
+
       <DnsSplitModal isOpen={isDnsSplitOpen} onClose={() => setIsDnsSplitOpen(false)} />
     </div>
   );
