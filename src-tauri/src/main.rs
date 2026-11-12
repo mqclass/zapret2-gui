@@ -254,11 +254,6 @@ async fn main() {
                 ],
             )?;
 
-            let tgproxy_tray = app
-                .state::<crate::commands::AppState>()
-                .tgproxy
-                .clone();
-
             let icon = match app.default_window_icon().cloned() {
                 Some(i) => i,
                 None => tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).expect("Failed to load embedded tray icon"),
@@ -326,22 +321,13 @@ async fn main() {
                             });
                         }
                         "quit" => {
-                            let backend = app_h.state::<crate::commands::AppState>().backend.clone();
-                            let tgp = tgproxy_tray.clone();
                             let h = app_h.clone();
                             tokio::spawn(async move {
-                                // A remote svc outlives the GUI by design (the bypass
-                                // and the bridge stay up); only stop what runs
-                                // in this process.
-                                let t = tgp.read().clone();
-                                if !t.is_remote() {
-                                    let _ = t.stop().await;
-                                }
-                                let b = backend.read().clone();
-                                if !b.is_remote() {
-                                    let _ = b.stop().await;
-                                }
-                                h.exit(0);
+                                // Explicit Quit fully stops everything: in-process
+                                // components, then the svc (which owns the engine +
+                                // bridge once attached) stops both and terminates
+                                // itself. The X button only hides to tray.
+                                commands::graceful_exit(&h).await;
                             });
                         }
                         _ => {}
