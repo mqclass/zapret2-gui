@@ -71,6 +71,9 @@ pub enum ProcessError {
     #[error("Транспорт: {0}")]
     Transport(String),
 
+    #[error("WARP-туннель: {0}")]
+    Tunnel(String),
+
     #[error("I/O error during process management: {0}")]
     Io(#[from] io::Error),
 }
@@ -98,6 +101,22 @@ pub struct ZapretBinaries {
     /// Windows-only for now — see the struct docs.
     #[serde(default)]
     pub winws2_split_exe: Option<PathBuf>,
+    /// sing-box engine binary (shtorm-7/sing-box-extended fork, MASQUE/WARP
+    /// sidecar for the WARP mode). Optional: WARP is unavailable while it
+    /// is absent, but the rest of the app works normally. Resolved from the
+    /// SAME candidate directory as nfqws2. On Linux the file is named
+    /// `sing-box` (no `.exe`); the WARP mode is Windows-first in v1, but
+    /// the field exists so the shared supervisor code compiles and the
+    /// manager's Linux paths (tests, future port) can find the binary.
+    #[serde(default)]
+    pub sing_box_exe: Option<PathBuf>,
+    /// wintun.dll - the Windows TUN driver library. Always `None` on
+    /// Linux: wintun does not exist there (Linux sing-box uses the
+    /// kernel TUN device). Present only so the shared `ZapretBinaries`
+    /// surface matches the Windows one; the availability check does
+    /// not require it outside Windows.
+    #[serde(default)]
+    pub wintun_dll: Option<PathBuf>,
     pub windivert_dll: PathBuf,
     pub windivert_sys: PathBuf,
     pub lists_dir: Option<PathBuf>,
@@ -184,6 +203,14 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
 
         let nfqws_path = nfqws.is_file().then(|| nfqws.clone());
 
+        // Optional WARP sidecar binary: same directory, presence optional.
+        // Absence only disables the WARP mode; the desync engine is unaffected.
+        // wintun.dll has no Linux equivalent - it stays None (see the struct docs).
+        let sing_box_path = candidate
+            .join("sing-box")
+            .is_file()
+            .then(|| candidate.join("sing-box"));
+
         // Resolve lists directory relative to the install location.
         let lists_dir = [candidate.join("lists")]
             .into_iter()
@@ -195,6 +222,8 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
             winws2_exe: nfqws2,
             winws_exe: nfqws_path,
             winws2_split_exe: None,
+            sing_box_exe: sing_box_path,
+            wintun_dll: None,
             windivert_dll: PathBuf::new(),
             windivert_sys: PathBuf::new(),
             lists_dir,
@@ -539,14 +568,30 @@ pub fn spawn_winws2(
 /// Direct `kill` of the leader first, a brief wait for it to exit (so its
 /// NFQUEUE handles are released), then the process-group teardown as the
 /// safety net so no stray engine instance survives.
+/// Terminates a supervised winws process: `kill` the child and wait
+/// briefly for it to exit. No process-group teardown: the shared
+/// group also holds the sing-box sidecar (stage 3), so the
+/// strategy-switch path and the desync restart inside `start_tunnel`
+/// must use this variant - terminating the group would kill the
+/// tunnel and break the independent-switches matrix. `stop()` still
+/// uses `stop_winws2_gracefully`, where the tunnel is already
+/// stopped first and the group teardown is safe.
+pub async fn stop_winws2(child: &mut Child) -> Result<(), ProcessError> {
+    let _ = child.kill().await;
+    // Give the process a moment to exit so queue handles are released.
+    let _ = timeout(Duration::from_secs(5), child.wait()).await;
+    Ok(())
+}
+
+/// Terminates a supervised winws process and tears down the shared
+/// process group as a safety net, so no stray engine instance
+/// survives. Only for paths where the sidecar is already stopped
+/// (see `stop_winws2` for why the switch path must not use this).
 pub async fn stop_winws2_gracefully(
     child: &mut Child,
     job: &JobObject,
 ) -> Result<(), ProcessError> {
-    let _ = child.kill().await;
-    // Give the process a moment to exit so queue handles are released
-    // before the group teardown below.
-    let _ = timeout(Duration::from_secs(5), child.wait()).await;
+    stop_winws2(child).await?;
     let _ = job.terminate(1);
     Ok(())
 }
@@ -583,15 +628,16 @@ pub fn process_image_matches(pid: u32, expected_exe_name: &str) -> bool {
     name == expected_exe_name
 }
 
-/// Discovers and terminates any orphaned `nfqws2`/`nfqws` engine processes,
-/// protecting the actively supervised process ID.
+/// Discovers and terminates any orphaned processes whose image name
+/// is one of `targets`, protecting the actively supervised process
+/// ID. Shared core of the winws2 and sing-box stray sweeps (same
+/// `/proc` scan, same L-6 TOCTOU guard).
 ///
 /// Note: as the unprivileged GUI this can only see (and, with EPERM,
 /// fail to kill) the root-owned svc engines — the count honestly reports
 /// only processes this process actually terminated.
-pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
+fn kill_stray_processes(targets: &[&str], exclude_pid: Option<u32>) -> usize {
     let mut terminated_count = 0;
-    let targets = ["nfqws2", "nfqws"];
     let own_pid = std::process::id();
 
     let entries = match fs::read_dir("/proc") {
@@ -606,7 +652,7 @@ pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
         if pid <= 1 || pid == own_pid || Some(pid) == exclude_pid {
             continue;
         }
-        // Cheap first pass: exe basename must be an engine binary.
+        // Cheap first pass: exe basename must be a target binary.
         let exe = match fs::read_link(entry.path().join("exe")) {
             Ok(p) => p,
             Err(_) => continue,
@@ -630,4 +676,23 @@ pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
     }
 
     terminated_count
+}
+
+/// Discovers and terminates any orphaned `nfqws2`/`nfqws` engine processes,
+/// protecting the actively supervised process ID.
+pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
+    kill_stray_processes(&["nfqws2", "nfqws"], exclude_pid)
+}
+
+/// Discovers and terminates any orphaned `sing-box` processes
+/// (WARP mode, stage 4), protecting the actively supervised tunnel
+/// PID. An orphaned engine from a crashed run keeps holding the TUN
+/// adapter (and its Clash port), so the next start would fail on
+/// bind or on a second TUN with the same name. Called before every
+/// tunnel start; a foreign sing-box the user runs themselves is
+/// indistinguishable from ours by image name, so this runs only
+/// when the user explicitly starts the tunnel (NETZapret's
+/// FindOrphans has the same caveat).
+pub fn kill_stray_singbox_processes(exclude_pid: Option<u32>) -> usize {
+    kill_stray_processes(&["sing-box"], exclude_pid)
 }

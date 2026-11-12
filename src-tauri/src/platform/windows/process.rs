@@ -70,6 +70,9 @@ pub enum ProcessError {
     #[error("Транспорт: {0}")]
     Transport(String),
 
+    #[error("WARP-туннель: {0}")]
+    Tunnel(String),
+
     #[error("I/O error during process management: {0}")]
     Io(#[from] io::Error),
 }
@@ -500,21 +503,34 @@ pub fn spawn_winws2(
     spawn_process(&binaries.winws2_exe, &binaries.bin_dir, args, job)
 }
 
-/// Terminates a supervised winws process.
+/// Terminates a supervised winws process: `kill` the child and wait
+/// briefly for it to exit. No Job Object teardown: the shared job
+/// also holds the sing-box sidecar (stage 3), so the strategy-switch
+/// path and the desync restart inside `start_tunnel` must use this
+/// variant - terminating the job would kill the tunnel and break the
+/// independent-switches matrix. `stop()` still uses
+/// `stop_winws2_gracefully`, where the tunnel is already stopped
+/// first and the job teardown is safe.
 ///
 /// NOTE: a graceful `CTRL_BREAK_EVENT` shutdown is impossible here by design:
 /// the child is spawned with `CREATE_NO_WINDOW`, so it has no console and
-/// `AttachConsole` could never succeed for it. Termination is therefore direct:
-/// `kill` the child, wait briefly for it to exit, then terminate the Job Object
-/// as a safety net so no stray winws instance survives.
+/// `AttachConsole` could never succeed for it. Termination is therefore direct.
+pub async fn stop_winws2(child: &mut Child) -> Result<(), ProcessError> {
+    let _ = child.kill().await;
+    // Give the process a moment to exit so WinDivert handles are released.
+    let _ = timeout(Duration::from_secs(5), child.wait()).await;
+    Ok(())
+}
+
+/// Terminates a supervised winws process and tears down the shared
+/// Job Object as a safety net, so no stray winws instance survives.
+/// Only for paths where the sidecar is already stopped (see
+/// `stop_winws2` for why the switch path must not use this).
 pub async fn stop_winws2_gracefully(
     child: &mut Child,
     job: &JobObject,
 ) -> Result<(), ProcessError> {
-    let _ = child.kill().await;
-    // Give the process a moment to exit so WinDivert handles are released
-    // before the Job Object teardown below.
-    let _ = timeout(Duration::from_secs(5), child.wait()).await;
+    stop_winws2(child).await?;
     let _ = job.terminate(1);
     Ok(())
 }
@@ -561,14 +577,14 @@ pub fn process_image_matches(handle: HANDLE, expected_exe_name: &str) -> bool {
     }
 }
 
-/// Discovers and terminates any orphaned `winws2.exe` or `winws.exe` processes,
-/// protecting any actively running supervised process ID.
-pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
+/// Discovers and terminates any orphaned processes whose image name
+/// is one of `targets`, protecting any actively running supervised
+/// process ID. Shared core of the winws2 and sing-box stray sweeps
+/// (same ToolHelp32 scan, same L-6 TOCTOU guard: the image name is
+/// re-verified from the open handle, since the PID may have been
+/// reused since the snapshot).
+fn kill_stray_processes(targets: &[&str], exclude_pid: Option<u32>) -> usize {
     let mut terminated_count = 0;
-    // winws2-split.exe is a winws2 build under another name: a stray split
-    // engine left behind by a crash must die with the rest, or it would
-    // keep holding WinDivert while the UI reports "stopped".
-    let targets = ["winws2.exe", "winws.exe", "winws2-split.exe"];
 
     unsafe {
         if let Ok(handle) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
@@ -616,4 +632,29 @@ pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
     }
 
     terminated_count
+}
+
+/// Discovers and terminates any orphaned `winws2.exe` or `winws.exe` processes,
+/// protecting any actively running supervised process ID.
+pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
+    // winws2-split.exe is a winws2 build under another name: a stray split
+    // engine left behind by a crash must die with the rest, or it would
+    // keep holding WinDivert while the UI reports "stopped".
+    kill_stray_processes(
+        &["winws2.exe", "winws.exe", "winws2-split.exe"],
+        exclude_pid,
+    )
+}
+
+/// Discovers and terminates any orphaned `sing-box.exe` processes
+/// (WARP mode, stage 4), protecting the actively supervised tunnel
+/// PID. An orphaned engine from a crashed run keeps holding the TUN
+/// adapter (and its Clash port), so the next start would fail on
+/// bind or on a second TUN with the same name. Called before every
+/// tunnel start; a foreign sing-box the user runs themselves is
+/// indistinguishable from ours by image name, so this runs only
+/// when the user explicitly starts the tunnel (NETZapret's
+/// FindOrphans has the same caveat).
+pub fn kill_stray_singbox_processes(exclude_pid: Option<u32>) -> usize {
+    kill_stray_processes(&["sing-box.exe"], exclude_pid)
 }

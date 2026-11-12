@@ -506,41 +506,71 @@ impl Transport for DomainFrontingTransport {
     }
 }
 
-/// WARP transport via Cloudflare (WireGuard-based).
+/// WARP transport via Cloudflare (sing-box MASQUE sidecar).
 ///
-/// # Architecture (not yet implemented)
+/// # Architecture (built, stage 4)
 ///
-/// Full WARP requires:
-/// 1. `boringtun` — Cloudflare's userspace WireGuard implementation (Rust crate)
-/// 2. `wintun` — Windows TUN driver for the virtual interface
-/// 3. Cloudflare WARP API registration (device key → WireGuard config)
-/// 4. Packet routing between the TUN interface and the WireGuard tunnel
-/// 5. Integration with the engine: traffic goes through WARP instead of/in addition to winws2
+/// The original plan - boringtun plus a hand-rolled WireGuard client -
+/// was dropped in favour of the pragmatic path (design section 1):
+/// a vendored sing-box fork (shtorm-7/sing-box-extended, pinned 2.7.3)
+/// runs as a sidecar under the supervisor, dials WARP over MASQUE
+/// (HTTP/2 `CONNECT-UDP` to a hardcoded endpoint), and exposes a TUN
+/// interface through wintun. Registration is done by the engine
+/// itself and cached on disk.
 ///
-/// This is a 2-3 week high-risk implementation. The transport is registered
-/// following the framework's fail-closed contract: it explicitly reports
-/// itself as unavailable until the data path exists.
+/// This transport is the *contract* for that mode, not the lifecycle:
+/// `is_available` checks the binaries, `validate_config` rejects
+/// unknown options, and `apply_args` prepares the desync launch
+/// (tunnel exclusion filter + registration recipe). The sidecar's
+/// lifecycle belongs to `SingBoxManager` (stage 3) and the supervisor
+/// (stage 4), driven by the `warp_enabled` setting - not by the
+/// transport selection. Selecting "warp" here only prepares the
+/// desync launch; the tunnel itself starts when the switch is on.
 pub struct WarpTransport;
 
+/// v1 has no user-facing options: the endpoint is hardcoded in the
+/// engine, the MTU and scope are fixed by the config generator.
+/// `deny_unknown_fields` keeps the old boringtun-era options
+/// (`endpoint`, `mtu`, `full_tunnel`) from silently passing - a
+/// stored config from the skeleton era must fail loudly, not be
+/// misread as meaningful.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct WarpOptions {
-    /// WARP endpoint, e.g. "162.159.192.1:2408" or "engage.cloudflareclient.com:2408".
-    #[serde(default = "default_warp_endpoint")]
-    pub endpoint: String,
-    /// MTU for the WireGuard tunnel.
-    #[serde(default = "default_warp_mtu")]
-    pub mtu: u16,
-    /// Whether to route all traffic through WARP or only blocked domains.
-    #[serde(default)]
-    pub full_tunnel: bool,
-}
+#[serde(deny_unknown_fields)]
+struct WarpOptions {}
 
-fn default_warp_endpoint() -> String {
-    "162.159.192.1:2408".to_string()
-}
-
-fn default_warp_mtu() -> u16 {
-    1280
+/// Availability check over already-resolved binaries, split out so
+/// it is unit-testable without a real installation next to the test
+/// binary. The full `sing-box check` runs only at start time inside
+/// the manager (stage 3) - deliberately NOT here: `is_available` is
+/// called on every UI enumeration, and a config check needs a
+/// generated config, which does not exist yet at enumeration time.
+fn check_warp_binaries(
+    binaries: &crate::platform::process::ZapretBinaries,
+) -> TransportAvailability {
+    let Some(binary) = binaries.sing_box_exe.as_deref() else {
+        return TransportAvailability::Unavailable {
+            reason: "Движок sing-box не найден в установке: WARP-режим недоступен. \
+                Обновите приложение - движок поставляется вместе с ним."
+                .to_string(),
+        };
+    };
+    // wintun is a Windows driver library: on Linux sing-box uses the
+    // kernel TUN device, so the dll is not a precondition there (the
+    // Linux ZapretBinaries always reports None).
+    #[cfg(windows)]
+    if binaries.wintun_dll.is_none() {
+        return TransportAvailability::Unavailable {
+            reason: "wintun.dll не найден в установке: без него нет TUN-интерфейса, \
+                а значит, и туннеля. Обновите приложение."
+                .to_string(),
+        };
+    }
+    match crate::engine::singbox::singbox_version(binary) {
+        Ok(_version) => TransportAvailability::Available,
+        Err(e) => TransportAvailability::Unavailable {
+            reason: format!("sing-box не запускается: {e}"),
+        },
+    }
 }
 
 impl Transport for WarpTransport {
@@ -549,85 +579,74 @@ impl Transport for WarpTransport {
     }
 
     fn name(&self) -> &'static str {
-        "Cloudflare WARP (skeleton)"
+        "Cloudflare WARP"
     }
 
     fn describe(&self) -> TransportDescriptor {
         TransportDescriptor {
             id: self.id().to_string(),
             name: self.name().to_string(),
-            description: "WARP через WireGuard (boringtun): весь трафик идёт через \
-                сеть Cloudflare, DPI видит только зашифрованный WireGuard. \
-                ТРЕБУЕТ реализации TUN-интерфейса и регистрации в WARP API — \
-                сейчас недоступен по дизайну."
+            description: "Туннель Cloudflare WARP (sing-box, MASQUE): часть трафика \
+                идёт через сеть Cloudflare в обход DPI. Запасной выход, а не \
+                замена десинку: включается отдельным выключателем."
                 .to_string(),
             experimental: true,
-            requires_exit_infra: true,
-            config_example: serde_json::json!({
-                "endpoint": "162.159.192.1:2408",
-                "mtu": 1280,
-                "full_tunnel": false
-            }),
+            // The exit is Cloudflare's public network, not self-hosted
+            // infrastructure - nothing for the author to run or monitor.
+            // (The framework's "must stay Unavailable" rule for this flag
+            // therefore does not apply: the precondition is the vendored
+            // binary, checked by is_available.)
+            requires_exit_infra: false,
+            config_example: serde_json::json!({}),
         }
     }
 
     fn is_available(&self) -> TransportAvailability {
-        TransportAvailability::Unavailable {
-            reason: "WARP-транспорт не реализован: нужны boringtun (WireGuard), \
-                wintun-драйвер для TUN-интерфейса, регистрация в Cloudflare WARP API \
-                и маршрутизация пакетов. Транспорт зарегистрирован как каркас. \
-                Оценка: 2-3 недели, высокий риск."
-                .to_string(),
+        match crate::platform::process::resolve_binaries() {
+            Ok(binaries) => check_warp_binaries(&binaries),
+            Err(e) => TransportAvailability::Unavailable {
+                reason: format!("Не удалось найти установку движка: {e}"),
+            },
         }
     }
 
     fn validate_config(&self, config: &TransportConfig) -> Result<(), TransportError> {
-        let opts: WarpOptions = serde_json::from_value(config.options.clone()).map_err(|e| {
+        let _opts: WarpOptions = serde_json::from_value(config.options.clone()).map_err(|e| {
             TransportError::InvalidConfig {
                 id: self.id().to_string(),
                 message: format!(
-                    "Конфиг должен быть JSON-объектом с полями endpoint (строка), \
-                     mtu (число 576-9000), full_tunnel (bool). Ошибка разбора: {}",
+                    "У WARP-режима в текущей версии нет настроек: конфиг должен быть \
+                     пустым объектом {{}}. Ошибка разбора: {}",
                     e
                 ),
             }
         })?;
-        // Basic endpoint sanity: host:port
-        // rsplitn returns parts in reverse: parts[0] is port, parts[1] is host.
-        let parts: Vec<&str> = opts.endpoint.rsplitn(2, ':').collect();
-        let port_ok = parts
-            .first()
-            .and_then(|p| p.parse::<u16>().ok())
-            .map(|p| p != 0)
-            .unwrap_or(false);
-        if parts.len() != 2 || parts[1].is_empty() || !port_ok {
-            return Err(TransportError::InvalidConfig {
-                id: self.id().to_string(),
-                message: format!(
-                    "«endpoint» = «{}» должен быть в формате host:port, например 162.159.192.1:2408.",
-                    opts.endpoint
-                ),
-            });
-        }
-        if !(576..=9000).contains(&opts.mtu) {
-            return Err(TransportError::InvalidConfig {
-                id: self.id().to_string(),
-                message: format!("«mtu» = {} вне диапазона 576-9000.", opts.mtu),
-            });
-        }
         Ok(())
     }
 
     fn apply_args(
         &self,
         _config: &TransportConfig,
-        _args: Vec<String>,
+        args: Vec<String>,
     ) -> Result<Vec<String>, TransportError> {
-        Err(TransportError::ApplyFailed {
-            id: self.id().to_string(),
-            message: "Каркас транспорта: путь данных не реализован. См. docs/TRANSPORTS.md."
-                .to_string(),
-        })
+        // The transport framework does not know the engine, so it
+        // detects it best-effort from the arguments (fail-closed to
+        // "not winws2"). The supervisor's own wiring applies the same
+        // transformation with certainty and is idempotent with this
+        // one - a double application changes nothing.
+        //
+        // The tunnel-switch gate is NOT here: apply_args is a pure
+        // transformation of a validated config (see the trait docs),
+        // and the gate lives in apply_active_transport, which forces
+        // the warp config disabled when warp_enabled is off - so
+        // this method is never reached for a launch without the
+        // tunnel. Callers must go through apply_active_transport;
+        // calling apply_args directly bypasses the switch.
+        let mut args = args;
+        if crate::engine::tunnel_capture::args_look_like_winws2(&args) {
+            crate::engine::tunnel_capture::apply_warp_args(&mut args, true);
+        }
+        Ok(args)
     }
 }
 
@@ -657,6 +676,27 @@ pub fn validate_transport_config_json(
     transport.validate_config(&config)
 }
 
+/// Effective launch config for the active transport: the WARP
+/// transport additionally requires the tunnel switch (`warp_enabled`,
+/// design section 6) - its launch args exist only to serve the
+/// tunnel, so with the switch off the transport is forced disabled
+/// even when selected in the UI. Pure, so it can be unit-tested
+/// without touching settings on disk; `apply_active_transport`
+/// feeds it the loaded values.
+fn effective_launch_config(
+    transport_id: &str,
+    config: Option<TransportConfig>,
+    warp_enabled: bool,
+) -> Option<TransportConfig> {
+    if transport_id == "warp" && !warp_enabled {
+        let mut disabled = config.unwrap_or_else(|| TransportConfig::for_transport("warp"));
+        disabled.enabled = false;
+        Some(disabled)
+    } else {
+        config
+    }
+}
+
 /// Applies the active transport (from settings) to the final argument list.
 ///
 /// `None`/unknown handling is fail-closed and explicit; "direct" (or unset) is
@@ -669,7 +709,20 @@ pub fn apply_active_transport(
         .active_transport_id
         .clone()
         .unwrap_or_else(|| "direct".to_string());
-    let config = settings.transport_configs.get(&transport_id).cloned();
+    // Stage 4 (review m3): the WARP launch args (the WinDivert
+    // exclusion filter + the registration recipe) must not be applied
+    // with the tunnel switch off. The gate lives here, not in
+    // WarpTransport::apply_args: the trait contract says apply_args
+    // is a pure transformation of an already-validated config, and
+    // this function is its only production caller (it already loads
+    // settings). Forcing `enabled` off reuses the registry's
+    // disabled-passthrough and keeps the "applied" report honest (a
+    // disabled transport is not reported as applied).
+    let config = effective_launch_config(
+        &transport_id,
+        settings.transport_configs.get(&transport_id).cloned(),
+        settings.warp_enabled,
+    );
     let final_args = global_registry().apply(&transport_id, config.as_ref(), args)?;
     // A disabled transport is a transparent passthrough (see apply()), so it
     // is *not* reported as applied — the log must not claim otherwise.
@@ -804,6 +857,178 @@ mod tests {
             .apply("domain-fronting", Some(&cfg), args.clone())
             .unwrap();
         assert_eq!(out, args);
+    }
+
+    #[test]
+    fn warp_descriptor_is_experimental_without_exit_infra() {
+        let registry = TransportRegistry::new();
+        let t = registry.get("warp").unwrap();
+        assert_eq!(t.id(), "warp");
+        assert_eq!(t.name(), "Cloudflare WARP");
+        let desc = t.describe();
+        assert!(desc.experimental);
+        // The exit is Cloudflare's public network, not self-hosted infra.
+        assert!(!desc.requires_exit_infra);
+        assert_eq!(desc.config_example, serde_json::json!({}));
+    }
+
+    #[test]
+    fn warp_config_validation_rejects_unknown_options() {
+        let registry = TransportRegistry::new();
+        let t = registry.get("warp").unwrap();
+        let cfg = |options: serde_json::Value| TransportConfig {
+            transport_id: "warp".to_string(),
+            enabled: true,
+            options,
+        };
+
+        // v1 has no options: the empty object passes.
+        t.validate_config(&cfg(serde_json::json!({}))).unwrap();
+
+        // The old boringtun-era options must fail loudly, not be
+        // silently swallowed (a stored skeleton-era config).
+        let err = t
+            .validate_config(&cfg(serde_json::json!({
+                "endpoint": "162.159.192.1:2408",
+                "mtu": 1280,
+                "full_tunnel": false
+            })))
+            .unwrap_err();
+        assert!(matches!(err, TransportError::InvalidConfig { .. }));
+        assert!(err.to_string().contains("пустым объектом"));
+
+        // Non-object JSON gets a structural error, not a panic.
+        let err = t
+            .validate_config(&cfg(serde_json::json!("just a string")))
+            .unwrap_err();
+        assert!(matches!(err, TransportError::InvalidConfig { .. }));
+    }
+
+    fn test_binaries(
+        sing_box: Option<std::path::PathBuf>,
+        wintun: Option<std::path::PathBuf>,
+    ) -> crate::platform::process::ZapretBinaries {
+        crate::platform::process::ZapretBinaries {
+            bin_dir: std::path::PathBuf::from("/nonexistent"),
+            winws2_exe: std::path::PathBuf::from("/nonexistent/winws2.exe"),
+            winws_exe: None,
+            winws2_split_exe: None,
+            sing_box_exe: sing_box,
+            wintun_dll: wintun,
+            windivert_dll: std::path::PathBuf::from("/nonexistent/WinDivert.dll"),
+            windivert_sys: std::path::PathBuf::from("/nonexistent/WinDivert64.sys"),
+            lists_dir: None,
+        }
+    }
+
+    #[test]
+    fn warp_availability_needs_the_sidecar_binary() {
+        // No sing-box at all.
+        let binaries = test_binaries(None, None);
+        match check_warp_binaries(&binaries) {
+            TransportAvailability::Unavailable { reason } => {
+                assert!(reason.contains("sing-box"), "reason: {reason}");
+            }
+            TransportAvailability::Available => panic!("must not claim availability"),
+        }
+
+        // A binary path that does not execute.
+        let binaries = test_binaries(
+            Some(std::path::PathBuf::from("/nonexistent/sing-box")),
+            Some(std::path::PathBuf::from("/nonexistent/wintun.dll")),
+        );
+        match check_warp_binaries(&binaries) {
+            TransportAvailability::Unavailable { reason } => {
+                assert!(reason.contains("не запускается"), "reason: {reason}");
+            }
+            TransportAvailability::Available => panic!("must not claim availability"),
+        }
+
+        // A binary that exits non-zero on `version` (/bin/false).
+        #[cfg(unix)]
+        {
+            let binaries = test_binaries(
+                Some(std::path::PathBuf::from("/bin/false")),
+                Some(std::path::PathBuf::from("/nonexistent/wintun.dll")),
+            );
+            assert!(!check_warp_binaries(&binaries).is_available());
+        }
+    }
+
+    /// A fake sing-box that prints a version line: the Available
+    /// branch, deterministically, without the real binary. Unix-only:
+    /// a shell script with a shebang is the cheapest executable.
+    #[cfg(unix)]
+    #[test]
+    fn warp_availability_accepts_a_working_binary() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("zapret2-warp-avail-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("fake-sing-box");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\necho 'sing-box version 1.14.3-extended-2.7.3'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let binaries = test_binaries(
+            Some(fake),
+            Some(std::path::PathBuf::from("/nonexistent/wintun.dll")),
+        );
+        assert!(check_warp_binaries(&binaries).is_available());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn warp_apply_args_prepares_winws2_and_skips_winws1() {
+        let registry = TransportRegistry::new();
+        let t = registry.get("warp").unwrap();
+        let cfg = TransportConfig::for_transport("warp");
+
+        // winws2: filter + recipe.
+        let args = vec![
+            "--wf-tcp-out=80,443".to_string(),
+            "--new=general".to_string(),
+            "--filter-tcp=443".to_string(),
+        ];
+        let out = t.apply_args(&cfg, args).unwrap();
+        assert!(out[0].starts_with("--wf-raw-filter=("), "args: {out:?}");
+        assert!(out.iter().any(|a| a == "--new=warp_api"), "args: {out:?}");
+
+        // winws v1 (Flowseal): untouched - no filter, no recipe.
+        let args = vec!["--dpi-desync=fake".to_string()];
+        let out = t.apply_args(&cfg, args.clone()).unwrap();
+        assert_eq!(out, args);
+
+        // Ambiguous (neither marker): fails closed, untouched.
+        let args = vec!["--wf-tcp=80,443".to_string()];
+        let out = t.apply_args(&cfg, args.clone()).unwrap();
+        assert_eq!(out, args);
+    }
+
+    #[test]
+    fn warp_launch_config_requires_tunnel_switch() {
+        // Switch off: warp is forced disabled, whatever the stored
+        // config says - so the registry's disabled-passthrough keeps
+        // the filter and the recipe out of the launch (review m3).
+        let enabled = TransportConfig::for_transport("warp");
+        assert!(enabled.enabled);
+        let out = effective_launch_config("warp", Some(enabled), false).unwrap();
+        assert!(!out.enabled);
+        // No stored config at all: still disabled, not a
+        // default-enabled config.
+        let out = effective_launch_config("warp", None, false).unwrap();
+        assert!(!out.enabled);
+        // Switch on: the stored config passes through untouched.
+        let enabled = TransportConfig::for_transport("warp");
+        let out = effective_launch_config("warp", Some(enabled.clone()), true).unwrap();
+        assert_eq!(out.enabled, enabled.enabled);
+        assert_eq!(out.transport_id, enabled.transport_id);
+        // Other transports are unaffected by the tunnel switch.
+        let enabled = TransportConfig::for_transport("domain-fronting");
+        let out = effective_launch_config("domain-fronting", Some(enabled.clone()), false).unwrap();
+        assert_eq!(out.enabled, enabled.enabled);
     }
 
     #[test]

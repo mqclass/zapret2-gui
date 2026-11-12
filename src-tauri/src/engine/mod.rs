@@ -15,6 +15,11 @@ pub mod supervisor;
 pub mod youtube_probe;
 pub mod tgproxy;
 pub mod transport;
+// WARP mode, stage 4: the winws2 tunnel-exclusion filter and the
+// api.cloudflareclient.com desync recipe. Called from the supervisor
+// (certain engine) and from the transport framework (best-effort
+// engine detection), so no dead-code allowance needed.
+pub mod tunnel_capture;
 // WARP mode, stage 2: the sing-box config generator. Nothing calls it
 // yet - stage 3 (SingBoxManager) wires it up - so without this the
 // whole API surface reads as dead code in both binaries.

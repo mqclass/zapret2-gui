@@ -33,14 +33,15 @@
 //! regenerates the config (fresh ports and secrets) and retries once
 //! instead of failing the start.
 //!
-//! Boundaries (stage 3): no IPC, no UI - the manager is internal.
-//! The supervisor holds it as a field and stops it on engine stop;
-//! stage 4 wires the start side (order, `--wf-raw-filter`, the
-//! api.cloudflareclient.com recipe) and stage 5 exposes it over IPC.
-//! Registration in `AppState::sidecars` is also deferred to stage 4:
-//! the `ManagedSidecar` trait is implemented here, but until the
-//! manager is registered, `install_update` does not know about an
-//! active tunnel (harmless now - nothing starts the tunnel yet).
+//! Boundaries: no IPC, no UI - the manager is internal. The
+//! supervisor holds it as a field, starts it (stage 4: order,
+//! `--wf-raw-filter`, the api.cloudflareclient.com recipe) and stops
+//! it on engine stop; stage 5 exposes it over IPC. The manager is
+//! registered in `AppState::sidecars` (stage 4, `main.rs`), so
+//! `install_update` refuses while the tunnel is active - in the GUI
+//! process only; when the GUI is attached to the svc, the tunnel
+//! lives in the svc and the local manager is Stopped, so the updater
+//! cannot see it there yet (stage 5/6 follow-up: IPC TunnelGetStatus).
 
 use std::collections::{HashSet, VecDeque};
 use std::net::IpAddr;
@@ -171,6 +172,17 @@ pub struct SingBoxStartOptions {
     /// `settings.dns_provider` - drives the DoH ladder of the
     /// generated config.
     pub dns_provider: String,
+    /// Whether the generated config includes the TUN inbound.
+    /// Production always sets this `true`; `false` is the stage 4
+    /// live-test seam (the sandbox cannot create a TUN device).
+    /// See `SingBoxConfigInput::tun_enabled`.
+    pub tun_enabled: bool,
+    /// Pin the Clash API port for the first start attempt (`None` in
+    /// production). The stage 4 live retry test pins a port it
+    /// already occupies; the pin is cleared after the first config
+    /// build so the retry allocates fresh ports.
+    /// See `SingBoxConfigInput::fixed_clash_port`.
+    pub fixed_clash_port: Option<u16>,
 }
 
 /// Errors from the sing-box manager.
@@ -203,6 +215,12 @@ pub enum SingBoxError {
 
     #[error("sing-box exited during start: {0}")]
     ExitedDuringStart(String),
+}
+
+impl From<SingBoxError> for ProcessError {
+    fn from(e: SingBoxError) -> Self {
+        ProcessError::Tunnel(e.to_string())
+    }
 }
 
 /// Machine state the config generator needs but cannot read itself.
@@ -581,6 +599,8 @@ pub fn fill_config_input(
         ipv6: system.ipv6,
         cache_file_path: options.home_dir.join("engine-cache.db"),
         log_file_path: options.home_dir.join("sing-box.log"),
+        tun_enabled: options.tun_enabled,
+        fixed_clash_port: options.fixed_clash_port,
     }
 }
 
@@ -627,6 +647,11 @@ pub struct SingBoxManager {
     clash_api_port: Arc<RwLock<Option<u16>>>,
     warmup_delay_ms: Arc<RwLock<Option<u64>>>,
     last_error: Arc<RwLock<Option<String>>>,
+    /// The TUN scope the running engine started with (`None` while
+    /// stopped). The supervisor reads it to reconcile the tunnel
+    /// after a desync start: a tunnel running with the wrong scope
+    /// (desync came up after it) is restarted with ProxyOnly.
+    tun_scope: Arc<RwLock<Option<TunScope>>>,
 }
 
 impl SingBoxManager {
@@ -651,6 +676,7 @@ impl SingBoxManager {
             clash_api_port: Arc::new(RwLock::new(None)),
             warmup_delay_ms: Arc::new(RwLock::new(None)),
             last_error: Arc::new(RwLock::new(None)),
+            tun_scope: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -669,6 +695,13 @@ impl SingBoxManager {
     /// Current tunnel state.
     pub fn state(&self) -> TunnelState {
         *self.state.read()
+    }
+
+    /// The TUN scope the running engine started with, or `None`
+    /// while stopped (or after an unexpected death). The supervisor
+    /// uses it for the tunnel reconcile after a desync start.
+    pub fn tun_scope(&self) -> Option<TunScope> {
+        *self.tun_scope.read()
     }
 
     /// Start the tunnel: home dir, version check, config generation
@@ -704,13 +737,17 @@ impl SingBoxManager {
         *self.pid.write() = None;
 
         match self.start_inner(&options).await {
-            Ok(()) => Ok(self.status()),
+            Ok(()) => {
+                *self.tun_scope.write() = Some(options.tun_scope);
+                Ok(self.status())
+            }
             Err(error) => {
                 // The attempt layer already cleaned up the child; this
                 // is a guard against a future path that forgets.
                 self.kill_child().await;
                 *self.pid.write() = None;
                 *self.clash_api_port.write() = None;
+                *self.tun_scope.write() = None;
                 self.set_last_error(Some(error.to_string()));
                 *self.state.write() = TunnelState::Error;
                 self.log("error", &format!("failed to start sing-box: {error}"));
@@ -766,13 +803,19 @@ impl SingBoxManager {
                 &format!("ignored {skipped} unparseable line(s) in ipset-all.txt"),
             );
         }
-        let input = fill_config_input(options, &system, &ipset_cidrs);
+        let mut input = fill_config_input(options, &system, &ipset_cidrs);
         let config_path = options.home_dir.join("config.json");
 
         for attempt in 1..=MAX_START_ATTEMPTS {
             // Fresh ports and secrets on every build - that is what
             // makes the TOCTOU retry work.
             let generated = build_config(&input)?;
+            // The Clash port pin exists only to force the first
+            // attempt onto a port the test occupies (stage 4 live
+            // retry test): clear it after the first build, so a
+            // retry allocates fresh ports instead of failing the
+            // same way on the same occupied port.
+            input.fixed_clash_port = None;
             write_config_file(&generated, &config_path)?;
             let check = check_config(&options.binary, &config_path)?;
             if !check.success {
@@ -1039,7 +1082,10 @@ impl SingBoxManager {
         *self.pid.write() = None;
         // Same cleanup as stop(): the port dies with the engine, and
         // a stale port in status() would point at nothing (review m3).
+        // The scope goes with it - there is no running engine to
+        // reconcile against.
         *self.clash_api_port.write() = None;
+        *self.tun_scope.write() = None;
         let mut state = self.state.write();
         if matches!(
             *state,
@@ -1076,6 +1122,7 @@ impl SingBoxManager {
         *self.pid.write() = None;
         *self.clash_api_port.write() = None;
         *self.warmup_delay_ms.write() = None;
+        *self.tun_scope.write() = None;
         *self.state.write() = TunnelState::Stopped;
         self.file_logger.flush();
         self.log("info", "sing-box stopped");
@@ -1175,10 +1222,9 @@ impl SingBoxManager {
     }
 }
 
-// The trait is implemented, but the manager is NOT registered in
-// `AppState::sidecars` yet - that wiring is a stage 4 item (see the
-// module docs). Until then `install_update` cannot see an active
-// tunnel; harmless while nothing starts it.
+// Registered in `AppState::sidecars` (stage 4, `main.rs`), so
+// `install_update` refuses while the tunnel is active - in the GUI
+// process only (see the module docs for the svc caveat).
 impl ManagedSidecar for SingBoxManager {
     fn name(&self) -> &'static str {
         "sing-box (WARP tunnel)"
@@ -1210,6 +1256,10 @@ mod tests {
             desync_on: false,
             lists_dir: None,
             dns_provider: "system".to_string(),
+            // The live tests run in the sandbox, which cannot create
+            // a TUN device: the generated config must not include it.
+            tun_enabled: false,
+            fixed_clash_port: None,
         }
     }
 
@@ -1411,6 +1461,10 @@ mod tests {
             input.log_file_path,
             PathBuf::from("/tmp/singbox-home/sing-box.log")
         );
+        // The stage 4 seams pass through untouched (test_options
+        // sets tun_enabled=false for the sandbox live tests).
+        assert!(!input.tun_enabled);
+        assert_eq!(input.fixed_clash_port, None);
     }
 
     #[test]
@@ -1633,6 +1687,65 @@ mod tests {
         assert_eq!(manager.state(), TunnelState::Stopped);
 
         drop(listener);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Live test for the stage 3 TOCTOU retry loop (stage 4, task 7):
+    /// the full `start()` path against the real binary, with the
+    /// Clash port pinned to one the test already occupies. The first
+    /// attempt must die on the bind conflict, the retry must
+    /// regenerate the config with fresh ports and come up. The proof
+    /// is the final Clash port: it must differ from the occupied one
+    /// (the retry really reallocated), and the engine must be up.
+    /// The config has no TUN (the sandbox cannot create one), and
+    /// the MASQUE exit cannot connect from the sandbox, so the final
+    /// state is Degraded or Unregistered, never Running.
+    #[tokio::test]
+    async fn live_start_retries_once_on_bind_conflict() {
+        let Some(binary) = live_test_binary() else {
+            return;
+        };
+
+        let dir =
+            std::env::temp_dir().join(format!("zapret2-singbox-live-retry-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Occupy a loopback port and hold the listener for the whole
+        // test: the first attempt must hit "address already in use".
+        let squatter = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let occupied_port = squatter.local_addr().unwrap().port();
+
+        let options = SingBoxStartOptions {
+            fixed_clash_port: Some(occupied_port),
+            ..test_options(binary, dir.clone())
+        };
+
+        let manager = test_manager();
+        let status = manager
+            .start(options)
+            .await
+            .expect("start retries past the bind conflict");
+        assert_ne!(
+            status.clash_api_port,
+            Some(occupied_port),
+            "the retry must reallocate - the final port cannot be the occupied one"
+        );
+        assert!(status.pid.is_some());
+        assert!(
+            matches!(
+                status.state,
+                TunnelState::Degraded | TunnelState::Unregistered
+            ),
+            "unexpected final state: {:?}",
+            status.state
+        );
+        assert_eq!(manager.tun_scope(), Some(TunScope::ProxyOnly));
+
+        manager.stop().await.unwrap();
+        assert_eq!(manager.state(), TunnelState::Stopped);
+        assert_eq!(manager.tun_scope(), None);
+
+        drop(squatter);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

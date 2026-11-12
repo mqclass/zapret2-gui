@@ -180,7 +180,10 @@ export interface AppSettings {
   /** UI accent color override ("#RRGGBB"); null/undefined = built-in violet. */
   accent_color?: string | null;
   /** Active camouflage transport id (`null`/`undefined` = direct launch). */
-  active_transport_id?: string | null;}
+  active_transport_id?: string | null;
+  /** WARP tunnel switch (stage 4; the UI toggle arrives in stage 5). */
+  warp_enabled?: boolean;
+}
 
 /** Release information returned by the `check_for_updates` IPC command. */
 export interface UpdateInfo {

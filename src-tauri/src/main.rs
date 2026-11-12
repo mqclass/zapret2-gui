@@ -72,6 +72,12 @@ async fn main() {
             tgproxy.clone(),
         )));
 
+    // WARP tunnel sidecar (stage 4): cloned here because the AppState
+    // literal below moves `supervisor_clone` into `backend` before
+    // the `sidecars` field is evaluated.
+    let singbox_sidecar: Arc<dyn crate::engine::managed::ManagedSidecar> =
+        supervisor_clone.singbox().clone();
+
     // 3. Build Tauri v2 application
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -94,9 +100,16 @@ async fn main() {
                 resolved: None,
                 resolved_at: None,
             })),
-            // No external sidecars: the Telegram bridge runs in-process,
-            // so there is nothing holding files for install_update to gate on.
-            sidecars: Vec::new(),
+            // WARP tunnel sidecar (stage 4): `install_update` fails
+            // closed while the tunnel is active, so the installation
+            // directory is never renamed out from under a running
+            // sing-box. Caveat: this is the LOCAL manager - when the
+            // GUI is attached to the svc, the tunnel lives in the svc
+            // and this manager is Stopped, so the updater cannot see
+            // it there yet (stage 5/6 follow-up: IPC TunnelGetStatus).
+            // The Telegram bridge runs in-process, so it is not a
+            // sidecar and needs no entry here.
+            sidecars: vec![singbox_sidecar],
             tgproxy: tgproxy_backend,
             classifier_lock: Arc::new(tokio::sync::Mutex::new(())),
             classifier_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),

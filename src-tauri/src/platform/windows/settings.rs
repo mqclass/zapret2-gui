@@ -171,6 +171,13 @@ pub struct AppSettings {
     /// hosts itself is enabled (same marked section, same backup).
     #[serde(default)]
     pub youtube_throttle_enabled: bool,
+    /// WARP tunnel switch (stage 4): the durable side of the
+    /// tunnel toggle. Default off - WARP is a fallback exit, never
+    /// the default. Read by the supervisor at desync start (the
+    /// tunnel follows the desync) and flipped by `start_tunnel` /
+    /// `stop_tunnel`. The UI toggle arrives in stage 5.
+    #[serde(default)]
+    pub warp_enabled: bool,
     /// Detector-confirmed throttled nodes (see YoutubeNodeRecord).
     /// Records older than 7 days drop out when the lane is applied.
     #[serde(default)]
@@ -262,6 +269,7 @@ impl Default for AppSettings {
             smart_hosts_entry_count: 0,
             smart_hosts_last_error: None,
             youtube_throttle_enabled: false,
+            warp_enabled: false,
             youtube_throttled_nodes: Vec::new(),
             youtube_fast_nodes: Vec::new(),
             youtube_throttle_blocked_count: 0,

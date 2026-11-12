@@ -24,17 +24,47 @@ use tokio::sync::mpsc::{channel, unbounded_channel, Receiver, Sender, UnboundedR
 use tokio::time::interval;
 
 use crate::engine::logger::FileLogger;
+use crate::engine::managed::ManagedSidecar;
 use crate::engine::probes::DiagnosticsService;
-use crate::engine::singbox::SingBoxManager;
+use crate::engine::singbox::{SingBoxManager, SingBoxStartOptions, SingBoxStatus};
+use crate::engine::singbox_config::TunScope;
 use crate::platform::job_object::JobObject;
 use crate::platform::process::{
-    cleanup_windivert_driver, discover_strategies, kill_stray_winws2_processes, resolve_binaries,
-    spawn_process, spawn_winws2, stop_winws2_gracefully, ProcessError, SupervisedProcess,
-    ZapretBinaries,
+    cleanup_windivert_driver, discover_strategies, kill_stray_singbox_processes,
+    kill_stray_winws2_processes, resolve_binaries, spawn_process, spawn_winws2, stop_winws2,
+    stop_winws2_gracefully, ProcessError, SupervisedProcess, ZapretBinaries,
 };
 
 /// Maximum log capacity in RAM to ensure memory consumption stays well below 20 MB.
 const MAX_LOG_CAPACITY: usize = 1_000;
+
+/// Whether this platform applies WARP launch arguments to the desync
+/// engine (stage 4). Windows only: `--wf-raw-filter` is a WinDivert
+/// flag (nfqws2 rejects every `--wf-*` argument on Linux), and the
+/// recipe section is part of the same Windows-scoped wiring. The
+/// tunnel lifecycle itself is cross-platform - on Linux the tunnel
+/// simply starts without desync-side preparation (the Linux port is
+/// deferred, and the WARP mode is Windows-first in v1).
+#[cfg(windows)]
+const WARP_ARGS_SUPPORTED: bool = true;
+#[cfg(not(windows))]
+const WARP_ARGS_SUPPORTED: bool = false;
+
+/// How long to wait for winws2's `capture is started` line before
+/// starting the tunnel (stage 4). NETZapret's CaptureGrace: the
+/// desync must be capturing before the first WARP connection, or the
+/// handshake goes out undesynced and freezes (their 01.10
+/// measurement). Only waited when the tunnel actually has to start -
+/// a desync-only launch never pays it.
+const WINWS2_CAPTURE_GRACE: Duration = Duration::from_secs(10);
+
+/// Poll interval while waiting for the capture line.
+const CAPTURE_READY_POLL: Duration = Duration::from_millis(100);
+
+/// The readiness line both engines print once WinDivert capture is
+/// running (winws2: `nfq2/nfqws.c`; winws v1: the same string,
+/// verified against the pinned Flowseal 1.10.4 binary).
+const CAPTURE_STARTED_MARKER: &str = "capture is started";
 
 /// Auto-hostlist file name inside the user lists directory. One file
 /// shared by every strategy: what was learned about the user's
@@ -306,8 +336,9 @@ pub struct Supervisor {
 
     job_object: Arc<JobObject>,
     /// WARP tunnel sidecar (stage 3). The manager owns the sing-box
-    /// child in the same Job Object as winws2; the supervisor stops
-    /// it on engine stop. Stage 4 wires the start side.
+    /// child in the same Job Object as winws2; the supervisor starts
+    /// it (stage 4: `start_tunnel`, the reconcile after a desync
+    /// start) and stops it on engine stop.
     singbox: Arc<SingBoxManager>,
     diagnostics: Arc<DiagnosticsService>,
 
@@ -334,6 +365,21 @@ pub struct Supervisor {
     /// Set by the stderr reader when the child reports a WinDivert open-filter
     /// failure; reset on every start attempt. Read by the monitor task.
     windivert_open_error: Arc<AtomicBool>,
+    /// Set by the stdout/stderr pumps when the engine prints
+    /// `capture is started` (stage 4): the tunnel starts only after
+    /// this, or after the grace period with the process alive (see
+    /// `wait_winws2_ready`). Reset on every start attempt.
+    capture_started: Arc<AtomicBool>,
+    /// Whether the WARP-args decision for the running desync launch
+    /// has been made (stage 4): the exclusion filter + registration
+    /// recipe were applied, the filter was blocked by the preset's
+    /// own --wf-raw-filter file, or the args are not applicable
+    /// under winws v1 (Flowseal). The flag means "a restart would
+    /// not change the WARP preparation", not "the filter is in the
+    /// arguments" - read by `start_tunnel` to decide whether the
+    /// desync needs a restart. Cleared when a new real start
+    /// attempt begins and on stop.
+    warp_args_applied: Arc<AtomicBool>,
     /// Whether the one-shot WinDivert recovery restart already ran for the
     /// current user-initiated start. Re-armed by user starts only, after the
     /// early-return checks in start_inner; never by the recovery restart
@@ -396,6 +442,8 @@ impl Supervisor {
             split_tunnel_launch: Arc::new(RwLock::new(None)),
             windivert_open_error: Arc::new(AtomicBool::new(false)),
             windivert_recovery_done: Arc::new(AtomicBool::new(false)),
+            capture_started: Arc::new(AtomicBool::new(false)),
+            warp_args_applied: Arc::new(AtomicBool::new(false)),
             last_start_params: Arc::new(RwLock::new((None, None))),
             generation: Arc::new(RwLock::new(0)),
             recovery_tx,
@@ -438,8 +486,15 @@ impl Supervisor {
     }
 
     /// The WARP tunnel sidecar manager (stage 3). Stage 4 calls
-    /// `start()` / `stop()` on it from the supervisor's lifecycle;
-    /// stage 5 exposes its status over IPC.
+    /// `start()` / `stop()` on it from the supervisor's lifecycle
+    /// (`start_tunnel` / `stop_tunnel` and the reconcile after a
+    /// desync start); the GUI binary's `main.rs` registers it in
+    /// `AppState::sidecars` so `install_update` refuses while the
+    /// tunnel is active. Stage 5 exposes its status over IPC.
+    ///
+    /// The accessor itself is only called from the GUI binary - the
+    /// svc binary never registers sidecars (the updater runs in the
+    /// GUI), so without this the svc build warns.
     #[allow(dead_code)]
     pub fn singbox(&self) -> &Arc<SingBoxManager> {
         &self.singbox
@@ -668,7 +723,7 @@ impl Supervisor {
                         }
                         if let Err(e) = worker
                             .clone()
-                            .start_locked(strategy_id, custom_args, false, &guard)
+                            .start_locked(strategy_id, custom_args, false, false, &guard)
                             .await
                         {
                             worker.log(
@@ -714,17 +769,22 @@ impl Supervisor {
         // from `self` directly.
         let this = self.clone();
         let guard = this.lifecycle.lock().await;
-        self.start_locked(strategy_id, custom_args, reset_recovery, &guard)
+        self.start_locked(strategy_id, custom_args, reset_recovery, false, &guard)
             .await
     }
 
     /// Start body, run with the lifecycle lock already held (see start_inner).
     /// Must never acquire the lifecycle lock itself.
+    /// `force_restart` bypasses the "already running the same strategy"
+    /// no-op: the WARP restart in `start_tunnel` relaunches the exact
+    /// same strategy with the tunnel args added, and without the force
+    /// flag start_locked would return without restarting anything.
     async fn start_locked(
         self: Arc<Self>,
         strategy_id: Option<String>,
         custom_args: Option<Vec<String>>,
         reset_recovery: bool,
+        force_restart: bool,
         _guard: &tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<(), ProcessError> {
         // SECURITY (M-1): fail-closed privilege gate lives INSIDE the start
@@ -781,7 +841,14 @@ impl Supervisor {
             if *state == SupervisorState::Running {
                 let active = self.active_strategy.read().clone();
                 let requested = strategy_id.clone().unwrap_or_else(|| "flowseal-alt".into());
-                if active.as_deref() == Some(&requested) && custom_args.is_none() {
+                if active.as_deref() == Some(&requested) && custom_args.is_none() && !force_restart
+                {
+                    // No-op start, but the generation was already
+                    // bumped (in start()), which cancels the pending
+                    // reconcile task from the original start - spawn
+                    // a fresh one so the tunnel still comes up when
+                    // wanted (stage 4, review m4).
+                    self.spawn_tunnel_reconcile_if_needed();
                     return Ok(());
                 }
                 *state = SupervisorState::Starting;
@@ -795,6 +862,18 @@ impl Supervisor {
         // cannot keep advertising a custom run. It is set again on
         // successful spawn below, from custom_args.is_some().
         self.active_custom_args.store(false, Ordering::SeqCst);
+        // Stage 4 (review m2): the same "real attempt only" rule for
+        // the capture/WARP flags - they live here, below the no-op
+        // return, so a no-op start cannot clear them. Clearing
+        // warp_args_applied would make start_tunnel restart the
+        // desync for nothing, and clearing capture_started would
+        // make the next readiness wait burn the full 10 s grace
+        // even though the engine already reported capture. A new
+        // attempt has not captured yet and has not applied the WARP
+        // args yet; both are set again below (the flag by the pumps,
+        // the args flag at step 3c).
+        self.capture_started.store(false, Ordering::SeqCst);
+        self.warp_args_applied.store(false, Ordering::SeqCst);
         let is_custom_args = custom_args.is_some();
 
         // A real start attempt (not a no-op early return above) re-arms the
@@ -818,7 +897,13 @@ impl Supervisor {
         if let Some(mut old_child) = maybe_child {
             if let Some(old_pid) = old_pid_opt {
                 self.log("info", &format!("Switching config: stopping previous engine (PID {})", old_pid));
-                let _ = stop_winws2_gracefully(&mut old_child, &self.job_object).await;
+                // No Job Object teardown here (stage 4): the shared job
+                // also holds the sing-box sidecar, and a strategy
+                // switch must not kill the tunnel (the
+                // independent-switches matrix). kill+wait is a
+                // complete stop for winws2 (it spawns no children);
+                // the spawn-retry path below still sweeps strays.
+                let _ = stop_winws2(&mut old_child).await;
             }
         }
 
@@ -1124,6 +1209,58 @@ impl Supervisor {
             }
         }
 
+        // 3c. WARP launch arguments (stage 4, Windows only): when the
+        // tunnel will run (switch on + binary present) or already runs,
+        // the desync launch takes the tunnel out of the WinDivert
+        // capture (--wf-raw-filter) and adds the registration recipe
+        // for api.cloudflareclient.com. The decision is made here, at
+        // arg-build time, because the filter can only be applied before
+        // the spawn - a tunnel started later against an unfiltered
+        // desync needs a desync restart (see start_tunnel). The
+        // `needs_tunnel` binding is reused by the reconcile (step 7).
+        let tunnel_wanted = crate::platform::settings::load_settings().warp_enabled
+            && binaries.sing_box_exe.is_some();
+        let tunnel_already_running = self.singbox.is_active();
+        let needs_tunnel = tunnel_wanted || tunnel_already_running;
+        if needs_tunnel {
+            if WARP_ARGS_SUPPORTED {
+                use crate::engine::tunnel_capture::WarpArgsOutcome;
+                match crate::engine::tunnel_capture::apply_warp_args(&mut args, !use_winws1) {
+                    WarpArgsOutcome::Applied => {
+                        self.warp_args_applied.store(true, Ordering::SeqCst);
+                        self.log(
+                            "info",
+                            "WARP launch args applied: tunnel excluded from WinDivert capture, api.cloudflareclient.com recipe added",
+                        );
+                    }
+                    WarpArgsOutcome::FilterBlockedByFile => {
+                        self.warp_args_applied.store(true, Ordering::SeqCst);
+                        self.log(
+                            "warn",
+                            "WARP recipe applied, but the preset's own --wf-raw-filter comes from a file and cannot be extended: the tunnel stays in the WinDivert capture and runs slower",
+                        );
+                    }
+                    WarpArgsOutcome::NotApplicableWinws1 => {
+                        // The decision is final for this launch too:
+                        // a restart would reach the same outcome, so
+                        // the flag is set (review m1) - otherwise
+                        // start_tunnel would restart the desync for
+                        // nothing on the default (Flowseal) strategy.
+                        self.warp_args_applied.store(true, Ordering::SeqCst);
+                        self.log(
+                            "info",
+                            "Flowseal strategy (winws v1) cannot exclude the tunnel from WinDivert (--wf-raw-part is OR-combined): the tunnel runs through the capture and is slower; registration still gets desynced (the preset covers all TCP 443)",
+                        );
+                    }
+                }
+            } else {
+                self.log(
+                    "info",
+                    "WARP launch args are Windows-only: the tunnel starts without desync-side preparation on this platform",
+                );
+            }
+        }
+
         // Linux: translate the Windows root capture into NFQUEUE +
         // nftables before spawning (and before the parameter log below,
         // so the log shows the command line nfqws2 actually receives).
@@ -1266,10 +1403,17 @@ impl Supervisor {
         // 5. Spawn asynchronous log readers
         let log_tx_stdout = self.log_tx.clone();
         let file_logger_stdout = self.file_logger.clone();
+        let capture_started_stdout = self.capture_started.clone();
         if let Some(stdout_stream) = stdout {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout_stream).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
+                    // Stage 4: the engine prints this once WinDivert
+                    // capture is running; the tunnel starts only after
+                    // it (or the grace period, see wait_winws2_ready).
+                    if line.contains(CAPTURE_STARTED_MARKER) {
+                        capture_started_stdout.store(true, Ordering::SeqCst);
+                    }
                     file_logger_stdout.write_entry("ENGINE", &line);
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -1287,6 +1431,7 @@ impl Supervisor {
         let log_tx_stderr = self.log_tx.clone();
         let file_logger_stderr = self.file_logger.clone();
         let windivert_open_error = self.windivert_open_error.clone();
+        let capture_started_stderr = self.capture_started.clone();
         if let Some(stderr_stream) = stderr {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_stream).lines();
@@ -1299,6 +1444,11 @@ impl Supervisor {
                         && lowered.contains("error opening filter")
                     {
                         windivert_open_error.store(true, Ordering::SeqCst);
+                    }
+                    // Stage 4: same capture marker as on stdout (the
+                    // line's stream is not guaranteed across engines).
+                    if line.contains(CAPTURE_STARTED_MARKER) {
+                        capture_started_stderr.store(true, Ordering::SeqCst);
                     }
                     file_logger_stderr.write_entry("STDERR", &line);
                     let now = SystemTime::now()
@@ -1462,6 +1612,27 @@ impl Supervisor {
             }
         });
 
+        // 7. WARP tunnel reconcile (stage 4): the desync is up; if the
+        // tunnel switch is on (or the tunnel already runs), bring the
+        // tunnel up with the matching scope - but detached. The tunnel
+        // start (readiness + warmup) can take tens of seconds on a
+        // dead exit, and start_locked holds the lifecycle lock: doing
+        // it here would make the "Включить обход" call wait for the
+        // tunnel and block stop() behind it. The task re-checks the
+        // generation and the desync state before touching the tunnel,
+        // so a stop() in between cancels it; the final check and the
+        // start run under the lifecycle lock, so a stop cannot slip
+        // between the check and the start (see reconcile_tunnel_task).
+        // A tunnel failure here never fails the desync start: the
+        // tunnel is a fallback, and the desync is already running.
+        if needs_tunnel {
+            let task_self = self.clone();
+            let task_generation = *self.generation.read();
+            tokio::spawn(async move {
+                task_self.reconcile_tunnel_task(task_generation).await;
+            });
+        }
+
         Ok(())
     }
 
@@ -1491,9 +1662,13 @@ impl Supervisor {
         self.emit_state_change(SupervisorState::Stopping);
         self.log("info", "Initiating shutdown of bypass engine...");
 
-        // Stage 3: shutdown is the reverse of startup - the tunnel
+        // Stage 3/4: shutdown is the reverse of startup - the tunnel
         // stops first, then winws2. A no-op while the tunnel never
-        // started; stage 4 wires the start side.
+        // started. The `warp_enabled` switch is deliberately NOT
+        // touched here: it is the user's persistent preference ("the
+        // tunnel comes up with the bypass"), and only `stop_tunnel`
+        // turns it off. A later start with the switch still on brings
+        // the tunnel back.
         let _ = self.singbox.stop().await;
 
         let maybe_child = self.active_child.lock().take();
@@ -1529,12 +1704,346 @@ impl Supervisor {
             *self.active_transport.write() = None;
             *self.app_split_launch.write() = AppSplitLaunchState::default();
             *self.split_tunnel_launch.write() = None;
+            // Stage 4: no engine, no capture, no warp args.
+            self.capture_started.store(false, Ordering::SeqCst);
+            self.warp_args_applied.store(false, Ordering::SeqCst);
         }
 
         self.emit_state_change(SupervisorState::Stopped);
         self.log("info", "zapret supervisor stopped successfully");
 
         Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // WARP tunnel: the second switch (stage 4)
+    // ------------------------------------------------------------------
+
+    /// Start the WARP tunnel: the tunnel side of the two switches
+    /// (design section 3). Sets the durable `warp_enabled` switch,
+    /// then:
+    /// - desync stopped: start the tunnel alone (Everything scope).
+    /// - desync running with the WARP args applied: wait for capture
+    ///   readiness, then start the tunnel (ProxyOnly scope).
+    /// - desync running WITHOUT the WARP args (Windows only: it was
+    ///   started before the tunnel was switched on): restart the
+    ///   desync with the same parameters - start_locked applies the
+    ///   args and spawns the reconcile task, which starts the tunnel.
+    ///   This call returns the tunnel status as it is at that moment
+    ///   (Stopped): the tunnel comes up in the background via the
+    ///   reconcile task. Waiting for it here would mean holding the
+    ///   lifecycle lock through the tunnel start - the task exists
+    ///   precisely to avoid that.
+    /// - tunnel already up: idempotent (like the manager's start),
+    ///   except a wrong scope, which is fixed by a stop+start.
+    ///
+    /// Fails closed when the sing-box binary is absent (WARP
+    /// unavailable) or the tunnel start itself fails. A failed tunnel
+    /// start leaves the switch ON - the user's intent stands, and the
+    /// tunnel can be retried (stage 6); only an explicit stop_tunnel
+    /// turns it off.
+    ///
+    /// Serialized with start()/stop() via the lifecycle lock (design
+    /// section 7). The tunnel start (readiness + warmup) runs under
+    /// the lock: a concurrent stop() waits for it (seconds in the
+    /// common case, up to ~30 s for a hung engine) and then stops
+    /// everything - the alternative (a check-then-start race) could
+    /// leave a tunnel running after the user stopped the bypass.
+    ///
+    /// Not called yet: stage 5 wires it to the IPC tunnel toggle.
+    #[allow(dead_code)]
+    pub async fn start_tunnel(self: Arc<Self>) -> Result<SingBoxStatus, ProcessError> {
+        // The switch is set first: the desync restart below (and the
+        // reconcile it spawns) reads it to decide the tunnel must run.
+        let _ = crate::platform::settings::update_settings(|s| {
+            s.warp_enabled = true;
+        });
+
+        let _guard = self.lifecycle.lock().await;
+
+        let binaries = resolve_binaries()?;
+        let desync_running = *self.state.read() == SupervisorState::Running;
+
+        // Tunnel already up (or coming up): idempotent, except a
+        // wrong scope - the desync may have come up after the tunnel
+        // without a reconcile (e.g. a crash between the two).
+        if self.singbox.is_active() {
+            let want_scope = if desync_running {
+                TunScope::ProxyOnly
+            } else {
+                TunScope::Everything
+            };
+            if self.singbox.tun_scope() == Some(want_scope) {
+                return Ok(self.singbox.status());
+            }
+            self.log(
+                "info",
+                "tunnel is running with the wrong scope: restarting it",
+            );
+            let _ = self.singbox.stop().await;
+            let options = Self::tunnel_start_options(&binaries, want_scope, desync_running)
+                .ok_or_else(|| {
+                    ProcessError::Tunnel("sing-box не найден в установке".to_string())
+                })?;
+            return Ok(self.start_tunnel_inner(options).await?);
+        }
+
+        // From here on a tunnel start (or a desync restart for one)
+        // is needed, so the binary must exist. Checked once, here:
+        // restarting the desync for a tunnel that cannot run would
+        // leave the user with no desync at all if the restart failed.
+        if binaries.sing_box_exe.is_none() {
+            return Err(ProcessError::Tunnel(
+                "sing-box не найден в установке: WARP-режим недоступен. Обновите приложение - движок поставляется вместе с ним.".to_string(),
+            ));
+        }
+
+        if !desync_running {
+            // Tunnel alone: Everything scope, no capture to wait for.
+            let options = Self::tunnel_start_options(&binaries, TunScope::Everything, false)
+                .ok_or_else(|| {
+                    ProcessError::Tunnel("sing-box не найден в установке".to_string())
+                })?;
+            return Ok(self.start_tunnel_inner(options).await?);
+        }
+
+        // Desync running. Windows: if it launched without the WARP
+        // args, restart it with the same parameters - start_locked
+        // applies the args and spawns the reconcile task, which
+        // starts the tunnel. The restart is forced: start_locked
+        // would otherwise no-op on "same strategy, no custom args".
+        if WARP_ARGS_SUPPORTED && !self.warp_args_applied.load(Ordering::SeqCst) {
+            self.log(
+                "info",
+                "desync is running without the WARP launch args: restarting it so the tunnel stays out of the WinDivert capture",
+            );
+            let (strategy_id, custom_args) = self.last_start_params.read().clone();
+            self.clone()
+                .start_locked(strategy_id, custom_args, false, true, &_guard)
+                .await?;
+            return Ok(self.singbox.status());
+        }
+
+        // Desync running with the args (or on a platform without warp
+        // args): wait for capture readiness, then start ProxyOnly.
+        if !self.wait_winws2_ready().await {
+            return Err(ProcessError::Tunnel(
+                "движок десинка остановился, пока туннель ждал готовности захвата".to_string(),
+            ));
+        }
+        let options = Self::tunnel_start_options(&binaries, TunScope::ProxyOnly, true)
+            .ok_or_else(|| ProcessError::Tunnel("sing-box не найден в установке".to_string()))?;
+        Ok(self.start_tunnel_inner(options).await?)
+    }
+
+    /// Stop the WARP tunnel: the tunnel side of the two switches.
+    /// Turns the durable `warp_enabled` switch off and stops the
+    /// engine. The desync is untouched (the filter stays in its
+    /// arguments until the next desync restart - harmless: it
+    /// excludes an endpoint nothing connects to anymore). A no-op
+    /// while the tunnel is stopped (the switch is still turned off -
+    /// the caller's intent is explicit).
+    ///
+    /// Not called yet: stage 5 wires it to the IPC tunnel toggle.
+    #[allow(dead_code)]
+    pub async fn stop_tunnel(&self) -> Result<(), ProcessError> {
+        let _ = crate::platform::settings::update_settings(|s| {
+            s.warp_enabled = false;
+        });
+        let _guard = self.lifecycle.lock().await;
+        self.singbox.stop().await?;
+        Ok(())
+    }
+
+    /// Spawn a detached tunnel reconcile when the tunnel is wanted
+    /// but not already up with the right scope (stage 4, review m4).
+    /// Used on the no-op start path: `start()` bumps the generation
+    /// before it knows the start is a no-op, which cancels the
+    /// reconcile task the original start spawned - without a fresh
+    /// task the tunnel would silently never come up. The task itself
+    /// re-checks everything under the lifecycle lock, so this
+    /// pre-check only avoids pointless spawns.
+    fn spawn_tunnel_reconcile_if_needed(self: &Arc<Self>) {
+        let tunnel_wanted = crate::platform::settings::load_settings().warp_enabled
+            && resolve_binaries()
+                .map(|b| b.sing_box_exe.is_some())
+                .unwrap_or(false);
+        let tunnel_needed = tunnel_wanted || self.singbox.is_active();
+        let tunnel_ok =
+            self.singbox.is_active() && self.singbox.tun_scope() == Some(TunScope::ProxyOnly);
+        if tunnel_needed && !tunnel_ok {
+            let task_self = self.clone();
+            let task_generation = *self.generation.read();
+            tokio::spawn(async move {
+                task_self.reconcile_tunnel_task(task_generation).await;
+            });
+        }
+    }
+
+    /// The detached tunnel reconcile after a desync start (stage 4).
+    /// Spawned by step 7 of start_locked when the tunnel is wanted
+    /// or already running. Steps:
+    /// 1. Wait for winws2 capture readiness (or the grace period).
+    ///    No lock held here - the wait is up to 10 s.
+    /// 2. Take the lifecycle lock and re-check the generation and
+    ///    the desync state: a stop() in between cancels the task.
+    ///    The lock is held across the check AND the tunnel start, so
+    ///    a stop cannot slip between them (see start_tunnel for why
+    ///    that race matters).
+    /// 3. Re-read the switch and the tunnel state, then start the
+    ///    tunnel (ProxyOnly) or re-scope it (Everything -> ProxyOnly).
+    /// A tunnel failure is logged and swallowed: the desync is
+    /// already running, and the tunnel is a fallback. Note the
+    /// status window: between the desync start and the tunnel start
+    /// (up to the capture grace) the tunnel status reads Stopped -
+    /// the manager only reports Starting once start() runs.
+    async fn reconcile_tunnel_task(self: Arc<Self>, generation: u64) {
+        if !self.wait_winws2_ready().await {
+            self.log(
+                "info",
+                "desync engine died while the tunnel waited for capture readiness - tunnel not started",
+            );
+            return;
+        }
+
+        let _guard = self.lifecycle.lock().await;
+        if *self.generation.read() != generation {
+            return;
+        }
+        if *self.state.read() != SupervisorState::Running {
+            return;
+        }
+        // The switch may have been flipped while we waited.
+        if !crate::platform::settings::load_settings().warp_enabled {
+            return;
+        }
+        let binaries = match resolve_binaries() {
+            Ok(b) => b,
+            Err(e) => {
+                self.log(
+                    "warn",
+                    &format!("tunnel reconcile: cannot resolve binaries: {e}"),
+                );
+                return;
+            }
+        };
+        let Some(options) = Self::tunnel_start_options(&binaries, TunScope::ProxyOnly, true) else {
+            self.log(
+                "warn",
+                "tunnel switch is on but sing-box is not installed: tunnel not started",
+            );
+            return;
+        };
+        if self.singbox.is_active() {
+            if self.singbox.tun_scope() == Some(TunScope::ProxyOnly) {
+                return;
+            }
+            self.log(
+                "info",
+                "tunnel is running with the wrong scope for an active desync: restarting it with ProxyOnly",
+            );
+            let _ = self.singbox.stop().await;
+        }
+        if let Err(e) = self.start_tunnel_inner(options).await {
+            self.log(
+                "warn",
+                &format!("tunnel failed to start after the desync: {e} (desync keeps running)"),
+            );
+        }
+    }
+
+    /// Wait for winws2 to report capture readiness: the
+    /// `capture is started` line, or the grace period elapsing with
+    /// the process alive (NETZapret's CaptureGrace - the line is a
+    /// log line, not a contract, and an engine that stays alive for
+    /// 10 s is capturing). Returns false only when the child died
+    /// during the wait, in which case the caller must not start the
+    /// tunnel (the desync it was supposed to follow is gone).
+    async fn wait_winws2_ready(&self) -> bool {
+        // Linux: the nftables queue rules are installed before the
+        // spawn, so capture is active by the time the engine is
+        // Running - there is no readiness line to wait for (nfqws2
+        // never prints one: the line is WinDivert-specific).
+        if !cfg!(windows) {
+            return true;
+        }
+        let deadline = Instant::now() + WINWS2_CAPTURE_GRACE;
+        loop {
+            if self.capture_started.load(Ordering::SeqCst) {
+                return true;
+            }
+            if !self.desync_child_alive() {
+                return false;
+            }
+            if Instant::now() >= deadline {
+                self.log(
+                    "info",
+                    "winws2 did not print 'capture is started' within 10 s, but the process is alive - starting the tunnel",
+                );
+                return true;
+            }
+            tokio::time::sleep(CAPTURE_READY_POLL).await;
+        }
+    }
+
+    /// Is the supervised desync child still alive? `false` when the
+    /// slot is empty (taken by stop(), the monitor, or a switch) or
+    /// the child has exited. A try_wait error counts as dead, like
+    /// the monitor treats it.
+    fn desync_child_alive(&self) -> bool {
+        let mut guard = self.active_child.lock();
+        match guard.as_mut() {
+            None => false,
+            Some(child) => matches!(child.try_wait(), Ok(None)),
+        }
+    }
+
+    /// Build the manager's start options from resolved binaries
+    /// (stage 4). Returns None when the sing-box binary is absent
+    /// (WARP unavailable - the desync is unaffected). `tun_enabled`
+    /// is always true here: the false seam exists only for the
+    /// sandbox live tests.
+    fn tunnel_start_options(
+        binaries: &ZapretBinaries,
+        scope: TunScope,
+        desync_on: bool,
+    ) -> Option<SingBoxStartOptions> {
+        let binary = binaries.sing_box_exe.clone()?;
+        let settings = crate::platform::settings::load_settings();
+        Some(SingBoxStartOptions {
+            binary,
+            work_dir: binaries.bin_dir.clone(),
+            home_dir: crate::engine::singbox::singbox_home_dir(),
+            tun_scope: scope,
+            desync_on,
+            lists_dir: binaries.lists_dir.clone(),
+            dns_provider: settings.dns_provider,
+            tun_enabled: true,
+            fixed_clash_port: None,
+        })
+    }
+
+    /// Start the tunnel through the manager: sweep orphaned sing-box
+    /// processes first (a stray from a crashed run holds the TUN
+    /// adapter and the Clash port), then start. The caller holds the
+    /// lifecycle lock. The currently managed tunnel PID (if any) is
+    /// excluded from the sweep - a future caller that does not hold
+    /// the lock must not kill a live engine it does not own.
+    async fn start_tunnel_inner(
+        &self,
+        options: SingBoxStartOptions,
+    ) -> Result<SingBoxStatus, crate::engine::singbox::SingBoxError> {
+        let exclude = self.singbox.status().pid;
+        let killed = kill_stray_singbox_processes(exclude);
+        if killed > 0 {
+            self.log(
+                "info",
+                &format!(
+                    "removed {killed} orphaned sing-box process(es) before starting the tunnel"
+                ),
+            );
+        }
+        self.singbox.start(options).await
     }
 
     /// Comprehensive list of domains for Discord media, gateway, CDNs, and GIF search providers (Tenor, Giphy).

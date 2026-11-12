@@ -245,6 +245,20 @@ pub struct SingBoxConfigInput {
     pub cache_file_path: PathBuf,
     /// Absolute path of the engine log file (`sing-box.log`).
     pub log_file_path: PathBuf,
+    /// Whether to include the TUN inbound. Production always sets
+    /// this `true`; `false` exists only for the live retry test
+    /// (stage 4): the sandbox cannot create a TUN device
+    /// (`TUNSETIFF: operation not permitted`), so a config without
+    /// TUN is the only one the real engine can start there. The
+    /// config stays valid - the route rules never reference the TUN
+    /// tag - and `sing-box check` accepts it.
+    pub tun_enabled: bool,
+    /// Pin the Clash API port instead of allocating a random one.
+    /// `None` in production (random per build). The live retry test
+    /// (stage 4) pins a port it already occupies, so the first start
+    /// attempt fails with a bind error and the retry must reallocate
+    /// fresh ports. Port 0 is rejected by validation.
+    pub fixed_clash_port: Option<u16>,
 }
 
 /// A generated config: the JSON value plus the random ports and secrets
@@ -320,7 +334,10 @@ pub fn build_config(
     input: &SingBoxConfigInput,
 ) -> Result<GeneratedSingBoxConfig, SingBoxConfigError> {
     validate_input(input)?;
-    let (clash_api_port, mixed_port) = allocate_loopback_ports()?;
+    let (clash_api_port, mixed_port) = match input.fixed_clash_port {
+        Some(port) => (port, allocate_loopback_port_except(port)?),
+        None => allocate_loopback_ports()?,
+    };
     let clash_api_secret = random_hex(CLASH_SECRET_HEX_LEN / 2);
     let mixed_password = random_hex(MIXED_PASSWORD_HEX_LEN / 2);
 
@@ -353,6 +370,11 @@ fn validate_input(input: &SingBoxConfigInput) -> Result<(), SingBoxConfigError> 
             "DoH server is not an IP address: {}",
             input.doh.server
         )));
+    }
+    if input.fixed_clash_port == Some(0) {
+        return Err(SingBoxConfigError::InvalidInput(
+            "fixed Clash API port 0 is not a real port".to_string(),
+        ));
     }
     for cidr in &input.desync_exclude_cidrs {
         validate_cidr(cidr)?;
@@ -476,12 +498,15 @@ fn fakeip_server(ipv6: bool) -> Value {
     fake
 }
 
-/// `inbounds`: the TUN inbound plus the mixed health-check inbound.
+/// `inbounds`: the TUN inbound (unless `tun_enabled` is false - the
+/// stage 4 live-test seam) plus the mixed health-check inbound.
 fn build_inbounds(input: &SingBoxConfigInput, mixed_port: u16, mixed_password: &str) -> Value {
-    json!([
-        build_tun_inbound(input),
-        build_mixed_inbound(mixed_port, mixed_password)
-    ])
+    let mut inbounds: Vec<Value> = Vec::new();
+    if input.tun_enabled {
+        inbounds.push(build_tun_inbound(input));
+    }
+    inbounds.push(build_mixed_inbound(mixed_port, mixed_password));
+    json!(inbounds)
 }
 
 /// The TUN inbound. `strict_route` stays off: on Windows it installs
@@ -726,6 +751,28 @@ fn allocate_loopback_ports() -> Result<(u16, u16), SingBoxConfigError> {
     ))
 }
 
+/// Allocate one free loopback port distinct from `except` (the pinned
+/// Clash API port, stage 4 test seam). Same bind-to-:0 trick as
+/// [`allocate_loopback_ports`]; the mixed port must never collide
+/// with the pinned Clash port.
+fn allocate_loopback_port_except(except: u16) -> Result<u16, SingBoxConfigError> {
+    for _ in 0..8 {
+        let listener =
+            TcpListener::bind("127.0.0.1:0").map_err(SingBoxConfigError::PortAllocation)?;
+        let port = listener
+            .local_addr()
+            .map_err(SingBoxConfigError::PortAllocation)?
+            .port();
+        drop(listener);
+        if port != 0 && port != except {
+            return Ok(port);
+        }
+    }
+    Err(SingBoxConfigError::InvalidInput(
+        "could not allocate a loopback port distinct from the pinned Clash port".to_string(),
+    ))
+}
+
 /// `n` random bytes from the OS RNG, hex-encoded (2n chars).
 /// Same pattern as the Telegram bridge secret (tgproxy.rs).
 fn random_hex(bytes: usize) -> String {
@@ -803,6 +850,8 @@ mod tests {
             ipv6: false,
             cache_file_path: PathBuf::from("/tmp/zapret2-test/singbox/engine-cache.db"),
             log_file_path: PathBuf::from("/tmp/zapret2-test/singbox/sing-box.log"),
+            tun_enabled: true,
+            fixed_clash_port: None,
         }
     }
 
@@ -1276,6 +1325,20 @@ mod tests {
                 scope, outcome.stdout, outcome.stderr
             );
         }
+        // The no-TUN config (stage 4 live-test seam) must also pass
+        // `check`: the live retry test starts the real engine with it.
+        let mut input = test_input(TunScope::ProxyOnly);
+        input.ipv6 = true;
+        input.tun_enabled = false;
+        let config = build_config(&input).unwrap();
+        let path = dir.join("config-no-tun.json");
+        write_config_file(&config, &path).unwrap();
+        let outcome = check_config(&binary, &path).unwrap();
+        assert!(
+            outcome.success,
+            "sing-box check rejected the no-TUN config: stdout={} stderr={}",
+            outcome.stdout, outcome.stderr
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1285,5 +1348,45 @@ mod tests {
         let v6: IpAddr = "2001:db8::1".parse().unwrap();
         assert_eq!(prefix_host(v4), "192.0.2.1/32");
         assert_eq!(prefix_host(v6), "2001:db8::1/128");
+    }
+
+    #[test]
+    fn tun_disabled_config_has_no_tun_inbound() {
+        let mut input = test_input(TunScope::ProxyOnly);
+        input.tun_enabled = false;
+        let config = build_config(&input).unwrap();
+        let inbounds = config.value["inbounds"]
+            .as_array()
+            .expect("inbounds is an array");
+        assert_eq!(inbounds.len(), 1, "only the mixed inbound remains");
+        assert_eq!(inbounds[0]["type"], "mixed");
+        // The route rules never reference the TUN tag, so nothing else
+        // changes: the health rule and the domain rule still stand.
+        let rules = config.value["route"]["rules"]
+            .as_array()
+            .expect("route rules is an array");
+        assert!(rules.iter().any(|r| r["inbound"] == json!([TAG_HEALTH])));
+    }
+
+    #[test]
+    fn fixed_clash_port_is_used_and_mixed_differs() {
+        let mut input = test_input(TunScope::ProxyOnly);
+        input.fixed_clash_port = Some(45678);
+        let config = build_config(&input).unwrap();
+        assert_eq!(config.clash_api_port, 45678);
+        assert_ne!(config.mixed_port, 45678);
+        assert_ne!(config.mixed_port, 0);
+        assert_eq!(
+            config.value["experimental"]["clash_api"]["external_controller"],
+            json!("127.0.0.1:45678")
+        );
+    }
+
+    #[test]
+    fn fixed_clash_port_zero_is_rejected() {
+        let mut input = test_input(TunScope::ProxyOnly);
+        input.fixed_clash_port = Some(0);
+        let err = build_config(&input).unwrap_err();
+        assert!(matches!(err, SingBoxConfigError::InvalidInput(_)));
     }
 }
