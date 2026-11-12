@@ -415,7 +415,7 @@ export function useAutoTune({
                             Discord <ProbeStatusBadge status={res.discord_status} />
                           </span>
                           <span className="flex items-center gap-1 text-ink4">
-                            Voice <ProbeStatusBadge status={res.voice_status} />
+                            {t.dashboard.svcVoice} <ProbeStatusBadge status={res.voice_status} />
                           </span>
                         </div>
                         {res.error && (

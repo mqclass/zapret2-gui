@@ -1090,7 +1090,7 @@ const AppContent: React.FC = () => {
               onNavigateTab={setActiveTab}
               watchdogOn={watchdogOn}
               watchdogIntervalMinutes={watchdogInterval}
-              onSaveCustomProfile={handleSaveCustomProfile}
+              onExpertModeChange={handleExpertModeChange}
             />
           )}
 

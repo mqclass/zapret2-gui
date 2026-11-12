@@ -33,7 +33,7 @@ import { TransportsSection } from "../TransportsSection";
 import { GoalPicker } from "../GoalPicker";
 import { useAutoTune } from "../AutoTuneModal";
 import { AppSplitModal } from "../AppSplitModal";
-import { CustomProfileModal } from "../CustomProfileModal";
+import { CustomConfigGateModal } from "../CustomConfigGateModal";
 import { NavTab } from "../Sidebar";
 
 interface DashboardViewProps {
@@ -54,8 +54,8 @@ interface DashboardViewProps {
   /** Strategy watchdog state, for the simple view's status-only row. */
   watchdogOn: boolean;
   watchdogIntervalMinutes: number;
-  /** Wizard «Свой конфиг» goal: saves through the same App handler as the presets tab. */
-  onSaveCustomProfile: (strategy: LuaStrategy) => Promise<void>;
+  /** Switch the shell to expert mode (the «Свой конфиг» gate's button). */
+  onExpertModeChange?: (expert: boolean) => void;
 }
 
 const listVariants: Variants = {
@@ -88,7 +88,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
     onNavigateTab,
     watchdogOn,
     watchdogIntervalMinutes,
-    onSaveCustomProfile,
+    onExpertModeChange,
   }) => {
     const { t } = useI18n();
 
@@ -174,7 +174,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
       onError: setAutoTuneError,
     });
 
-    const [isCustomModalOpen, setIsCustomModalOpen] = React.useState(false);
+    const [isCustomGateOpen, setIsCustomGateOpen] = React.useState(false);
     const [isAppSplitOpen, setIsAppSplitOpen] = React.useState(false);
 
     // App-split one-liner: mode + selected-app count, read from the
@@ -378,7 +378,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               disabled={isTransitioning}
               onSelectStrategy={onSelectStrategy}
               onStartStrategy={onStartStrategy}
-              onCustomGoal={() => setIsCustomModalOpen(true)}
+              onCustomGoal={() => setIsCustomGateOpen(true)}
               compact
             />
           </motion.div>
@@ -513,11 +513,17 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               void refreshAppSplitSummary();
             }}
           />
-          <CustomProfileModal
-            isOpen={isCustomModalOpen}
-            onClose={() => setIsCustomModalOpen(false)}
-            onSave={onSaveCustomProfile}
-            editingStrategy={null}
+          {/* The expert dashboard has no wizard: going to Expert from
+              here also lands on the presets tab, where the custom
+              profile modal lives. */}
+          <CustomConfigGateModal
+            isOpen={isCustomGateOpen}
+            onClose={() => setIsCustomGateOpen(false)}
+            onGoExpert={() => {
+              setIsCustomGateOpen(false);
+              onExpertModeChange?.(true);
+              onNavigateTab("presets");
+            }}
           />
         </motion.div>
       );

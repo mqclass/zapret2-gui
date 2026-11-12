@@ -67,10 +67,6 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   const { t, language } = useI18n();
   const busy = phase === "downloading" || phase === "installing";
 
-  const desc = t.update.availableDesc
-    .replace("{date}", formatDate(info.published_at, language))
-    .replace("{size}", formatBytes(info.asset_size));
-
   // Portal to document.body: glass ancestors (backdrop-filter) would
   // otherwise become the containing block for `fixed` and confine the
   // backdrop to the card instead of the window (see CustomProfileModal).
@@ -121,8 +117,6 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             <ExternalLink className="h-3 w-3" />
           </button>
         </div>
-
-        <p className="mt-1 text-[11px] text-ink5">{desc}</p>
 
         {/* Changelog */}
         <div className="mt-3">

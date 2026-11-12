@@ -181,6 +181,7 @@ export const PresetsView: React.FC<PresetsViewProps> = React.memo(
             onDeleteCustomProfile={onDeleteCustomProfile}
             disabled={disabled}
             onShowAllStrategies={() => onExpertModeChange(true)}
+            onShowExpert={() => onExpertModeChange(true)}
           />
           <HostlistSummary
             autoHostlistOn={autoHostlistOn}

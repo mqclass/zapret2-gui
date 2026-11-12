@@ -33,7 +33,7 @@ interface DnsSpeedViewProps {
 
 export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
   ({ variant = "full", onShowExpert }) => {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
 
   // DNS State
   const [dnsStatus, setDnsStatus] = useState<DnsStatus | null>(null);
@@ -208,7 +208,7 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
 
   const formatHostsDate = (ts: number | null) => {
     if (!ts) return t.smartHosts.neverUpdated;
-    return new Date(ts * 1000).toLocaleString();
+    return new Date(ts * 1000).toLocaleString(language);
   };
 
   const loadDns = async () => {
@@ -365,9 +365,10 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
   if (variant === "simple") {
     const activeProviderId = dnsStatus?.active_provider_id || dnsStatus?.current_provider;
     const splitActive = dnsStatus?.split_dns_active ?? false;
+    // Simple view: no "Split NRPT" jargon — plain words, servers kept.
     const currentServers =
       dnsStatus?.split_dns_active
-        ? `Split NRPT: ${dnsStatus.split_dns_servers?.join(", ") || dnsStatus.current_dns.join(", ")}`
+        ? `${t.dns.splitActiveSimple}: ${dnsStatus.split_dns_servers?.join(", ") || dnsStatus.current_dns.join(", ")}`
         : dnsStatus?.current_dns && dnsStatus.current_dns.length > 0
         ? dnsStatus.current_dns.join(", ")
         : dnsStatus?.active_servers && dnsStatus.active_servers.length > 0
@@ -409,6 +410,8 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
             </button>
           </div>
 
+          <p className="text-[11px] text-ink4 leading-snug">{t.dns.simpleHint}</p>
+
           {dnsStatus && (
             <div className="flex items-center gap-2 text-xs flex-wrap">
               <span className="text-ink4">{t.dns.currentDnsLabel}</span>
@@ -448,6 +451,20 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
               // IPs and the DoH badge are expert detail — the active
               // IPs already show in the status line above.
               const displayName = p.name.replace(/\s*\([^)]*\)\s*$/, "") || p.name;
+              // One-word hint per built-in provider (ids from the
+              // backend catalog); user customs get none.
+              const hint =
+                p.id === "system"
+                  ? t.dns.hintSystem
+                  : p.id === "cloudflare"
+                  ? t.dns.hintCloudflare
+                  : p.id === "comss"
+                  ? t.dns.hintComss
+                  : p.id === "google"
+                  ? t.dns.hintGoogle
+                  : p.id === "quad9"
+                  ? t.dns.hintQuad9
+                  : null;
               return (
                 <div
                   key={p.id}
@@ -463,6 +480,9 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-xs font-semibold text-ink truncate" title={p.name}>
                       {displayName}
+                      {hint && (
+                        <span className="font-normal text-ink4"> · {hint}</span>
+                      )}
                     </span>
                   </div>
                   <button
@@ -499,7 +519,7 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
               onClick={onShowExpert}
               className="w-full rounded-control border border-line bg-raise hover:bg-hovert px-3 py-2 text-xs font-medium text-ink3 transition-colors cursor-pointer"
             >
-              {t.dnsTab.showAll} ({hiddenProviderCount})
+              {t.dnsTab.showAll.replace("{count}", String(hiddenProviderCount))}
             </button>
           )}
 

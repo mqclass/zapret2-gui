@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "../i18n";
 import { CustomProfileModal } from "./CustomProfileModal";
+import { CustomConfigGateModal } from "./CustomConfigGateModal";
 import { ConfigGuideModal } from "./ConfigGuideModal";
 import { GoalPicker } from "./GoalPicker";
 
@@ -35,6 +36,9 @@ interface StrategySelectorProps {
   disabled?: boolean;
   /** Simple variant only: jump to the full list (expert mode). */
   onShowAllStrategies?: () => void;
+  /** Simple variant only: switch the shell to expert mode (the
+      «Свой конфиг» gate's "go to Expert" button). */
+  onShowExpert?: () => void;
   /**
    * Redesign stage 3: "full" is the old card grid with category tabs
    * and technical details; "simple" is a compact grouped list in
@@ -62,6 +66,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
     disabled = false,
     variant = "full",
     onShowAllStrategies,
+    onShowExpert,
   }) => {
     const { t } = useI18n();
     const isSimple = variant === "simple";
@@ -69,6 +74,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
     const [activeTab, setActiveTab] = useState<TabType>("flowseal");
     const [isGuideOpen, setIsGuideOpen] = useState(false);
     const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
+    const [isCustomGateOpen, setIsCustomGateOpen] = useState(false);
     const [editingStrategy, setEditingStrategy] = useState<LuaStrategy | null>(null);
 
     const getFriendlyDescription = (strat: LuaStrategy) => {
@@ -89,7 +95,14 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
       return true;
     });
 
+    // Creating a custom profile is an expert action: in the simple
+    // view both entry points (the wizard's «Свой конфиг» goal and the
+    // header's "add" button) show the gate instead of the expert modal.
     const handleCreateCustom = () => {
+      if (isSimple) {
+        setIsCustomGateOpen(true);
+        return;
+      }
       setEditingStrategy(null);
       setIsCustomModalOpen(true);
     };
@@ -222,17 +235,18 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
               {t.strategies.cardActive}
             </span>
           )}
+          {/* Same recommended mark as the expert cards (flowseal-alt):
+              the one orienting badge in the simple list. Hidden while
+              the strategy is active — the active badge says it all. */}
+          {!isActive && strat.id === "flowseal-alt" && (
+            <span className="shrink-0 whitespace-nowrap rounded-chip bg-accent-wash border border-accent-line px-1.5 py-0.5 text-[9px] font-bold text-accent-soft">
+              {t.strategies.badgeRecommended}
+            </span>
+          )}
+          {/* Simple rows offer delete only: editing a custom profile
+              opens the expert modal, so it stays an expert action. */}
           {isCustom && (
             <span className="flex items-center gap-0.5 shrink-0">
-              <button
-                type="button"
-                onClick={(e) => handleEditCustom(strat, e)}
-                disabled={isTransitioning}
-                className="p-1 rounded-control text-ink4 hover:text-violet-300 hover:bg-raise transition-colors cursor-pointer"
-                title={t.strategies.editCustom}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
               <button
                 type="button"
                 onClick={(e) => handleDeleteCustom(strat.id, e)}
@@ -298,7 +312,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
           disabled={disabled}
           onSelectStrategy={onSelectStrategy}
           onStartStrategy={onStartStrategy}
-          onCustomGoal={() => setIsCustomModalOpen(true)}
+          onCustomGoal={handleCreateCustom}
           compact={isSimple}
         />
       <div className="t-card p-3">
@@ -338,11 +352,17 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
 
         {isSimple ? (
           <div className="space-y-3">
+            {/* One orienting line instead of per-strategy descriptions
+                (rejected in stage 3): the auto-pick lives on the main
+                tab, so the hint points there. */}
+            <p className="text-[11px] text-ink4 leading-snug px-1">
+              {t.strategies.simpleHint}
+            </p>
+            {/* No family headers here: "Flowseal" / "zapret2" / "Набор
+                kinlay0" mean nothing to an ordinary user, and the
+                groups only exist to cap the visible rows. */}
             {visibleSimpleGroups.map((g) => (
               <div key={g.label}>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-ink5 px-1 mb-1">
-                  {g.label}
-                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
                   {g.items.map((strat) => renderSimpleRow(strat))}
                 </div>
@@ -659,6 +679,15 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
           onClose={() => setIsCustomModalOpen(false)}
           onSave={onSaveCustomProfile}
           editingStrategy={editingStrategy}
+        />
+
+        <CustomConfigGateModal
+          isOpen={isCustomGateOpen}
+          onClose={() => setIsCustomGateOpen(false)}
+          onGoExpert={() => {
+            setIsCustomGateOpen(false);
+            onShowExpert?.();
+          }}
         />
 
         <ConfigGuideModal

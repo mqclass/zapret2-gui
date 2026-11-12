@@ -296,7 +296,12 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 })}
               </div>
 
-              <label className="flex items-center gap-2.5 rounded-panel border border-line bg-cardin px-3 py-1.5 text-xs text-ink4 cursor-pointer">
+              {/* The hex code lives in the tooltip: the swatch + label
+                  are enough on the surface. */}
+              <label
+                className="flex items-center gap-2.5 rounded-panel border border-line bg-cardin px-3 py-1.5 text-xs text-ink4 cursor-pointer"
+                title={customDraft ?? currentFill}
+              >
                 <input
                   type="color"
                   value={customDraft ?? currentFill}
@@ -305,9 +310,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                   className="h-6 w-9 shrink-0 cursor-pointer rounded-control border border-line bg-transparent p-0.5"
                 />
                 <span className="font-medium">{t.settingsTab.accentCustom}</span>
-                <span className="font-mono text-[11px] text-ink5">
-                  {customDraft ?? currentFill}
-                </span>
               </label>
             </div>
 
@@ -969,7 +971,12 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             })}
           </div>
 
-          <label className="flex items-center gap-2.5 rounded-panel border border-line bg-cardin px-3 py-2.5 text-xs text-ink4 cursor-pointer">
+          {/* The hex code lives in the tooltip: the swatch + label
+              are enough on the surface. */}
+          <label
+            className="flex items-center gap-2.5 rounded-panel border border-line bg-cardin px-3 py-2.5 text-xs text-ink4 cursor-pointer"
+            title={customDraft ?? currentAccentFill(accentColor)}
+          >
             <input
               type="color"
               value={customDraft ?? currentAccentFill(accentColor)}
@@ -978,9 +985,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
               className="h-7 w-10 shrink-0 cursor-pointer rounded-control border border-line bg-transparent p-0.5"
             />
             <span className="font-medium">{t.settingsTab.accentCustom}</span>
-            <span className="font-mono text-[11px] text-ink5">
-              {customDraft ?? currentAccentFill(accentColor)}
-            </span>
           </label>
         </div>
 

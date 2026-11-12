@@ -144,7 +144,7 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = React.memo(
                 <h3 className="text-xs font-semibold text-ink truncate">{t.doctor.title}</h3>
                 {/* No truncate: the description wraps to a second line
                     instead of cutting mid-word ("...и з…"). */}
-                <p className="text-[11px] text-ink4 mt-0.5 leading-snug">{t.doctor.bannerDesc}</p>
+                <p className="text-[11px] text-ink4 mt-0.5 leading-snug">{t.doctor.bannerDescSimple}</p>
               </div>
             </div>
             <button
@@ -263,6 +263,7 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = React.memo(
           isOpen={isDoctorOpen}
           onClose={() => setIsDoctorOpen(false)}
           onSuccessRefresh={onRefreshProbes}
+          simple={variant === "simple"}
         />
 
         {/* Block Classifier Modal */}

@@ -13,7 +13,6 @@ export interface Translations {
     adminRequiredTooltip: string;
     cleanProcesses: string;
     cleanProcessesTooltip: string;
-    cleanShort: string;
     autostart: string;
     autostartEnabledTooltip: string;
     autostartDisabledTooltip: string;
@@ -161,6 +160,8 @@ export interface Translations {
     deleteCustom: string;
     noStrategiesInTab: string;
     showAllSimple: string;
+    /** Simple view: one-line pointer above the strategy rows. */
+    simpleHint: string;
     goalTitle: string;
     goalSubtitle: string;
     goalYoutube: string;
@@ -171,6 +172,12 @@ export interface Translations {
     goalAllDesc: string;
     goalCustom: string;
     goalCustomDesc: string;
+    /** Simple view: the gate shown instead of the expert custom-profile
+     * modal when the «Свой конфиг» goal is picked. */
+    customGateTitle: string;
+    customGateText: string;
+    customGateGoExpert: string;
+    customGateCancel: string;
 
   };
   modal: {
@@ -413,6 +420,12 @@ export interface Translations {
     introItem6: string;
     bannerDesc: string;
     bannerBtn: string;
+    /** Simple view: plain-words subtitle and intro steps for the modal. */
+    bannerDescSimple: string;
+    simpleStep1: string;
+    simpleStep2: string;
+    simpleStep3: string;
+    simpleStep4: string;
 
   };
   dns: {
@@ -432,6 +445,14 @@ export interface Translations {
     scopeSplitTitle: string;
     scopeSplitDesc: string;
     splitActiveBadge: string;
+    /** Simple view: plain-words DNS hint, split status, provider hints. */
+    simpleHint: string;
+    splitActiveSimple: string;
+    hintSystem: string;
+    hintCloudflare: string;
+    hintComss: string;
+    hintGoogle: string;
+    hintQuad9: string;
     scopeBannerTitle: string;
     scopeBannerScope: string;
     scopeBannerScopeDesc: string;
@@ -625,7 +646,6 @@ export interface Translations {
     upToDate: string;
     checkFailed: string;
     availableTitle: string;
-    availableDesc: string;
     changelogTitle: string;
     notesEmpty: string;
     viewRelease: string;

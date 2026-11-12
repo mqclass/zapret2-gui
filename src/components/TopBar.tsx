@@ -174,7 +174,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           <button
             onClick={onKillStray}
             disabled={isStrayCleaning}
-            className="flex items-center gap-1.5 rounded-control border border-line bg-raise px-2.5 py-1 text-[11px] font-medium text-ink4 hover:text-rose-300 hover:border-rose-500/30 hover:bg-rose-500/10 transition-all cursor-pointer disabled:opacity-60"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control border border-line bg-raise px-2.5 py-1 text-[11px] font-medium text-ink4 hover:text-rose-300 hover:border-rose-500/30 hover:bg-rose-500/10 transition-all cursor-pointer disabled:opacity-60"
             title={t.header.cleanProcessesTooltip}
           >
             {isStrayCleaning ? (
@@ -182,7 +182,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
             ) : (
               <Trash2 className="h-3.5 w-3.5" />
             )}
-            <span className="hidden sm:inline">{t.header.cleanShort}</span>
+            <span className="hidden sm:inline">{t.header.cleanProcesses}</span>
           </button>
           <div className="relative z-[60]" ref={langDropdownRef}>
             <button
