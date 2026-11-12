@@ -111,8 +111,26 @@ fn domain_covered_by(entry: &str, set: &std::collections::HashSet<String>) -> bo
     }
 }
 
+/// True when `entry` is an IP literal (IPv4 or IPv6), not a domain.
+/// The engine's `--hostlist-auto` learner records whatever identifier it
+/// saw on a failed connection — for SNI-less or raw-IP flows (QUIC probes,
+/// HTTPDNS endpoints like 203.107.1.1) that is a bare IP. IP lines in a
+/// domain hostlist are poison: they never match a hostname, they bloat
+/// the file, and they make the engine desync traffic toward arbitrary
+/// shared infrastructure (design §4 keeps the auto list domain-only).
+/// A domain always carries at least one letter, an IP never does; the
+/// parse makes the check exact.
+fn entry_is_ip(entry: &str) -> bool {
+    entry
+        .trim_start_matches('^')
+        .trim()
+        .parse::<std::net::IpAddr>()
+        .is_ok()
+}
+
 /// Supervisor-side hygiene for list-auto.txt (design §4): dedupe,
-/// drop entries already covered by the static include lists or by
+/// drop IP literals the learner picked up from raw-IP flows, drop
+/// entries already covered by the static include lists or by
 /// the exclude lists (graduation — once upstream ships a domain in
 /// list-general/list-google the learned copy is dead weight), and
 /// enforce the FIFO ceiling. Runs only where the engine is stopped
@@ -165,6 +183,9 @@ pub(crate) fn cleanup_auto_hostlist(
         let key = entry.trim_start_matches('^').to_lowercase();
         if !seen.insert(key.clone()) {
             continue; // exact duplicate (modulo case/^)
+        }
+        if entry_is_ip(&key) {
+            continue; // the learner picked up a bare IP, not a domain
         }
         if domain_covered_by(&key, &covered) {
             continue; // graduated into statics, or excluded by the user
@@ -2328,9 +2349,13 @@ impl Supervisor {
             self.resolve_strategy_args(binaries, strategy_id)?
         };
 
-        // Ensure --debug=1 is enabled so winws/winws2 outputs runtime logs
+        // Default winws to quiet (--debug=0). At --debug=1 it logs every
+        // desynced packet, which floods the log buffer and can saturate the
+        // stdout pipe under load; fatal errors (e.g. WinDivert open failures)
+        // still reach stderr at 0, so status/error detection is unaffected.
+        // A user-supplied --debug=N in custom args is respected as-is.
         if !final_args.iter().any(|a| a.starts_with("--debug")) {
-            final_args.insert(0, "--debug=1".to_string());
+            final_args.insert(0, "--debug=0".to_string());
         }
 
         Ok(final_args)
@@ -3597,6 +3622,37 @@ mod tests {
         assert_eq!(lines[2..], ["fresh-site.net", "other.example.org"]);
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&bundle);
+    }
+
+    #[test]
+    fn test_cleanup_auto_hostlist_drops_ip_literals() {
+        let dir = temp_lists_dir("ipfilter");
+        let bundle = temp_lists_dir("ipfilter-bundle");
+        std::fs::write(dir.join(AUTO_HOSTLIST_FILE), "# header\n203.107.1.1\n1.1.1.1\nfresh-site.net\n2001:67c:4e8::9\n^162.159.0.1\nalso-fresh.org\n").unwrap();
+
+        cleanup_auto_hostlist(&dir, &bundle).expect("cleanup must succeed");
+        let result = std::fs::read_to_string(dir.join(AUTO_HOSTLIST_FILE)).unwrap();
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines[0], "# header");
+        assert_eq!(
+            lines[1..],
+            ["fresh-site.net", "also-fresh.org"],
+            "IPv4, IPv6 and ^-prefixed IP literals must all be dropped, domains kept"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bundle);
+    }
+
+    #[test]
+    fn test_entry_is_ip_parses_exact_literals_only() {
+        assert!(entry_is_ip("203.107.1.1"));
+        assert!(entry_is_ip("^162.159.0.1"));
+        assert!(entry_is_ip("2001:67c:4e8::9"));
+        assert!(entry_is_ip("::1"));
+        // Look-alikes that must stay domains
+        assert!(!entry_is_ip("1.2.3.4.example.com"));
+        assert!(!entry_is_ip("fresh-site.net"));
+        assert!(!entry_is_ip("162.159.0.256")); // invalid octet — not an IP
     }
 
     #[test]
