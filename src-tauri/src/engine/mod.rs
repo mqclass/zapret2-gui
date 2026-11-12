@@ -20,6 +20,14 @@ pub mod transport;
 // whole API surface reads as dead code in both binaries.
 #[allow(dead_code)]
 pub mod singbox_config;
+// WARP mode, stage 3: the Clash API client and the sing-box sidecar
+// manager. Stage 4 wires the start side into the supervisor lifecycle
+// and stage 5 exposes the tunnel over IPC; until then most of the API
+// surface reads as dead code in both binaries.
+#[allow(dead_code)]
+pub mod clash_api;
+#[allow(dead_code)]
+pub mod singbox;
 pub use events::{EventSink, NullSink, SinkSlot, TauriSink};
 pub use logger::FileLogger;
 pub use managed::ManagedSidecar;

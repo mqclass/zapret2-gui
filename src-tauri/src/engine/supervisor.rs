@@ -25,6 +25,7 @@ use tokio::time::interval;
 
 use crate::engine::logger::FileLogger;
 use crate::engine::probes::DiagnosticsService;
+use crate::engine::singbox::SingBoxManager;
 use crate::platform::job_object::JobObject;
 use crate::platform::process::{
     cleanup_windivert_driver, discover_strategies, kill_stray_winws2_processes, resolve_binaries,
@@ -304,6 +305,10 @@ pub struct Supervisor {
     start_time: Arc<RwLock<Option<Instant>>>,
 
     job_object: Arc<JobObject>,
+    /// WARP tunnel sidecar (stage 3). The manager owns the sing-box
+    /// child in the same Job Object as winws2; the supervisor stops
+    /// it on engine stop. Stage 4 wires the start side.
+    singbox: Arc<SingBoxManager>,
     diagnostics: Arc<DiagnosticsService>,
 
     ring_buffer: Arc<Mutex<VecDeque<LogEntry>>>,
@@ -360,6 +365,14 @@ impl Supervisor {
         let (log_tx, log_rx) = channel::<LogEntry>(2_000);
         let (recovery_tx, recovery_rx) = unbounded_channel::<(u64, Option<String>, Option<Vec<String>>)>();
 
+        // WARP tunnel sidecar (stage 3): shares the Job Object, the
+        // log channel, and the file logger with the supervisor.
+        let singbox = Arc::new(SingBoxManager::new(
+            job_object.clone(),
+            log_tx.clone(),
+            file_logger.clone(),
+        ));
+
         let supervisor = Self {
             lifecycle: Arc::new(tokio::sync::Mutex::new(())),
             state: Arc::new(RwLock::new(SupervisorState::Stopped)),
@@ -371,6 +384,7 @@ impl Supervisor {
             binary_path: Arc::new(RwLock::new(None)),
             start_time: Arc::new(RwLock::new(None)),
             job_object,
+            singbox,
             diagnostics,
             ring_buffer,
             log_tx,
@@ -421,6 +435,14 @@ impl Supervisor {
                 slot.emit_probe_update(&report);
             });
         }
+    }
+
+    /// The WARP tunnel sidecar manager (stage 3). Stage 4 calls
+    /// `start()` / `stop()` on it from the supervisor's lifecycle;
+    /// stage 5 exposes its status over IPC.
+    #[allow(dead_code)]
+    pub fn singbox(&self) -> &Arc<SingBoxManager> {
+        &self.singbox
     }
 
     /// Spawns the dedicated Tokio micro-batching worker running every 150 ms.
@@ -1468,6 +1490,11 @@ impl Supervisor {
 
         self.emit_state_change(SupervisorState::Stopping);
         self.log("info", "Initiating shutdown of bypass engine...");
+
+        // Stage 3: shutdown is the reverse of startup - the tunnel
+        // stops first, then winws2. A no-op while the tunnel never
+        // started; stage 4 wires the start side.
+        let _ = self.singbox.stop().await;
 
         let maybe_child = self.active_child.lock().take();
         if let Some(mut child) = maybe_child {

@@ -72,4 +72,9 @@ features = [
     "Win32_System_Pipes",
     "Win32_Storage_FileSystem",
     "Win32_Security_Authorization",
+    # WARP mode, stage 3: GetAdaptersAddresses (system resolvers for
+    # the sing-box config) + sockaddr types.
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
 ]
