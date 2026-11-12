@@ -423,6 +423,8 @@ export const en: Translations = {
     unknownText: "Could not check: YouTube did not return video data. You can enable the list of known slow servers.",
     throttledText: "Throttled video servers found.",
     mixedText: "Some video servers did not respond.",
+    substitutionWorks: "Substitution check: videos can go through a working server - substitution works.",
+    substitutionFailed: "Substitution check: did not help - videos did not play through another server.",
     appliedNote: "Blocks applied.",
     laneOffNote: "The check was diagnostic only: to block what was found, enable blocking above.",
     applyErrorLabel: "Could not apply:",

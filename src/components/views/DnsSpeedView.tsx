@@ -876,6 +876,13 @@ export const DnsSpeedView: React.FC = React.memo(() => {
                   <p className="font-mono text-[10px] text-ink4 break-all">
                     {ytRecordedUnreachable.map((n) => n.host).join(", ")}
                   </p>
+                  {ytResult.substitution.length > 0 && (
+                    <p>
+                      {ytResult.substitution.some((s) => s.verdict === "fast")
+                        ? t.youtubeThrottle.substitutionWorks
+                        : t.youtubeThrottle.substitutionFailed}
+                    </p>
+                  )}
                 </>
               )}
               {ytResult.mapping_node && (

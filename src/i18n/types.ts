@@ -424,6 +424,8 @@ export interface Translations {
     unknownText: string;
     throttledText: string;
     mixedText: string;
+    substitutionWorks: string;
+    substitutionFailed: string;
     appliedNote: string;
     laneOffNote: string;
     applyErrorLabel: string;

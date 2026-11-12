@@ -279,9 +279,20 @@ export interface YoutubeNodeProbe {
   bytes: number;
 }
 
+// One IP-substitution attempt from a Mixed check: a dead node
+// re-measured with its signed URL sent to a live IP. Diagnostic only.
+export interface YoutubeSubstitutionTest {
+  host: string;
+  substitute_ip: string;
+  verdict: YoutubeNodeVerdict;
+  mbps: number;
+  bytes: number;
+}
+
 export interface YoutubeCheckResult {
   outcome: YoutubeNodeVerdict;
   nodes: YoutubeNodeProbe[];
+  substitution: YoutubeSubstitutionTest[];
   mapping_node: string | null;
   lane_enabled: boolean;
   smart_hosts_enabled: boolean;

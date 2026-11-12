@@ -26,8 +26,17 @@
 //! too — but only when the same check found a live node (Dom.ru case,
 //! Flowseal #18730: foreign GGC cut off, the local cluster fine); a
 //! Fast+Unreachable mix is reported as `Mixed`, never as Fast.
+//!
+//! A Mixed check also runs a substitution test: each dead node is
+//! re-measured with its signed URL sent to a live IP instead (the
+//! first Fast node's own address, then the Yekaterinburg cluster
+//! fallbacks). The override lives only in memory, inside the probe's
+//! HTTP client — hosts is never touched. It answers whether the
+//! videoplayback signature survives a host change, which decides
+//! whether automatic substitution is a future fix or a dead end.
 
 use std::collections::HashSet;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -105,6 +114,29 @@ const MIN_SAMPLE_BYTES: u64 = 64 * 1024;
 /// At most this many unique nodes are measured per check.
 pub const MAX_PROBE_HOSTS: usize = 6;
 
+/// At most this many dead nodes are substitution-tested per check.
+pub const MAX_SUBSTITUTION_HOSTS: usize = 3;
+
+/// Yekaterinburg GGC cluster IPs, from v-Leonidovich's experiment
+/// (Flowseal #18730): blocking these six killed YouTube on Dom.ru
+/// outright, which is the proof they are the live cluster. Only the
+/// first two are used as substitution fallbacks — after the live
+/// node's own IP — to keep the substitution phase fast; the rest are
+/// kept here as documented spares for a future automatic fix.
+pub const FALLBACK_SUBSTITUTE_IPS: &[Ipv4Addr] = &[
+    Ipv4Addr::new(188, 234, 140, 76),
+    Ipv4Addr::new(109, 195, 48, 1),
+    Ipv4Addr::new(188, 234, 138, 175),
+    Ipv4Addr::new(87, 245, 195, 172),
+    Ipv4Addr::new(188, 234, 140, 81),
+    Ipv4Addr::new(188, 234, 140, 78),
+];
+
+/// How many of [`FALLBACK_SUBSTITUTE_IPS`] are tried per dead node
+/// (after the live node's own IP). Two fallbacks plus the live IP
+/// keeps the phase to at most three attempts per node.
+const MAX_SUBSTITUTION_FALLBACKS: usize = 2;
+
 /// Per-host wall clock cap. A throttled stream at ~17 KB/s delivers
 /// ~425 KB in this window — comfortably above the minimum sample.
 const PER_HOST_TIMEOUT: Duration = Duration::from_secs(25);
@@ -152,6 +184,25 @@ pub struct YoutubeNodeProbe {
     pub bytes: u64,
 }
 
+/// One IP-substitution attempt, from a Mixed check: a dead node
+/// re-measured with its signed URL sent to a live IP instead of its
+/// own. The verdict answers whether the videoplayback signature
+/// survives the host change — the open question behind automatic
+/// substitution as a future fix. Diagnostic only: attempts never
+/// influence the outcome, the stored records, or hosts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct YoutubeSubstitutionTest {
+    /// The dead node that was tested (not the host after redirect).
+    pub host: String,
+    /// The IP the dead host was resolved to for this attempt.
+    pub substitute_ip: String,
+    pub verdict: NodeVerdict,
+    /// Sustained throughput in Mbit/s (0 when nothing was downloaded).
+    pub mbps: f64,
+    pub bytes: u64,
+}
+
 /// Full result of one user-initiated check, as returned to the UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YoutubeCheckResult {
@@ -160,6 +211,10 @@ pub struct YoutubeCheckResult {
     /// node measured fast, else Unreachable / Unknown.
     pub outcome: NodeVerdict,
     pub nodes: Vec<YoutubeNodeProbe>,
+    /// IP-substitution attempts (Mixed checks only). Diagnostic only:
+    /// never influences the outcome, the stored records, or hosts.
+    #[serde(default)]
+    pub substitution: Vec<YoutubeSubstitutionTest>,
     /// Node name from redirector.googlevideo.com/report_mapping —
     /// diagnostics only, never influences blocking.
     pub mapping_node: Option<String>,
@@ -420,11 +475,14 @@ fn read_failure_is_fatal(bytes: u64, read_failed: bool) -> bool {
 }
 
 /// Measures one node's sustained throughput with a ~3 MiB range
-/// request against the original signed URL (hosts are never rewritten:
-/// the signature is not known to survive that, and the design forbids
-/// it). The verdict is computed from the bytes that actually arrived.
-/// The measurement window ends at the earlier of the per-host cap and
-/// the check's overall deadline.
+/// request against the original signed URL. Hosts are never rewritten
+/// by the probe: the signature is not known to survive that. The
+/// substitution tester is a deliberate, bounded exception to that
+/// rule — it *measures* (in memory only, via the client's DNS
+/// override) whether the signature survives, and hosts stays
+/// untouched either way. The verdict is computed from the bytes that
+/// actually arrived. The measurement window ends at the earlier of
+/// the per-host cap and the check's overall deadline.
 async fn probe_host(client: &reqwest::Client, url: &str, deadline: Instant) -> YoutubeNodeProbe {
     let fallback_host = url_host(url).unwrap_or_default();
     let started = Instant::now();
@@ -510,11 +568,145 @@ fn aggregate(nodes: &[YoutubeNodeProbe]) -> NodeVerdict {
     }
 }
 
+/// Plans the substitution phase: which dead nodes to re-test, and
+/// with which sample URL each. Pure, so the phase's gates are
+/// unit-tested without a network:
+/// - only a Mixed check plans anything — without a live node in the
+///   same check there is no proven-reachable IP to substitute, and
+///   without a dead node there is nothing to test;
+/// - at most [`MAX_SUBSTITUTION_HOSTS`] dead nodes, in page order;
+/// - a dead node without its sample URL is skipped (defensive: an
+///   Unreachable probe always keeps its URL host, so this should
+///   never trigger).
+pub fn plan_substitution_tests(
+    outcome: NodeVerdict,
+    nodes: &[YoutubeNodeProbe],
+    urls: &[(String, String)],
+) -> Vec<(String, String)> {
+    if outcome != NodeVerdict::Mixed {
+        return Vec::new();
+    }
+    let mut plan: Vec<(String, String)> = Vec::new();
+    for node in nodes {
+        if plan.len() >= MAX_SUBSTITUTION_HOSTS {
+            break;
+        }
+        if node.verdict != NodeVerdict::Unreachable {
+            continue;
+        }
+        if let Some((_, url)) = urls.iter().find(|(h, _)| h == &node.host) {
+            plan.push((node.host.clone(), url.clone()));
+        }
+    }
+    plan
+}
+
+/// Candidate IPs for one dead node, in attempt order: the live
+/// node's own resolved IPv4 first (proven reachable on this route
+/// right now), then the first [`MAX_SUBSTITUTION_FALLBACKS`] of
+/// [`FALLBACK_SUBSTITUTE_IPS`]. Duplicates are dropped, so the
+/// phase makes at most three attempts per node.
+pub fn substitution_ip_candidates(live_ip: Option<Ipv4Addr>) -> Vec<Ipv4Addr> {
+    let mut out: Vec<Ipv4Addr> = Vec::new();
+    if let Some(ip) = live_ip {
+        out.push(ip);
+    }
+    for ip in FALLBACK_SUBSTITUTE_IPS.iter().take(MAX_SUBSTITUTION_FALLBACKS) {
+        if !out.contains(ip) {
+            out.push(*ip);
+        }
+    }
+    out
+}
+
+/// A probe client identical to [`probe_client`] except that `host`
+/// resolves to `ip` for every connection (reqwest `resolve`
+/// override). The TLS handshake still uses the original hostname
+/// for SNI and certificate verification — only the TCP destination
+/// changes. One client per (host, IP) attempt: `resolve` maps a
+/// domain to a single address.
+fn substitution_client(host: &str, ip: Ipv4Addr) -> Option<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(PER_HOST_TIMEOUT)
+        .connect_timeout(Duration::from_secs(6))
+        .user_agent(BROWSER_UA)
+        .resolve(host, SocketAddr::new(std::net::IpAddr::V4(ip), 443))
+        .build()
+        .ok()
+}
+
+/// Resolves the first Fast node's hostname to an IPv4 address.
+/// Bounded by the check's deadline like every other stage; `None`
+/// on any failure — the fallback IPs still get their attempts.
+async fn first_fast_node_ipv4(nodes: &[YoutubeNodeProbe], deadline: Instant) -> Option<Ipv4Addr> {
+    let fast = nodes.iter().find(|n| n.verdict == NodeVerdict::Fast)?;
+    let lookup = tokio::net::lookup_host((fast.host.as_str(), 443));
+    let addrs = tokio::time::timeout(remaining_until(deadline), lookup)
+        .await
+        .ok()?
+        .ok()?;
+    addrs.into_iter().find_map(|a| match a.ip() {
+        std::net::IpAddr::V4(v4) => Some(v4),
+        _ => None,
+    })
+}
+
+/// Runs the substitution phase of a Mixed check: for each planned
+/// dead node, re-measure its original signed URL with the host
+/// resolved to each candidate IP in turn, stopping at the first
+/// Fast. Every attempt shares the check's overall deadline; when
+/// it runs out the result is honestly partial. The verdict of each
+/// attempt is attributed to the TESTED dead node, not to the host
+/// after redirect — the question is whether this dead node's signed
+/// URL delivers video when sent to a live IP (a redirect the edge
+/// issues on the way still counts: the video plays).
+/// Diagnostic only: this phase never touches hosts, the stored
+/// records, or the check outcome.
+async fn run_substitution_tests(
+    outcome: NodeVerdict,
+    nodes: &[YoutubeNodeProbe],
+    urls: &[(String, String)],
+    deadline: Instant,
+) -> Vec<YoutubeSubstitutionTest> {
+    let plan = plan_substitution_tests(outcome, nodes, urls);
+    if plan.is_empty() {
+        return Vec::new();
+    }
+    let candidates = substitution_ip_candidates(first_fast_node_ipv4(nodes, deadline).await);
+    let mut out: Vec<YoutubeSubstitutionTest> = Vec::new();
+    for (dead_host, url) in plan {
+        for ip in &candidates {
+            if Instant::now() >= deadline {
+                return out;
+            }
+            let Some(client) = substitution_client(&dead_host, *ip) else {
+                continue;
+            };
+            let probe = probe_host(&client, &url, deadline).await;
+            let fast = probe.verdict == NodeVerdict::Fast;
+            out.push(YoutubeSubstitutionTest {
+                host: dead_host.clone(),
+                substitute_ip: ip.to_string(),
+                verdict: probe.verdict,
+                mbps: probe.mbps,
+                bytes: probe.bytes,
+            });
+            if fast {
+                break;
+            }
+        }
+    }
+    out
+}
+
 /// Runs the full user-initiated check: fetch a video page, measure each
 /// unique node, persist the verdicts, and — when the lane and smart
 /// hosts are both on — re-apply the hosts section so fresh blocks take
 /// effect immediately. With the lane off the check is diagnostic only:
-/// measurements are recorded, hosts is never touched.
+/// measurements are recorded, hosts is never touched. On a Mixed
+/// outcome it also runs the substitution phase (see
+/// [`run_substitution_tests`]): dead nodes re-measured against live
+/// IPs, diagnostic only, inside the same overall deadline.
 pub async fn run_youtube_throttle_check() -> YoutubeCheckResult {
     let settings = crate::platform::settings::load_settings();
     let lane_enabled = settings.youtube_throttle_enabled;
@@ -522,6 +714,7 @@ pub async fn run_youtube_throttle_check() -> YoutubeCheckResult {
     let mut result = YoutubeCheckResult {
         outcome: NodeVerdict::Unknown,
         nodes: Vec::new(),
+        substitution: Vec::new(),
         mapping_node: None,
         lane_enabled,
         smart_hosts_enabled,
@@ -555,15 +748,23 @@ pub async fn run_youtube_throttle_check() -> YoutubeCheckResult {
 
     // Sequential on purpose: parallel downloads would distort each
     // other's throughput and the verdicts with it.
+    let probed_urls = unique_node_urls(&page_urls);
     let mut nodes: Vec<YoutubeNodeProbe> = Vec::new();
-    for (_, url) in unique_node_urls(&page_urls) {
+    for (_, url) in &probed_urls {
         if Instant::now() >= deadline {
             break;
         }
-        nodes.push(probe_host(client, &url, deadline).await);
+        nodes.push(probe_host(client, url, deadline).await);
     }
     result.outcome = aggregate(&nodes);
     result.nodes = nodes;
+
+    // Mixed only: re-test the dead nodes against live IPs, inside
+    // the same deadline. Diagnostic only — the outcome, the stored
+    // records and hosts are untouched by this phase.
+    let substitution =
+        run_substitution_tests(result.outcome, &result.nodes, &probed_urls, deadline).await;
+    result.substitution = substitution;
 
     let measured: Vec<(String, NodeVerdict)> = result
         .nodes
@@ -1007,5 +1208,154 @@ mod tests {
             ]),
             NodeVerdict::Fast
         );
+    }
+
+    #[test]
+    fn substitution_plan_only_on_mixed() {
+        let probe = |host: &str, verdict: NodeVerdict| YoutubeNodeProbe {
+            host: host.to_string(),
+            verdict,
+            mbps: 0.0,
+            bytes: 0,
+        };
+        let urls = vec![
+            (
+                "rr1---sn-live-aa.googlevideo.com".to_string(),
+                "https://rr1---sn-live-aa.googlevideo.com/videoplayback?x=1".to_string(),
+            ),
+            (
+                "rr2---sn-dead-bb.googlevideo.com".to_string(),
+                "https://rr2---sn-dead-bb.googlevideo.com/videoplayback?x=1".to_string(),
+            ),
+        ];
+        let nodes = vec![
+            probe("rr1---sn-live-aa.googlevideo.com", NodeVerdict::Fast),
+            probe("rr2---sn-dead-bb.googlevideo.com", NodeVerdict::Unreachable),
+        ];
+        // Mixed plans the dead node with its sample URL.
+        let plan = plan_substitution_tests(NodeVerdict::Mixed, &nodes, &urls);
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].0, "rr2---sn-dead-bb.googlevideo.com");
+        assert!(plan[0].1.contains("videoplayback"));
+        // Any other outcome plans nothing — the phase is Mixed-only.
+        for outcome in [
+            NodeVerdict::Fast,
+            NodeVerdict::Throttled,
+            NodeVerdict::Unreachable,
+            NodeVerdict::Unknown,
+        ] {
+            assert!(plan_substitution_tests(outcome, &nodes, &urls).is_empty());
+        }
+    }
+
+    #[test]
+    fn substitution_plan_caps_at_three_in_page_order() {
+        let probe = |host: &str, verdict: NodeVerdict| YoutubeNodeProbe {
+            host: host.to_string(),
+            verdict,
+            mbps: 0.0,
+            bytes: 0,
+        };
+        // Five dead nodes and one live: only the first three dead,
+        // in page order, get tested.
+        let dead = [
+            "rr1---sn-dead-aa.googlevideo.com",
+            "rr2---sn-dead-bb.googlevideo.com",
+            "rr3---sn-dead-cc.googlevideo.com",
+            "rr4---sn-dead-dd.googlevideo.com",
+            "rr5---sn-dead-ee.googlevideo.com",
+        ];
+        let urls: Vec<(String, String)> = dead
+            .iter()
+            .map(|h| (h.to_string(), format!("https://{}/videoplayback?x=1", h)))
+            .collect();
+        let mut nodes = vec![probe("rr9---sn-live-zz.googlevideo.com", NodeVerdict::Fast)];
+        nodes.extend(dead.iter().map(|h| probe(h, NodeVerdict::Unreachable)));
+        let plan = plan_substitution_tests(NodeVerdict::Mixed, &nodes, &urls);
+        assert_eq!(plan.len(), MAX_SUBSTITUTION_HOSTS);
+        assert_eq!(plan[0].0, dead[0]);
+        assert_eq!(plan[1].0, dead[1]);
+        assert_eq!(plan[2].0, dead[2]);
+    }
+
+    #[test]
+    fn substitution_plan_skips_dead_node_without_url() {
+        let probe = |host: &str, verdict: NodeVerdict| YoutubeNodeProbe {
+            host: host.to_string(),
+            verdict,
+            mbps: 0.0,
+            bytes: 0,
+        };
+        // The first dead node has no sample URL (defensive case: an
+        // Unreachable probe always keeps its URL host, so this should
+        // never trigger) — it is skipped, the others still planned.
+        let urls = vec![(
+            "rr2---sn-dead-bb.googlevideo.com".to_string(),
+            "https://rr2---sn-dead-bb.googlevideo.com/videoplayback?x=1".to_string(),
+        )];
+        let nodes = vec![
+            probe("rr1---sn-live-aa.googlevideo.com", NodeVerdict::Fast),
+            probe("rr9---sn-ghost-zz.googlevideo.com", NodeVerdict::Unreachable),
+            probe("rr2---sn-dead-bb.googlevideo.com", NodeVerdict::Unreachable),
+        ];
+        let plan = plan_substitution_tests(NodeVerdict::Mixed, &nodes, &urls);
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].0, "rr2---sn-dead-bb.googlevideo.com");
+    }
+
+    #[test]
+    fn substitution_ip_candidates_order_and_dedup() {
+        let live = Ipv4Addr::new(203, 0, 113, 7);
+        let first = Ipv4Addr::new(188, 234, 140, 76);
+        let second = Ipv4Addr::new(109, 195, 48, 1);
+        // Live IP first, then the first two fallbacks.
+        assert_eq!(
+            substitution_ip_candidates(Some(live)),
+            vec![live, first, second]
+        );
+        // A live IP equal to a fallback is not attempted twice.
+        assert_eq!(substitution_ip_candidates(Some(first)), vec![first, second]);
+        // No live IP: fallbacks only.
+        assert_eq!(substitution_ip_candidates(None), vec![first, second]);
+        // The constant keeps all six documented cluster IPs, pinned by value:
+        // a typo in a spare IP would otherwise sit unnoticed until the
+        // future automatic substitution uses it.
+        assert_eq!(
+            FALLBACK_SUBSTITUTE_IPS,
+            &[
+                Ipv4Addr::new(188, 234, 140, 76),
+                Ipv4Addr::new(109, 195, 48, 1),
+                Ipv4Addr::new(188, 234, 138, 175),
+                Ipv4Addr::new(87, 245, 195, 172),
+                Ipv4Addr::new(188, 234, 140, 81),
+                Ipv4Addr::new(188, 234, 140, 78),
+            ]
+        );
+    }
+
+    #[test]
+    fn substitution_test_serde_roundtrip() {
+        let t = YoutubeSubstitutionTest {
+            host: "rr2---sn-5go7yner.googlevideo.com".to_string(),
+            substitute_ip: "188.234.140.76".to_string(),
+            verdict: NodeVerdict::Fast,
+            mbps: 12.5,
+            bytes: 3_145_728,
+        };
+        let json = serde_json::to_string(&t).unwrap();
+        assert!(json.contains("\"substitute_ip\":\"188.234.140.76\""));
+        assert!(json.contains("\"verdict\":\"fast\""));
+        let back: YoutubeSubstitutionTest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.host, t.host);
+        assert_eq!(back.substitute_ip, t.substitute_ip);
+        assert_eq!(back.verdict, NodeVerdict::Fast);
+        assert_eq!(back.mbps, 12.5);
+        assert_eq!(back.bytes, 3_145_728);
+        // Results serialized before the field existed still
+        // deserialize: the field defaults to an empty list.
+        let old = r#"{"outcome":"mixed","nodes":[],"mapping_node":null,"lane_enabled":true,"smart_hosts_enabled":true,"applied":false,"blocked_now":0,"apply_error":null}"#;
+        let result: YoutubeCheckResult = serde_json::from_str(old).unwrap();
+        assert_eq!(result.outcome, NodeVerdict::Mixed);
+        assert!(result.substitution.is_empty());
     }
 }
