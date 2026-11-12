@@ -683,7 +683,13 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
               {ytResult.outcome === "throttled" && (
                 <p>
                   {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}, {t.youtubeThrottle.throttledLabel}{" "}
-                  {ytResult.nodes.filter((n) => n.verdict === "throttled").length}. {t.youtubeThrottle.throttledText}
+                  {ytResult.nodes.filter((n) => n.verdict === "throttled").length}
+                  {ytRecordedUnreachable.length > 0 && (
+                    <>
+                      , {t.youtubeThrottle.unreachableLabel} {ytRecordedUnreachable.length}
+                    </>
+                  )}
+                  . {t.youtubeThrottle.throttledText}
                   {ytResult.applied
                     ? ` ${t.youtubeThrottle.appliedNote}`
                     : ytResult.lane_enabled
