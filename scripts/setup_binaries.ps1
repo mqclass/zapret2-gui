@@ -46,6 +46,16 @@ $UpstreamPins = @{
         Url    = "https://github.com/Flowseal/zapret-discord-youtube/releases/download/1.10.4/zapret-discord-youtube-1.10.4.zip"
         Sha256 = "291af673bd0238506f9548e0e94ca0abf244000f4c9a06960544fb01c5f97b34"
     }
+    "singbox" = @{
+        Label  = "shtorm-7/sing-box-extended v1.14.3-extended-2.7.3"
+        Url    = "https://github.com/shtorm-7/sing-box-extended/releases/download/v1.14.3-extended-2.7.3/sing-box-1.14.3-extended-2.7.3-windows-amd64.zip"
+        Sha256 = "ab7a7bddd51524854b853da1e72a8b94626d56aee0acfca46239146df6c099c7"
+    }
+    "wintun" = @{
+        Label  = "Wintun 0.14.1"
+        Url    = "https://www.wintun.net/builds/wintun-0.14.1.zip"
+        Sha256 = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
+    }
 }
 
 function Test-PinnedHash {
@@ -215,6 +225,84 @@ if (-not (Test-Path $SplitTarget)) {
     Test-PinnedHash -Path $SplitTarget -ExpectedSha256 $SplitPinSha256 -Label "mqclass/zapret2 winws2-split.exe"
 }
 
+# 5. sing-box.exe from the shtorm-7 fork (WARP/MASQUE sidecar, stage 1 of
+#    the WARP mode). The binary is only SHIPPED here, never launched: the
+#    supervisor does not spawn it until stage 3. A missing sing-box FAILS
+#    the build (design section 11): a release without the promised WARP
+#    engine must not ship silently.
+#    The fork publishes no checksums or signatures for its releases
+#    (upstream "unsigned"), so the pinned hashes below are OUR OWN pins,
+#    computed from the release asset and cross-checked at audit time
+#    (see docs/THIRD-PARTY.md). Update both hashes in ONE commit when the
+#    fork pin moves, and mention the fork version in the commit message.
+$SingBoxExeSha256 = "c8395a7db22ce321a10132aead5c9a2201adc4ae6847c47ccc5fff5200c1ac07"
+$SingBoxTarget = Join-Path $BinDir "sing-box.exe"
+if (-not (Test-Path $SingBoxTarget)) {
+    $Pin = $UpstreamPins["singbox"]
+    Write-Host ("==> Downloading {0} from GitHub..." -f $Pin.Label) -ForegroundColor Cyan
+    $SbZip = Join-Path $env:TEMP "sing-box-1.14.3-extended-2.7.3-windows-amd64.zip"
+    $SbDir = Join-Path $env:TEMP "sing-box-1.14.3-extended-2.7.3-extracted"
+
+    Invoke-WebRequest -Uri $Pin.Url -OutFile $SbZip
+    Test-PinnedHash -Path $SbZip -ExpectedSha256 $Pin.Sha256 -Label $Pin.Label
+    # Clear any previous extraction: Expand-Archive -Force does not remove
+    # files from an older pin, and the name search below would then see two
+    # exe files and could pick the stale one.
+    if (Test-Path $SbDir) { Remove-Item $SbDir -Recurse -Force }
+    Expand-Archive -Path $SbZip -DestinationPath $SbDir -Force
+
+    # The zip wraps the exe in a versioned top directory; find it by name
+    # rather than hardcoding the directory, so a pin bump only touches the
+    # version strings above and $UpstreamPins.
+    $SbExe = Get-ChildItem -Path $SbDir -Recurse -Filter "sing-box.exe" | Select-Object -First 1
+    if (-not $SbExe) {
+        throw "sing-box.exe not found inside the downloaded archive. Aborting build."
+    }
+    Copy-Item -Path $SbExe.FullName -Destination $SingBoxTarget -Force
+    Write-Host "    [+] Extracted sing-box.exe (108 MB) from the shtorm-7 fork release" -ForegroundColor Green
+
+    # Second check: pin the exact exe, not just the archive (same
+    # double-check pattern as nfqws2 in setup_binaries.sh).
+    Test-PinnedHash -Path $SingBoxTarget -ExpectedSha256 $SingBoxExeSha256 -Label "sing-box.exe (shtorm-7/sing-box-extended v1.14.3-extended-2.7.3)"
+    # The fork does not sign its builds; a missing signature is a warning,
+    # a tampered one fails the build.
+    Test-Authenticode -Path $SingBoxTarget
+} else {
+    # Already installed: verify the file on disk against the pin, not just
+    # fresh downloads (same as the split-pin behaviour above).
+    Test-PinnedHash -Path $SingBoxTarget -ExpectedSha256 $SingBoxExeSha256 -Label "sing-box.exe (shtorm-7/sing-box-extended v1.14.3-extended-2.7.3)"
+}
+
+# 6. wintun.dll 0.14.1 (WireGuard LLC) - the signed TUN driver library the
+#    sing-box TUN inbound loads at runtime (stage 3). Only the amd64 DLL is
+#    installed; the other architectures in the archive are not needed.
+#    The archive hash below is the SHA2-256 published on wintun.net.
+$WintunDllSha256 = "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+$WintunTarget = Join-Path $BinDir "wintun.dll"
+if (-not (Test-Path $WintunTarget)) {
+    $Pin = $UpstreamPins["wintun"]
+    Write-Host ("==> Downloading {0}..." -f $Pin.Label) -ForegroundColor Cyan
+    $WtZip = Join-Path $env:TEMP "wintun-0.14.1.zip"
+    $WtDir = Join-Path $env:TEMP "wintun-0.14.1-extracted"
+
+    Invoke-WebRequest -Uri $Pin.Url -OutFile $WtZip
+    Test-PinnedHash -Path $WtZip -ExpectedSha256 $Pin.Sha256 -Label $Pin.Label
+    Expand-Archive -Path $WtZip -DestinationPath $WtDir -Force
+
+    $WtDll = Join-Path $WtDir "wintun/bin/amd64/wintun.dll"
+    if (-not (Test-Path $WtDll)) {
+        throw "wintun/bin/amd64/wintun.dll not found inside the downloaded archive. Aborting build."
+    }
+    Copy-Item -Path $WtDll -Destination $WintunTarget -Force
+    Write-Host "    [+] Extracted wintun.dll (amd64) from the Wintun 0.14.1 release" -ForegroundColor Green
+
+    Test-PinnedHash -Path $WintunTarget -ExpectedSha256 $WintunDllSha256 -Label "wintun.dll (Wintun 0.14.1 amd64)"
+    # The DLL is Microsoft-signed by WireGuard LLC; a valid signature is expected.
+    Test-Authenticode -Path $WintunTarget
+} else {
+    Test-PinnedHash -Path $WintunTarget -ExpectedSha256 $WintunDllSha256 -Label "wintun.dll (Wintun 0.14.1 amd64)"
+}
+
 # Verify files and distinct binaries
 $w1 = Join-Path $BinDir "winws.exe"
 $w2 = Join-Path $BinDir "winws2.exe"
@@ -226,5 +314,13 @@ if ((Test-Path $w1) -and (Test-Path $w2)) {
         Write-Warning "winws.exe and winws2.exe have identical sizes! winws2 should be distinct bol-van/zapret2 binary."
     }
 }
+
+# Verify the WARP sidecar binaries are in place (design section 11: a build
+# without them must fail, not ship silently).
+$sb = Join-Path $BinDir "sing-box.exe"
+$wt = Join-Path $BinDir "wintun.dll"
+if (-not (Test-Path $sb)) { throw "sing-box.exe is missing from bin/ after setup. Aborting build." }
+if (-not (Test-Path $wt)) { throw "wintun.dll is missing from bin/ after setup. Aborting build." }
+Write-Host ("==> Verified sing-box.exe ({0} bytes) and wintun.dll ({1} bytes)" -f (Get-Item $sb).Length, (Get-Item $wt).Length) -ForegroundColor Green
 
 Write-Host "==> Upstream binaries setup and validation completed successfully!" -ForegroundColor Green

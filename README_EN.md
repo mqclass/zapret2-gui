@@ -92,7 +92,9 @@ This program is made by one person, and one person cannot test it on every provi
 - [Flowseal](https://github.com/Flowseal/zapret-discord-youtube) for the strategies and domain lists.
 - [kinlay0](https://github.com/kinlay0/zapret2-discord-youtube-strats) for the community strategy collection: some auto-tune strategies (double fake, single fake, host fake with TS) come from it.
 - [medvedeff-true](https://github.com/medvedeff-true/Zapret-Gui) for interface ideas.
+- [shtorm-7](https://github.com/shtorm-7/sing-box-extended) - the sing-box fork with MASQUE/WARP, the engine of the fallback exit.
+- [Wintun](https://www.wintun.net/) - the TUN driver for Windows.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). Third-party components shipped in the package - see [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).

@@ -92,7 +92,9 @@ Linux-версия уже написана и живёт в ветке dev: то
 - [Flowseal](https://github.com/Flowseal/zapret-discord-youtube) — стратегии и списки доменов.
 - [kinlay0](https://github.com/kinlay0/zapret2-discord-youtube-strats) — сборник стратегий сообщества: часть стратегий автоподбора (двойной и одиночный фейк, хост-фейк с TS) взята из него.
 - [medvedeff-true](https://github.com/medvedeff-true/Zapret-Gui) — идеи интерфейса.
+- [shtorm-7](https://github.com/shtorm-7/sing-box-extended) - форк sing-box с MASQUE/WARP, движок запасного выхода.
+- [Wintun](https://www.wintun.net/) - TUN-драйвер для Windows.
 
 ## Лицензия
 
-MIT, см. [LICENSE](LICENSE).
+MIT, см. [LICENSE](LICENSE). Сторонние компоненты в поставке - см. [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).

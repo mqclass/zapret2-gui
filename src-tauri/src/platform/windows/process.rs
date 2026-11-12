@@ -88,6 +88,17 @@ pub struct ZapretBinaries {
     /// partial planting cannot mix binaries from different directories.
     #[serde(default)]
     pub winws2_split_exe: Option<PathBuf>,
+    /// sing-box engine binary (shtorm-7/sing-box-extended fork, MASQUE/WARP
+    /// sidecar for the WARP mode). Optional: WARP is unavailable while it
+    /// is absent, but the rest of the app (the desync engine) works
+    /// normally. Resolved from the SAME candidate directory as winws2.exe.
+    /// Stage 1 only ships the binary; nothing launches it yet.
+    #[serde(default)]
+    pub sing_box_exe: Option<PathBuf>,
+    /// wintun.dll - the Windows TUN driver library the sing-box TUN inbound
+    /// loads at runtime. Optional, same-directory rule as sing_box_exe.
+    #[serde(default)]
+    pub wintun_dll: Option<PathBuf>,
     pub windivert_dll: PathBuf,
     pub windivert_sys: PathBuf,
     pub lists_dir: Option<PathBuf>,
@@ -117,7 +128,8 @@ pub struct SupervisedProcess {
     pub stderr: Option<ChildStderr>,
 }
 
-/// Resolves `winws2.exe`, `winws.exe`, `WinDivert.dll`, and `lists/`.
+/// Resolves `winws2.exe`, `winws.exe`, `WinDivert.dll`, `lists/`, and the
+/// optional WARP sidecar binaries (`sing-box.exe`, `wintun.dll`).
 ///
 /// SECURITY (M-3): binaries are resolved strictly relative to the directory
 /// containing the current executable. We deliberately do NOT consult the
@@ -184,6 +196,16 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
             .join("winws2-split.exe")
             .is_file()
             .then(|| candidate.join("winws2-split.exe"));
+        // Optional WARP sidecar binaries: same directory, presence optional.
+        // Absence only disables the WARP mode; the desync engine is unaffected.
+        let sing_box_path = candidate
+            .join("sing-box.exe")
+            .is_file()
+            .then(|| candidate.join("sing-box.exe"));
+        let wintun_path = candidate
+            .join("wintun.dll")
+            .is_file()
+            .then(|| candidate.join("wintun.dll"));
 
         // Resolve lists directory relative to the install location.
         let lists_dir = [candidate.join("lists")]
@@ -196,6 +218,8 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
             winws2_exe: winws2,
             winws_exe: winws1_path,
             winws2_split_exe: winws2_split_path,
+            sing_box_exe: sing_box_path,
+            wintun_dll: wintun_path,
             windivert_dll,
             windivert_sys,
             lists_dir,

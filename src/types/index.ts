@@ -104,6 +104,10 @@ export interface ZapretBinaries {
   winws2_exe: string;
   /** Split-enforcing fork build; null when the fork has not shipped yet. */
   winws2_split_exe?: string | null;
+  /** sing-box sidecar (WARP mode); null when the binary is not shipped. */
+  sing_box_exe?: string | null;
+  /** wintun.dll for the sing-box TUN inbound; null when not shipped. */
+  wintun_dll?: string | null;
   windivert_dll: string;
   windivert_sys: string;
 }
