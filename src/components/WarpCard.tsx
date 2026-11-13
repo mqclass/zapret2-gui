@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Cloud, Play, Square, Loader2, AlertTriangle } from "lucide-react";
+import { Cloud, Play, Square, Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 import { SingBoxStatus, TunnelState, TransportView } from "../types";
 import { useI18n } from "../i18n";
 
@@ -20,6 +20,7 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
     const [status, setStatus] = useState<SingBoxStatus | null>(null);
     const [warpTransport, setWarpTransport] = useState<TransportView | null>(null);
     const [busy, setBusy] = useState(false);
+    const [retrying, setRetrying] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
@@ -93,7 +94,7 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
             : "bg-amber-500/15 text-amber-300 border-amber-500/30";
 
     const handleToggle = useCallback(async () => {
-      if (busy || isTransitioning || unavailable) return;
+      if (busy || retrying || isTransitioning || unavailable) return;
       setBusy(true);
       setError(null);
       try {
@@ -108,7 +109,31 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
       } finally {
         setBusy(false);
       }
-    }, [busy, isTransitioning, unavailable, isOn, refresh]);
+    }, [busy, retrying, isTransitioning, unavailable, isOn, refresh]);
+
+    // Manual retry (stage 6): shown on Error and on Unregistered.
+    // On Error it is the explicit affordance after the auto-restart
+    // budget is spent; on Unregistered it is the only retry path -
+    // the main button there is "Disable", and a re-registration
+    // needs a real restart, not a toggle.
+    const showRetry = state === "error" || state === "unregistered";
+    const handleRetry = useCallback(async () => {
+      if (retrying || busy || isTransitioning || unavailable) return;
+      setRetrying(true);
+      setError(null);
+      try {
+        // A restart, not a plain start: stop clears the Error state
+        // (and kills a live but unregistered engine), then start
+        // runs the full path with a fresh restart budget.
+        await invoke("tunnel_stop");
+        await invoke<SingBoxStatus>("tunnel_start");
+        await refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setRetrying(false);
+      }
+    }, [retrying, busy, isTransitioning, unavailable, refresh]);
 
     // The engine version line is "sing-box version 1.14.3-...": the
     // prefix adds nothing in the UI, show the version only.
@@ -179,6 +204,16 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
           </div>
         )}
 
+        {status && status.restarts_used > 0 && (
+          <div className="flex items-center gap-1.5 text-[11px] text-ink4">
+            <RefreshCw className="h-3 w-3 shrink-0" />
+            <span>
+              {t.warp.restartsLabel}: {status.restarts_used}
+              {status.restarts_max > 0 ? ` / ${status.restarts_max}` : ""}
+            </span>
+          </div>
+        )}
+
         {variant === "full" && status && state !== "stopped" && (
           <div className="grid grid-cols-3 gap-2 text-[11px]">
             <div className="rounded-panel border border-line bg-cardin p-2.5 space-y-0.5 min-w-0 flex flex-col">
@@ -209,7 +244,7 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
           <button
             type="button"
             onClick={handleToggle}
-            disabled={busy || isTransitioning || unavailable || status === null}
+            disabled={busy || retrying || isTransitioning || unavailable || status === null}
             className={`t-btn ${isOn ? "t-btn-danger" : "t-btn-primary"}`}
           >
             {busy || isTransitioning ? (
@@ -227,6 +262,21 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
                 ? t.warp.disableBtn
                 : t.warp.enableBtn}
           </button>
+          {showRetry && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={retrying || busy || isTransitioning || unavailable || status === null}
+              className="t-btn t-btn-ghost"
+            >
+              {retrying ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              {retrying ? t.warp.retrying : t.warp.retryBtn}
+            </button>
+          )}
           {variant === "simple" && onShowExpert && (
             <button
               type="button"

@@ -261,6 +261,11 @@ mod tests {
                 clash_api_port: Some(54321),
                 warmup_delay_ms: None,
                 last_error: Some("warp exit did not answer".to_string()),
+                // Non-default values: the round-trip must carry the
+                // restart counters (stage 6), not just the fields
+                // that existed in stage 5.
+                restarts_used: 2,
+                restarts_max: 5,
             }),
             secret: None,
             rtt_ms: None,

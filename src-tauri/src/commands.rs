@@ -1264,20 +1264,34 @@ pub async fn set_youtube_throttle_enabled(
 /// the result is marked `via_tunnel` for the UI. Running, Degraded
 /// and Unregistered all route traffic through the TUN device;
 /// Starting is not counted (the TUN is not up yet when the check
-/// begins) and Error/Stopped mean no tunnel at all. The state is
-/// read once at check start: a tunnel that comes up mid-check is a
-/// known race (see the design's stage 6 notes).
+/// begins) and Error/Stopped mean no tunnel at all.
+///
+/// Stage 6: the state is read twice - before and after the
+/// measurement (up to a 180 s window). A tunnel raised mid-check
+/// must mark the result, or blocks would be applied from a
+/// measurement that partly went through the tunnel. Fail closed:
+/// active at either end counts as via-tunnel.
 #[tauri::command]
 pub async fn run_youtube_throttle_check(
     state: State<'_, AppState>,
 ) -> Result<crate::engine::youtube_probe::YoutubeCheckResult, String> {
     let backend = state.backend.read().clone();
-    let tunnel_state = backend.get_status().await.tunnel.state;
-    let via_tunnel = matches!(
-        tunnel_state,
+    let via_at_start = tunnel_counts_as_up(backend.get_status().await.tunnel.state);
+    let result = crate::engine::youtube_probe::measure_youtube_throttle().await;
+    let via_at_end = tunnel_counts_as_up(backend.get_status().await.tunnel.state);
+    Ok(
+        crate::engine::youtube_probe::finalize_youtube_check(result, via_at_start || via_at_end)
+            .await,
+    )
+}
+
+/// Tunnel states in which the check's traffic goes through the
+/// tunnel (Starting is not one of them: the TUN is not up yet).
+fn tunnel_counts_as_up(state: TunnelState) -> bool {
+    matches!(
+        state,
         TunnelState::Running | TunnelState::Degraded | TunnelState::Unregistered
-    );
-    Ok(crate::engine::youtube_probe::run_youtube_throttle_check(via_tunnel).await)
+    )
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

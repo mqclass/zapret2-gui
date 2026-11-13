@@ -22,10 +22,15 @@
 //!   stop; KILL_ON_JOB_CLOSE still covers the case where svc itself
 //!   dies.
 //! - The monitor task (500 ms, like the supervisor's) watches the
-//!   child; an unexpected exit moves the tunnel to `Error`. A dead
-//!   *exit* is not a dead engine: warmup and (stage 6) the watchdog
-//!   report that as `Degraded` / `Unregistered` and never restart
-//!   the engine for it. Restart-on-broken is a stage 6 concern.
+//!   child; an unexpected exit moves the tunnel to `Error` and
+//!   schedules an auto-restart (stage 6: at most 5, doubling backoff
+//!   2 s -> 2 min, generation-gated). A dead *exit* is not a dead
+//!   engine: warmup and the watchdog (stage 6) report that as
+//!   `Degraded` / `Unregistered` and never restart the engine for
+//!   it - the watchdog instead walks the DNS ladder (Rule -> dns-tcp
+//!   -> dns-spare) through `PATCH /configs` and re-measures after
+//!   each step. A silent Clash API with a live child is Broken and
+//!   restarts like an unexpected exit.
 //!
 //! Port TOCTOU (stage 2 note): the Clash and mixed ports are
 //! allocated at config generation, but the engine binds them later.
@@ -64,7 +69,7 @@ use crate::engine::logger::FileLogger;
 use crate::engine::managed::ManagedSidecar;
 use crate::engine::singbox_config::{
     build_config, check_config, write_config_file, DohEndpoint, SingBoxConfigError,
-    SingBoxConfigInput, TunScope, MASQUE_TAG,
+    SingBoxConfigInput, TunScope, DNS_SPARE_MODE, DNS_TCP_MODE, MASQUE_TAG,
 };
 use crate::engine::LogEntry;
 use crate::platform::job_object::JobObject;
@@ -114,6 +119,106 @@ const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// failed start can report why the engine died instead of only its
 /// exit status.
 const STDERR_TAIL_LINES: usize = 5;
+/// Maximum consecutive automatic restarts of a broken engine
+/// (NETZapret's MaxRestarts). After the budget is spent the tunnel
+/// stays in Error until the user acts (the retry button or a fresh
+/// start). A manual start resets the budget.
+pub const MAX_AUTO_RESTARTS: u32 = 5;
+/// First auto-restart backoff; doubles per attempt, capped at
+/// RESTART_BACKOFF_MAX (NETZapret: 2 s doubling to 2 min).
+const RESTART_BACKOFF_BASE_SECS: u64 = 2;
+const RESTART_BACKOFF_MAX: Duration = Duration::from_secs(120);
+/// An engine that ran this long earns a fresh restart budget: the
+/// counter tracks *consecutive* flapping, not lifetime restarts.
+const RESTART_STABLE_WINDOW: Duration = Duration::from_secs(600);
+/// Watchdog tick: Clash API liveness, like NETZapret's 5 s poll.
+const WATCHDOG_TICK: Duration = Duration::from_secs(5);
+/// Deep-check cadence in watchdog ticks: every 6th tick (~30 s),
+/// like NETZapret's deep check every 6 polls.
+const WATCHDOG_DEEP_EVERY_TICKS: u32 = 6;
+/// Consecutive silent liveness polls before the engine counts as
+/// Broken (NETZapret's 2-miss threshold): one 2 s stall is a
+/// hiccup, two in a row is a dead HTTP stack.
+const ALIVE_MISSES_BEFORE_BROKEN: u32 = 2;
+
+/// Backoff before auto-restart attempt `attempt` (1-based): 2 s,
+/// doubling, capped at 2 min. Pure, so the table is unit-testable.
+fn backoff_delay(attempt: u32) -> Duration {
+    let shift = attempt.saturating_sub(1).min(6);
+    Duration::from_secs(RESTART_BACKOFF_BASE_SECS << shift).min(RESTART_BACKOFF_MAX)
+}
+
+/// Delay before auto-restart attempt `attempt` (1-based), or None
+/// when the budget is spent. Pure, so the exhaustion rule is
+/// unit-testable.
+fn restart_delay(attempt: u32) -> Option<Duration> {
+    if attempt == 0 || attempt > MAX_AUTO_RESTARTS {
+        None
+    } else {
+        Some(backoff_delay(attempt))
+    }
+}
+
+/// DNS ladder step (design section 9, NETZapret's DnsTcpStep /
+/// DnsSpareStep). The engine stores the Clash mode in its cache
+/// file, so a step survives restarts - the manager resets it to
+/// Rule once per launch (NETZapret's ResetDnsLeversAsync) and
+/// tracks the current step here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DnsStep {
+    /// Default: DoH `remote`, the `final` server.
+    Rule,
+    /// The same resolver over plain TCP.
+    Tcp,
+    /// A different provider's DoH.
+    Spare,
+}
+
+impl DnsStep {
+    /// The Clash mode string the engine stores for this step.
+    /// "Rule" is capitalised: that is how the engine reports the
+    /// default mode (its clashmode manager defaults to "Rule").
+    pub fn mode(&self) -> &'static str {
+        match self {
+            DnsStep::Rule => "Rule",
+            DnsStep::Tcp => DNS_TCP_MODE,
+            DnsStep::Spare => DNS_SPARE_MODE,
+        }
+    }
+
+    /// One step up the ladder (Rule -> Tcp -> Spare), or None at
+    /// the top.
+    pub fn next_up(&self) -> Option<DnsStep> {
+        match self {
+            DnsStep::Rule => Some(DnsStep::Tcp),
+            DnsStep::Tcp => Some(DnsStep::Spare),
+            DnsStep::Spare => None,
+        }
+    }
+
+    /// One step down the ladder (Spare -> Tcp -> Rule), or None at
+    /// the bottom.
+    pub fn next_down(&self) -> Option<DnsStep> {
+        match self {
+            DnsStep::Rule => None,
+            DnsStep::Tcp => Some(DnsStep::Rule),
+            DnsStep::Spare => Some(DnsStep::Tcp),
+        }
+    }
+
+    /// Parse the mode the engine reports (GET /configs). Unknown
+    /// modes map to Rule: the ladder rules only match the two
+    /// step modes, so anything else behaves like the default.
+    pub fn from_mode(mode: &str) -> DnsStep {
+        if mode.eq_ignore_ascii_case(DNS_TCP_MODE) {
+            DnsStep::Tcp
+        } else if mode.eq_ignore_ascii_case(DNS_SPARE_MODE) {
+            DnsStep::Spare
+        } else {
+            DnsStep::Rule
+        }
+    }
+}
 
 /// Tunnel states (design section 7). Separate from the desync engine
 /// states: the tunnel has its own lifecycle, and a dead exit is not a
@@ -150,6 +255,16 @@ pub struct SingBoxStatus {
     pub clash_api_port: Option<u16>,
     pub warmup_delay_ms: Option<u64>,
     pub last_error: Option<String>,
+    /// Consecutive auto-restarts used in the current session
+    /// (stage 6): 0 when the engine never needed one. `serde
+    /// default` so older snapshots (stage 5, without the fields)
+    /// still parse.
+    #[serde(default)]
+    pub restarts_used: u32,
+    /// The auto-restart budget (`MAX_AUTO_RESTARTS`): the UI shows
+    /// "used / max" without hardcoding the policy.
+    #[serde(default)]
+    pub restarts_max: u32,
 }
 
 impl Default for SingBoxStatus {
@@ -164,6 +279,8 @@ impl Default for SingBoxStatus {
             clash_api_port: None,
             warmup_delay_ms: None,
             last_error: None,
+            restarts_used: 0,
+            restarts_max: MAX_AUTO_RESTARTS,
         }
     }
 }
@@ -686,6 +803,22 @@ pub struct SingBoxManager {
     /// after a desync start: a tunnel running with the wrong scope
     /// (desync came up after it) is restarted with ProxyOnly.
     tun_scope: Arc<RwLock<Option<TunScope>>>,
+    /// Start options of the last start (stage 6): the restart task
+    /// re-runs them. Set in `start_with`; never cleared - a restart
+    /// after a stop is impossible, the stop bumps the generation
+    /// and the restart task exits on the generation check.
+    last_options: Arc<RwLock<Option<SingBoxStartOptions>>>,
+    /// Consecutive auto-restarts used in the current session
+    /// (stage 6). Reset by a manual start, by `stop()`, and when
+    /// an engine proves stable for `RESTART_STABLE_WINDOW`. Read
+    /// by `status()` so the UI can show the attempts honestly.
+    restart_attempts: Arc<RwLock<u32>>,
+    /// When the current engine instance was spawned (`None` while
+    /// stopped): the stability window for the restart budget.
+    engine_started_at: Arc<RwLock<Option<Instant>>>,
+    /// Current DNS ladder step (stage 6). Reset to Rule once per
+    /// launch - the engine persists the mode in its cache file.
+    dns_step: Arc<RwLock<DnsStep>>,
 }
 
 impl SingBoxManager {
@@ -715,6 +848,10 @@ impl SingBoxManager {
             warmup_delay_ms: Arc::new(RwLock::new(None)),
             last_error: Arc::new(RwLock::new(None)),
             tun_scope: Arc::new(RwLock::new(None)),
+            last_options: Arc::new(RwLock::new(None)),
+            restart_attempts: Arc::new(RwLock::new(0)),
+            engine_started_at: Arc::new(RwLock::new(None)),
+            dns_step: Arc::new(RwLock::new(DnsStep::Rule)),
         }
     }
 
@@ -737,6 +874,8 @@ impl SingBoxManager {
             clash_api_port: *self.clash_api_port.read(),
             warmup_delay_ms: *self.warmup_delay_ms.read(),
             last_error: self.last_error.read().clone(),
+            restarts_used: *self.restart_attempts.read(),
+            restarts_max: MAX_AUTO_RESTARTS,
         }
     }
 
@@ -754,10 +893,30 @@ impl SingBoxManager {
 
     /// Start the tunnel: home dir, version check, config generation
     /// and check, spawn into the shared Job Object, Clash readiness,
-    /// warmup, monitor. Idempotent: a start while the engine is
-    /// already up (or coming up) returns the current status without
-    /// restarting anything.
+    /// warmup, monitor, watchdog. Idempotent: a start while the
+    /// engine is already up (or coming up) returns the current
+    /// status without restarting anything. A manual start: it
+    /// resets the auto-restart budget (stage 6) - this is what the
+    /// retry button relies on after the budget was spent.
     pub async fn start(&self, options: SingBoxStartOptions) -> Result<SingBoxStatus, SingBoxError> {
+        self.start_with(options, true).await
+    }
+
+    /// Auto-restart entry (stage 6): like `start()`, but does not
+    /// reset the restart budget - the restart task owns the counter,
+    /// and a restart that reset it would never exhaust it.
+    async fn start_restart(
+        &self,
+        options: SingBoxStartOptions,
+    ) -> Result<SingBoxStatus, SingBoxError> {
+        self.start_with(options, false).await
+    }
+
+    async fn start_with(
+        &self,
+        options: SingBoxStartOptions,
+        manual: bool,
+    ) -> Result<SingBoxStatus, SingBoxError> {
         let _guard = self.lifecycle.lock().await;
 
         match *self.state.read() {
@@ -776,6 +935,18 @@ impl SingBoxManager {
         // it stale, so a later engine death would be lost silently
         // while the state stayed Running/Degraded forever.
         *self.generation.write() += 1;
+        if manual {
+            // A user-initiated start is a fresh session: the
+            // auto-restart budget is restored. This sits next to
+            // the generation bump (after the idempotency check) so
+            // a redundant start does not reset the budget either.
+            *self.restart_attempts.write() = 0;
+        }
+        // The restart task re-runs these options; a start that
+        // fails here never arms a monitor, so nothing restarts it
+        // (by design: a deterministically failing start would burn
+        // the budget in one go).
+        *self.last_options.write() = Some(options.clone());
 
         self.set_state(TunnelState::Starting);
         self.set_last_error(None);
@@ -958,6 +1129,10 @@ impl SingBoxManager {
             })?;
         *self.pid.write() = Some(spawned.pid);
         *self.clash_api_port.write() = Some(clash_port);
+        // The stability window for the restart budget (stage 6)
+        // starts at the spawn, not at the warmup: a long warmup
+        // must not count against the engine.
+        *self.engine_started_at.write() = Some(Instant::now());
         self.log("info", &format!("sing-box started (pid {})", spawned.pid));
 
         let bind_error = Arc::new(AtomicBool::new(false));
@@ -1017,6 +1192,12 @@ impl SingBoxManager {
             }
         }
 
+        // Reset the DNS ladder once per launch, before the warmup
+        // measures the exit (stage 6): the engine persists the
+        // Clash mode in its cache file, so a step from a previous
+        // run would otherwise survive into this one.
+        self.reset_dns_mode(&client).await;
+
         if let Err(error) = self.warmup(&client).await {
             return Err(SpawnAttemptError {
                 error,
@@ -1024,7 +1205,35 @@ impl SingBoxManager {
             });
         }
         self.spawn_monitor();
+        self.spawn_watchdog(client);
         Ok(())
+    }
+
+    /// Reset the DNS ladder once per launch (NETZapret's
+    /// ResetDnsLeversAsync): set the Clash mode back to Rule and
+    /// sync the step tracker from the engine's actual mode.
+    /// Best-effort - a stale step is not fatal, and the tracker is
+    /// synced from the engine afterwards, so a failed reset cannot
+    /// desync it. The start never fails on this.
+    async fn reset_dns_mode(&self, client: &ClashApiClient) {
+        if let Err(error) = client.set_mode(DnsStep::Rule.mode()).await {
+            self.log(
+                "warn",
+                &format!("could not reset the dns mode to Rule: {error}"),
+            );
+        }
+        match client.get_mode().await {
+            Ok(mode) => {
+                *self.dns_step.write() = DnsStep::from_mode(&mode);
+            }
+            Err(error) => {
+                *self.dns_step.write() = DnsStep::Rule;
+                self.log(
+                    "warn",
+                    &format!("could not read the dns mode after reset: {error}"),
+                );
+            }
+        }
     }
 
     /// Poll Clash API `alive()` until the engine answers, the child
@@ -1141,12 +1350,339 @@ impl SingBoxManager {
         });
     }
 
+    /// Arm the watchdog task (stage 6): every 5 s (NETZapret's
+    /// poll) it checks Clash API liveness, and every ~30 s it
+    /// measures the exit itself. A silent API with a live child is
+    /// Broken (restart); a dead exit with a live engine is Degraded
+    /// (never a restart). Generation-gated like the monitor: a
+    /// newer start cancels it. The client is the one built for this
+    /// engine instance (port and secret from its generated config).
+    fn spawn_watchdog(&self, client: ClashApiClient) {
+        let generation = *self.generation.read();
+        let this = self.clone();
+        tokio::spawn(async move {
+            let mut tick: u32 = 0;
+            let mut alive_misses: u32 = 0;
+            loop {
+                tokio::time::sleep(WATCHDOG_TICK).await;
+                if !this.generation_ok(generation) {
+                    return;
+                }
+                if !matches!(
+                    this.state(),
+                    TunnelState::Running | TunnelState::Degraded | TunnelState::Unregistered
+                ) {
+                    return;
+                }
+                // A dead child is the monitor's job: it reports the
+                // death (and schedules the restart). The watchdog
+                // must not race it with a Broken report.
+                if this.try_wait_child().is_some() {
+                    return;
+                }
+                // Stability earns a fresh budget: reset the counter
+                // once the engine has run past the stable window,
+                // so the UI stops showing a stale "N / 5" (m3).
+                this.maybe_reset_restart_budget();
+                tick += 1;
+                if tick % WATCHDOG_DEEP_EVERY_TICKS == 0 {
+                    // The deep check proves liveness itself (a
+                    // transport failure there reports Broken), so
+                    // the miss counter resets unconditionally.
+                    alive_misses = 0;
+                    this.deep_check(&client, generation).await;
+                } else if client.alive().await {
+                    alive_misses = 0;
+                } else {
+                    alive_misses += 1;
+                    if alive_misses >= ALIVE_MISSES_BEFORE_BROKEN {
+                        this.report_broken(
+                            "clash api stopped answering while the engine process is alive",
+                            generation,
+                        )
+                        .await;
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Reset the auto-restart budget once the engine has run past
+    /// RESTART_STABLE_WINDOW (stage 6, review m3): the counter
+    /// tracks consecutive flapping, not lifetime restarts, and the
+    /// UI must not keep showing "1 / 5" for a tunnel that runs
+    /// stably for days. Idempotent: a zero counter is left alone
+    /// (no emit), and `schedule_restart` recalculates the same
+    /// reset by the same threshold when the next death is
+    /// recorded, so the two paths cannot disagree.
+    fn maybe_reset_restart_budget(&self) {
+        if *self.restart_attempts.read() == 0 {
+            return;
+        }
+        if let Some(started_at) = *self.engine_started_at.read() {
+            if started_at.elapsed() >= RESTART_STABLE_WINDOW {
+                *self.restart_attempts.write() = 0;
+                self.sink.emit_tunnel_state(self.state());
+            }
+        }
+    }
+
+    /// One deep check (stage 6): measure the WARP exit itself, not
+    /// just the listening port. The exit is measured the same way
+    /// the warmup measures it - the engine's own delay probe of the
+    /// MASQUE outbound - not through the mixed health inbound: a
+    /// request through the mixed inbound would measure the same
+    /// exit through an extra hop. A working exit recovers Degraded
+    /// / Unregistered to Running (and tries one DNS step back
+    /// toward Rule); "tunnel not initialized" is Unregistered; any
+    /// other failure walks the DNS ladder up, re-measuring after
+    /// each step. All steps failing means Degraded, never a
+    /// restart: a dead exit is not a broken engine. A transport
+    /// failure (the API itself unreachable) is Broken and restarts.
+    async fn deep_check(&self, client: &ClashApiClient, generation: u64) {
+        if !self.generation_ok(generation) {
+            return;
+        }
+        match client
+            .measure_exit(MASQUE_TAG, WARMUP_DELAY_TIMEOUT, WARMUP_DELAY_URL)
+            .await
+        {
+            Ok(delay) => {
+                if !self.generation_ok(generation) {
+                    return;
+                }
+                *self.warmup_delay_ms.write() = Some(delay);
+                self.try_step_dns_down(client, generation).await;
+                if self.generation_ok(generation)
+                    && matches!(
+                        self.state(),
+                        TunnelState::Degraded | TunnelState::Unregistered
+                    )
+                {
+                    self.set_state(TunnelState::Running);
+                    self.log("info", &format!("warp exit recovered: {delay} ms"));
+                }
+            }
+            Err(ClashApiError::ExitFailed(message)) if is_tunnel_not_initialized(&message) => {
+                if self.generation_ok(generation) && self.state() != TunnelState::Unregistered {
+                    self.set_state(TunnelState::Unregistered);
+                    self.log(
+                        "warn",
+                        "warp exit reports tunnel not initialized (registration pending)",
+                    );
+                }
+            }
+            Err(ClashApiError::Transport(_)) => {
+                self.report_broken("clash api unreachable during the exit check", generation)
+                    .await;
+            }
+            Err(error) => {
+                self.log(
+                    "info",
+                    &format!("warp exit did not answer, trying the dns ladder: {error}"),
+                );
+                self.step_dns_ladder_up(client, generation).await;
+            }
+        }
+    }
+
+    /// One DNS step back toward Rule after a successful exit
+    /// measurement (the return path of the ladder): a transient DoH
+    /// outage must not pin the engine to the spare forever. The
+    /// step is re-measured; if the lower step fails, the previous
+    /// step is restored immediately. Best-effort: any failure
+    /// keeps the current step.
+    async fn try_step_dns_down(&self, client: &ClashApiClient, generation: u64) {
+        let current = *self.dns_step.read();
+        let Some(lower) = current.next_down() else {
+            return;
+        };
+        if !self.set_dns_step(client, lower, generation).await {
+            return;
+        }
+        match client
+            .measure_exit(MASQUE_TAG, WARMUP_DELAY_TIMEOUT, WARMUP_DELAY_URL)
+            .await
+        {
+            Ok(delay) => {
+                if !self.generation_ok(generation) {
+                    return;
+                }
+                *self.warmup_delay_ms.write() = Some(delay);
+                self.log(
+                    "info",
+                    &format!("dns ladder stepped down to {}", lower.mode()),
+                );
+            }
+            Err(_) => {
+                // The lower step does not work (yet): restore the
+                // step that just answered. No re-measure needed -
+                // it worked a moment ago. If the restore itself
+                // fails (the API died mid-step), the next watchdog
+                // tick's liveness check reports it as Broken.
+                if !self.set_dns_step(client, current, generation).await {
+                    self.log(
+                        "warn",
+                        "could not restore the dns step after a failed step-down",
+                    );
+                }
+            }
+        }
+    }
+
+    /// Walk the DNS ladder up (Rule -> Tcp -> Spare), re-measuring
+    /// the exit after each step. A step that recovers the exit
+    /// stays; all steps failing means the exit itself is dead -
+    /// reset to Rule and report Degraded (never a restart).
+    async fn step_dns_ladder_up(&self, client: &ClashApiClient, generation: u64) {
+        loop {
+            let current = *self.dns_step.read();
+            let Some(next) = current.next_up() else {
+                break;
+            };
+            if !self.set_dns_step(client, next, generation).await {
+                // The step change itself failed (or the task went
+                // stale): stop climbing, the state below reports it.
+                break;
+            }
+            match client
+                .measure_exit(MASQUE_TAG, WARMUP_DELAY_TIMEOUT, WARMUP_DELAY_URL)
+                .await
+            {
+                Ok(delay) => {
+                    if !self.generation_ok(generation) {
+                        return;
+                    }
+                    *self.warmup_delay_ms.write() = Some(delay);
+                    if self.state() != TunnelState::Running {
+                        self.set_state(TunnelState::Running);
+                    }
+                    self.log(
+                        "info",
+                        &format!(
+                            "warp exit recovered after switching dns to {}: {delay} ms",
+                            next.mode()
+                        ),
+                    );
+                    return;
+                }
+                Err(ClashApiError::ExitFailed(message)) if is_tunnel_not_initialized(&message) => {
+                    if self.generation_ok(generation) && self.state() != TunnelState::Unregistered {
+                        self.set_state(TunnelState::Unregistered);
+                        self.log(
+                            "warn",
+                            "warp exit reports tunnel not initialized (registration pending)",
+                        );
+                    }
+                    return;
+                }
+                Err(ClashApiError::Transport(_)) => {
+                    self.report_broken("clash api unreachable during the dns ladder", generation)
+                        .await;
+                    return;
+                }
+                Err(_) => {
+                    // This step did not help either: climb on.
+                }
+            }
+        }
+        // Every step failed: the exit is dead, not the resolver.
+        // Reset the ladder so the next cycle retries from the top.
+        let _ = self.set_dns_step(client, DnsStep::Rule, generation).await;
+        if self.generation_ok(generation) && self.state() != TunnelState::Degraded {
+            self.set_state(TunnelState::Degraded);
+            self.log(
+                "warn",
+                "warp exit did not answer on any dns step - the exit is down, the engine is not restarted",
+            );
+        }
+    }
+
+    /// Set the DNS ladder step: PATCH the Clash mode, then verify
+    /// with GET - the engine silently ignores unknown modes (still
+    /// 204), so an unverified set would look like success while
+    /// nothing changed. Returns false on any failure or a stale
+    /// generation; the step tracker only moves on a verified set.
+    async fn set_dns_step(&self, client: &ClashApiClient, step: DnsStep, generation: u64) -> bool {
+        if !self.generation_ok(generation) {
+            return false;
+        }
+        if let Err(error) = client.set_mode(step.mode()).await {
+            self.log(
+                "warn",
+                &format!("could not switch the dns mode to {}: {error}", step.mode()),
+            );
+            return false;
+        }
+        match client.get_mode().await {
+            Ok(mode) if DnsStep::from_mode(&mode) == step => {
+                *self.dns_step.write() = step;
+                true
+            }
+            Ok(mode) => {
+                self.log(
+                    "warn",
+                    &format!(
+                        "dns mode change to {} did not stick (engine reports {mode})",
+                        step.mode()
+                    ),
+                );
+                false
+            }
+            Err(error) => {
+                self.log(
+                    "warn",
+                    &format!("could not verify the dns mode after switching: {error}"),
+                );
+                false
+            }
+        }
+    }
+
+    /// Is this task still the current generation's task? Every
+    /// watchdog and restart step re-checks: a newer start (or a
+    /// stop) bumps the generation, and a stale task must not touch
+    /// state, the engine, or the restart budget.
+    fn generation_ok(&self, generation: u64) -> bool {
+        *self.generation.read() == generation
+    }
+
     /// Record an unexpected engine death, unless a newer start owns
     /// the slot now (generation guard) or the tunnel is already
-    /// stopping/stopped.
+    /// stopping/stopped. A recorded death schedules the auto-restart
+    /// (stage 6).
     fn on_engine_gone(&self, reason: &str, generation: u64) {
-        if *self.generation.read() != generation {
+        if self.record_unexpected_failure(reason, generation) {
+            self.schedule_restart(generation);
+        }
+    }
+
+    /// The Broken path (stage 6): the engine process is alive but
+    /// its Clash API stopped answering - a dead HTTP stack, not a
+    /// dead exit. Kill the process first (a restart cannot spawn a
+    /// second engine on the same TUN), then record the failure and
+    /// schedule the restart like an unexpected death.
+    async fn report_broken(&self, reason: &str, generation: u64) {
+        if !self.generation_ok(generation) {
             return;
+        }
+        self.kill_child().await;
+        if self.record_unexpected_failure(reason, generation) {
+            self.schedule_restart(generation);
+        }
+    }
+
+    /// The shared core of `on_engine_gone` and `report_broken`
+    /// (stage 6): generation-guard, cleanup of the dead engine's
+    /// snapshot, and the transition to Error - only from a state
+    /// where the engine was actually running. Returns whether the
+    /// transition happened: only then does the caller schedule a
+    /// restart, so two reporters of the same death (the monitor and
+    /// the watchdog racing) schedule exactly one restart task.
+    fn record_unexpected_failure(&self, reason: &str, generation: u64) -> bool {
+        if !self.generation_ok(generation) {
+            return false;
         }
         *self.pid.write() = None;
         // Same cleanup as stop(): the port dies with the engine, and
@@ -1167,6 +1703,108 @@ impl SingBoxManager {
             // transition cannot go through set_state - emit inline.
             self.sink.emit_tunnel_state(TunnelState::Error);
             self.log("error", reason);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Schedule the auto-restart of a broken engine (stage 6): a
+    /// detached task that waits the backoff and re-runs the last
+    /// start options. Detached, not awaited: the caller is the
+    /// monitor or the watchdog, and the restart must survive them.
+    /// The budget is spent here, one attempt per scheduling, so a
+    /// flapping engine cannot restart forever; an engine that ran
+    /// for `RESTART_STABLE_WINDOW` earns a fresh budget. A restart
+    /// is scheduled only after a death of a running engine - a
+    /// failed start never gets one (`start()` already has its own
+    /// TOCTOU retry, and a deterministically failing start would
+    /// burn the budget in one go).
+    fn schedule_restart(&self, generation: u64) {
+        if !self.generation_ok(generation) {
+            return;
+        }
+        let options = match self.last_options.read().clone() {
+            Some(options) => options,
+            // No options: the engine was spawned by the test helper
+            // (`spawn_and_warm` directly), not by `start()` - there
+            // is nothing to re-run.
+            None => return,
+        };
+        // Stability earns a fresh budget: the counter tracks
+        // consecutive flapping, not lifetime restarts.
+        if let Some(started_at) = *self.engine_started_at.read() {
+            if started_at.elapsed() >= RESTART_STABLE_WINDOW {
+                *self.restart_attempts.write() = 0;
+            }
+        }
+        // The counter is written by the loop when an attempt
+        // actually starts (after its backoff) - not here: a
+        // scheduled attempt that never runs (the user stopped the
+        // tunnel during the backoff) must not spend the budget,
+        // and the UI must never show "6 / 5".
+        let attempt = *self.restart_attempts.read() + 1;
+        let this = self.clone();
+        tokio::spawn(async move {
+            this.restart_loop(generation, attempt, options).await;
+        });
+    }
+
+    /// One auto-restart chain (stage 6): wait the backoff, check
+    /// the generation and the state (the user may have stopped or
+    /// restarted the tunnel meanwhile), re-run the saved start
+    /// options. A successful restart ends the chain; a failed one
+    /// waits the next backoff and tries again until the budget is
+    /// spent. The warmup runs again after every restart - the new
+    /// engine instance is judged on its own exit.
+    async fn restart_loop(&self, generation: u64, mut attempt: u32, options: SingBoxStartOptions) {
+        loop {
+            let Some(delay) = restart_delay(attempt) else {
+                if self.generation_ok(generation) && self.state() == TunnelState::Error {
+                    // The budget is spent: say so in the status the
+                    // UI shows, so the user learns the tunnel needs
+                    // a manual retry instead of waiting silently.
+                    self.set_last_error(Some(format!(
+                        "автоперезапуски исчерпаны: {} попыток не подняли движок. Нажмите «Попробовать снова».",
+                        MAX_AUTO_RESTARTS
+                    )));
+                    self.sink.emit_tunnel_state(TunnelState::Error);
+                    self.log(
+                        "error",
+                        &format!(
+                            "auto-restart budget spent ({} attempts), tunnel stays in Error",
+                            MAX_AUTO_RESTARTS
+                        ),
+                    );
+                }
+                return;
+            };
+            tokio::time::sleep(delay).await;
+            if !self.generation_ok(generation) || self.state() != TunnelState::Error {
+                return;
+            }
+            // The attempt counts as used from the moment it starts:
+            // after 5 failed attempts the counter reads 5, not 6.
+            *self.restart_attempts.write() = attempt;
+            match self.start_restart(options.clone()).await {
+                Ok(status) => {
+                    self.log(
+                        "info",
+                        &format!(
+                            "tunnel auto-restarted on attempt {attempt} (state: {:?})",
+                            status.state
+                        ),
+                    );
+                    return;
+                }
+                Err(error) => {
+                    self.log(
+                        "warn",
+                        &format!("tunnel auto-restart attempt {attempt} failed: {error}"),
+                    );
+                    attempt += 1;
+                }
+            }
         }
     }
 
@@ -1195,6 +1833,13 @@ impl SingBoxManager {
         *self.clash_api_port.write() = None;
         *self.warmup_delay_ms.write() = None;
         *self.tun_scope.write() = None;
+        // A stop is a fresh session (stage 6): the restart budget
+        // and the stability clock reset with it. The DNS step
+        // resets too - the next launch resets the engine's mode
+        // anyway, so the tracker must not remember the old step.
+        *self.restart_attempts.write() = 0;
+        *self.engine_started_at.write() = None;
+        *self.dns_step.write() = DnsStep::Rule;
         self.set_state(TunnelState::Stopped);
         self.file_logger.flush();
         self.log("info", "sing-box stopped");
@@ -1582,6 +2227,107 @@ mod tests {
         );
     }
 
+    #[test]
+    fn restart_backoff_doubles_and_caps() {
+        assert_eq!(backoff_delay(1), Duration::from_secs(2));
+        assert_eq!(backoff_delay(2), Duration::from_secs(4));
+        assert_eq!(backoff_delay(3), Duration::from_secs(8));
+        assert_eq!(backoff_delay(4), Duration::from_secs(16));
+        assert_eq!(backoff_delay(5), Duration::from_secs(32));
+        // The cap binds at 2 min even for attempts beyond the budget.
+        assert_eq!(backoff_delay(10), Duration::from_secs(120));
+    }
+
+    #[test]
+    fn restart_delay_allows_five_attempts_then_none() {
+        assert_eq!(restart_delay(0), None);
+        for attempt in 1..=5 {
+            assert_eq!(restart_delay(attempt), Some(backoff_delay(attempt)));
+        }
+        assert_eq!(restart_delay(6), None);
+        assert_eq!(restart_delay(100), None);
+    }
+
+    #[test]
+    fn restart_budget_resets_after_stable_window() {
+        // Review m3: an engine that restarted once and then runs
+        // stably must not show "1 / 5" forever.
+        let manager = test_manager();
+        *manager.restart_attempts.write() = 3;
+        *manager.engine_started_at.write() =
+            Some(Instant::now() - RESTART_STABLE_WINDOW - Duration::from_secs(1));
+        manager.maybe_reset_restart_budget();
+        assert_eq!(manager.status().restarts_used, 0);
+    }
+
+    #[test]
+    fn restart_budget_kept_within_stable_window() {
+        let manager = test_manager();
+        *manager.restart_attempts.write() = 3;
+        *manager.engine_started_at.write() = Some(Instant::now());
+        manager.maybe_reset_restart_budget();
+        assert_eq!(manager.status().restarts_used, 3);
+    }
+
+    #[test]
+    fn dns_step_transitions() {
+        assert_eq!(DnsStep::Rule.next_up(), Some(DnsStep::Tcp));
+        assert_eq!(DnsStep::Tcp.next_up(), Some(DnsStep::Spare));
+        assert_eq!(DnsStep::Spare.next_up(), None);
+        assert_eq!(DnsStep::Rule.next_down(), None);
+        assert_eq!(DnsStep::Tcp.next_down(), Some(DnsStep::Rule));
+        assert_eq!(DnsStep::Spare.next_down(), Some(DnsStep::Tcp));
+    }
+
+    #[test]
+    fn dns_step_modes_are_the_generator_strings() {
+        // "Rule" is capitalised: that is how the engine reports the
+        // default mode. The step modes are the generator's constants
+        // (the same strings the config's clash_mode rules use).
+        assert_eq!(DnsStep::Rule.mode(), "Rule");
+        assert_eq!(DnsStep::Tcp.mode(), DNS_TCP_MODE);
+        assert_eq!(DnsStep::Spare.mode(), DNS_SPARE_MODE);
+    }
+
+    #[test]
+    fn dns_step_parses_engine_modes() {
+        assert_eq!(DnsStep::from_mode("Rule"), DnsStep::Rule);
+        assert_eq!(DnsStep::from_mode("rule"), DnsStep::Rule);
+        assert_eq!(DnsStep::from_mode("dns-tcp"), DnsStep::Tcp);
+        assert_eq!(DnsStep::from_mode("DNS-TCP"), DnsStep::Tcp);
+        assert_eq!(DnsStep::from_mode("dns-spare"), DnsStep::Spare);
+        // Unknown modes behave like the default: the ladder rules
+        // only match the two step modes.
+        assert_eq!(DnsStep::from_mode("bogus-mode"), DnsStep::Rule);
+        assert_eq!(DnsStep::from_mode(""), DnsStep::Rule);
+    }
+
+    #[test]
+    fn singbox_status_serde_defaults_restart_fields() {
+        // A stage 5 snapshot (no restart fields) must still parse:
+        // the counters default to 0. That is safe for the UI: it
+        // renders the restart line only when restarts_used > 0, and
+        // an old snapshot always has restarts_used == 0. A live
+        // manager always sends the full snapshot.
+        let old: SingBoxStatus = serde_json::from_str(
+            r#"{"state":"degraded","pid":4242,"engine_version":null,"clash_api_port":null,"warmup_delay_ms":null,"last_error":null}"#,
+        )
+        .unwrap();
+        assert_eq!(old.restarts_used, 0);
+        assert_eq!(old.restarts_max, 0);
+        // And a current snapshot round-trips the counters.
+        let current = SingBoxStatus {
+            restarts_used: 2,
+            restarts_max: MAX_AUTO_RESTARTS,
+            ..Default::default()
+        };
+        let back: SingBoxStatus =
+            serde_json::from_str(&serde_json::to_string(&current).unwrap()).unwrap();
+        assert_eq!(back.restarts_used, 2);
+        assert_eq!(back.restarts_max, MAX_AUTO_RESTARTS);
+        assert_eq!(SingBoxStatus::default().restarts_max, MAX_AUTO_RESTARTS);
+    }
+
     #[tokio::test]
     async fn stop_when_stopped_is_noop() {
         let manager = test_manager();
@@ -1891,6 +2637,231 @@ mod tests {
         assert_eq!(
             runs, 2,
             "expected one retry after the bind conflict (2 launches), got {runs}"
+        );
+
+        manager.stop().await.unwrap();
+        assert_eq!(manager.state(), TunnelState::Stopped);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Read the Clash API secret back from a generated config file
+    /// (the manager never exposes it - the tests read the artifact
+    /// they generated, like the generator's own tests do).
+    fn read_clash_secret(config_path: &Path) -> String {
+        let text = std::fs::read_to_string(config_path).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        value["experimental"]["clash_api"]["secret"]
+            .as_str()
+            .expect("generated config carries the clash secret")
+            .to_string()
+    }
+
+    /// Live test for the stage 6 DNS ladder: the generated config's
+    /// modes are switchable through the Clash API, an unknown mode
+    /// is silently ignored (the engine still answers 204 - that is
+    /// why every set is verified with a get), and a restart resets
+    /// the mode to Rule (the engine persists the mode in its cache
+    /// file, so without the reset a step from the previous run
+    /// would survive). Gated on SINGBOX_TEST_BINARY.
+    #[tokio::test]
+    async fn live_dns_ladder_modes() {
+        let Some(binary) = live_test_binary() else {
+            return;
+        };
+
+        let dir = std::env::temp_dir().join(format!(
+            "zapret2-singbox-live-ladder-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+
+        let manager = test_manager();
+        let status = manager
+            .start(test_options(binary.clone(), dir.clone()))
+            .await
+            .expect("start with the generated config");
+        assert!(
+            matches!(
+                status.state,
+                TunnelState::Degraded | TunnelState::Unregistered
+            ),
+            "unexpected state: {:?}",
+            status.state
+        );
+
+        let client = ClashApiClient::new(
+            status.clash_api_port.expect("clash port"),
+            &read_clash_secret(&config_path),
+        );
+        // The launch reset the ladder: the mode is Rule even
+        // though this is a fresh cache file (the reset runs on
+        // every launch, not just when a stale step exists).
+        assert_eq!(client.get_mode().await.expect("get mode"), "Rule");
+        client.set_mode(DNS_TCP_MODE).await.expect("set dns-tcp");
+        assert_eq!(client.get_mode().await.expect("get mode"), DNS_TCP_MODE);
+        client
+            .set_mode(DNS_SPARE_MODE)
+            .await
+            .expect("set dns-spare");
+        assert_eq!(client.get_mode().await.expect("get mode"), DNS_SPARE_MODE);
+        // The engine silently ignores an unknown mode: the set
+        // "succeeds" (204) but the mode does not change.
+        client.set_mode("bogus-mode").await.expect("set bogus mode");
+        assert_eq!(
+            client.get_mode().await.expect("get mode"),
+            DNS_SPARE_MODE,
+            "an unknown mode must not change the active mode"
+        );
+
+        manager.stop().await.unwrap();
+        assert_eq!(manager.state(), TunnelState::Stopped);
+
+        // Restart with the same home dir (the cache file survives):
+        // the launch reset must bring the mode back to Rule.
+        let status = manager
+            .start(test_options(binary, dir.clone()))
+            .await
+            .expect("restart with the same home dir");
+        let client = ClashApiClient::new(
+            status.clash_api_port.expect("clash port"),
+            &read_clash_secret(&config_path),
+        );
+        assert_eq!(
+            client.get_mode().await.expect("get mode after restart"),
+            "Rule",
+            "a restart must reset the dns ladder to Rule"
+        );
+
+        manager.stop().await.unwrap();
+        assert_eq!(manager.state(), TunnelState::Stopped);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Live test for the stage 6 auto-restart: an engine that dies
+    /// unexpectedly must come back on its own (first backoff 2 s),
+    /// with the restart counter advanced and a new pid. The sandbox
+    /// cannot connect the MASQUE exit, so the restarted engine
+    /// lands in Degraded or Unregistered - the state after a
+    /// restart is judged by its own warmup, not assumed. Gated on
+    /// SINGBOX_TEST_BINARY.
+    #[tokio::test]
+    async fn live_unexpected_death_restarts_the_tunnel() {
+        let Some(binary) = live_test_binary() else {
+            return;
+        };
+
+        let dir = std::env::temp_dir().join(format!(
+            "zapret2-singbox-live-restart-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let manager = test_manager();
+        let status = manager
+            .start(test_options(binary, dir.clone()))
+            .await
+            .expect("start");
+        assert!(
+            matches!(
+                status.state,
+                TunnelState::Degraded | TunnelState::Unregistered
+            ),
+            "unexpected state: {:?}",
+            status.state
+        );
+        let pid = status.pid.expect("engine pid");
+        assert_eq!(status.restarts_used, 0);
+
+        kill_pid_external(pid);
+        // The monitor reports the death (<= 500 ms), the restart
+        // task waits the 2 s backoff, then the restart runs the
+        // full start again (warmup up to ~15 s in the sandbox).
+        let deadline = Instant::now() + Duration::from_secs(90);
+        loop {
+            let status = manager.status();
+            if status.restarts_used == 1
+                && matches!(
+                    status.state,
+                    TunnelState::Degraded | TunnelState::Unregistered
+                )
+                && status.pid.is_some()
+                && status.pid != Some(pid)
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "tunnel did not auto-restart, stuck at {:?} (restarts_used={})",
+                status.state,
+                status.restarts_used
+            );
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        manager.stop().await.unwrap();
+        assert_eq!(manager.state(), TunnelState::Stopped);
+        // A stop is a fresh session: the budget resets with it.
+        assert_eq!(manager.status().restarts_used, 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Live test for the stage 6 Degraded rule: a dead exit must
+    /// never restart the engine. The engine stays up (its API
+    /// answers), only the exit is dead, so over a window covering
+    /// the watchdog's first deep check (~30 s in) the pid must not
+    /// change and no restart must be spent. The deep check's ladder
+    /// may still be climbing when the wait ends (each step
+    /// re-measures with a 10 s deadline) - the property holds
+    /// regardless, because no path in the deep check schedules a
+    /// restart. Gated on SINGBOX_TEST_BINARY.
+    #[tokio::test]
+    async fn live_degraded_exit_never_restarts() {
+        let Some(binary) = live_test_binary() else {
+            return;
+        };
+
+        let dir = std::env::temp_dir().join(format!(
+            "zapret2-singbox-live-degraded-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let manager = test_manager();
+        let status = manager
+            .start(test_options(binary, dir.clone()))
+            .await
+            .expect("start");
+        assert!(
+            matches!(
+                status.state,
+                TunnelState::Degraded | TunnelState::Unregistered
+            ),
+            "unexpected state: {:?}",
+            status.state
+        );
+        let pid = status.pid.expect("engine pid");
+
+        // Past the first deep check (armed after the warmup, every
+        // 6th 5 s tick), with margin for its first measurement.
+        tokio::time::sleep(Duration::from_secs(45)).await;
+
+        let status = manager.status();
+        assert!(
+            matches!(
+                status.state,
+                TunnelState::Degraded | TunnelState::Unregistered
+            ),
+            "unexpected state after the deep check: {:?}",
+            status.state
+        );
+        assert_eq!(status.pid, Some(pid), "the engine must not have restarted");
+        assert_eq!(
+            status.restarts_used, 0,
+            "a dead exit must never spend the restart budget"
         );
 
         manager.stop().await.unwrap();

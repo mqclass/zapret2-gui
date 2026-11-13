@@ -32,7 +32,7 @@ pub use events::{EventSink, NullSink, SinkSlot, TauriSink};
 pub use logger::FileLogger;
 pub use managed::ManagedSidecar;
 pub use probes::{DiagnosticsReport, DiagnosticsService, ProbeMetric, ProbeStatus, StrategyProbeResult};
-pub use singbox::{SingBoxManager, SingBoxStatus, TunnelState};
+pub use singbox::{SingBoxManager, SingBoxStatus, TunnelState, MAX_AUTO_RESTARTS};
 pub use speedtest::{run_youtube_speedtest, SpeedtestResult};
 pub use supervisor::{LogEntry, Supervisor, SupervisorState, SupervisorStatus};
 pub use tgproxy::{TgProxyManager, TgProxyStatus};

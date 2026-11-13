@@ -674,6 +674,8 @@ const AppContent: React.FC = () => {
             clash_api_port: null,
             warmup_delay_ms: null,
             last_error: null,
+            restarts_used: 0,
+            restarts_max: 0,
           }),
           state: event.payload as any,
         },

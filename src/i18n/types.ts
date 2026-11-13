@@ -538,6 +538,9 @@ export interface Translations {
     disableBtn: string;
     enabling: string;
     disabling: string;
+    retryBtn: string;
+    retrying: string;
+    restartsLabel: string;
     engineVersionLabel: string;
     clashPortLabel: string;
     delayLabel: string;

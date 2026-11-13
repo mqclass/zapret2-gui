@@ -127,8 +127,11 @@ const TAG_DNS_TCP: &str = "remote-tcp";
 const TAG_DNS_SPARE: &str = "remote-spare";
 
 /// Clash modes that switch the DNS ladder steps (NETZapret names).
-const DNS_TCP_MODE: &str = "dns-tcp";
-const DNS_SPARE_MODE: &str = "dns-spare";
+/// `pub(crate)`: the manager's `DnsStep` (stage 6) reuses the same
+/// strings when it switches the mode through the Clash API, so the
+/// config and the ladder cannot drift apart.
+pub(crate) const DNS_TCP_MODE: &str = "dns-tcp";
+pub(crate) const DNS_SPARE_MODE: &str = "dns-spare";
 
 /// Username of the mixed (health-check) inbound. Fixed; only the
 /// password is secret (NETZapret does the same).

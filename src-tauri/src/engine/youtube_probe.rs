@@ -715,19 +715,21 @@ async fn run_substitution_tests(
     out
 }
 
-/// Runs the full user-initiated check: fetch a video page, measure each
-/// unique node, persist the verdicts, and — when the lane and smart
-/// hosts are both on — re-apply the hosts section so fresh blocks take
-/// effect immediately. With the lane off the check is diagnostic only:
-/// measurements are recorded, hosts is never touched. On a Mixed
-/// outcome it also runs the substitution phase (see
-/// [`run_substitution_tests`]): dead nodes re-measured against live
-/// IPs, diagnostic only, inside the same overall deadline.
+/// Measure the YouTube nodes (mapping, page fetches, probes, and -
+/// on a Mixed outcome - the substitution phase, see
+/// [`run_substitution_tests`]) without recording anything or
+/// touching hosts. The caller finalizes with
+/// [`finalize_youtube_check`], passing the tunnel state as observed
+/// *after* the measurement: the tunnel may have come up mid-check
+/// (a 180 s window), and a measurement that went through it must
+/// never apply blocks. The returned result's `via_tunnel` is a
+/// placeholder (false) that finalize overwrites.
 ///
-/// `via_tunnel` (stage 5): the measurement went through the WARP
-/// tunnel, so nothing is recorded and hosts is never re-applied -
-/// the check is diagnostic only and the result is marked for the UI.
-pub async fn run_youtube_throttle_check(via_tunnel: bool) -> YoutubeCheckResult {
+/// GUI-only (called from the Tauri command in `commands.rs`): the
+/// svc binary compiles this module but never calls it, hence the
+/// allow - the same idiom as `SINGBOX_SIDECAR_NAME`.
+#[allow(dead_code)]
+pub async fn measure_youtube_throttle() -> YoutubeCheckResult {
     let settings = crate::platform::settings::load_settings();
     let lane_enabled = settings.youtube_throttle_enabled;
     let smart_hosts_enabled = settings.smart_hosts_enabled;
@@ -738,7 +740,9 @@ pub async fn run_youtube_throttle_check(via_tunnel: bool) -> YoutubeCheckResult 
         mapping_node: None,
         lane_enabled,
         smart_hosts_enabled,
-        via_tunnel,
+        // Placeholder: finalize_youtube_check overwrites this with
+        // the tunnel state observed after the measurement.
+        via_tunnel: false,
         applied: false,
         blocked_now: settings.youtube_throttle_blocked_count,
         apply_error: None,
@@ -787,6 +791,29 @@ pub async fn run_youtube_throttle_check(via_tunnel: bool) -> YoutubeCheckResult 
         run_substitution_tests(result.outcome, &result.nodes, &probed_urls, deadline).await;
     result.substitution = substitution;
 
+    result
+}
+
+/// Record a measurement (merge the verdicts, and - when the lane
+/// and smart hosts are both on - re-apply the hosts section so
+/// fresh blocks take effect immediately). With the lane off the
+/// check is diagnostic only: measurements are recorded, hosts is
+/// never touched.
+///
+/// `via_tunnel` (stage 5): the measurement went through the WARP
+/// tunnel, so nothing is recorded and hosts is never re-applied -
+/// the check stays diagnostic only and the result is marked for
+/// the UI. The flag is the tunnel state as observed after the
+/// measurement (stage 6): the tunnel may have come up mid-check.
+///
+/// GUI-only, like `measure_youtube_throttle` (see its allow note).
+#[allow(dead_code)]
+pub async fn finalize_youtube_check(
+    mut result: YoutubeCheckResult,
+    via_tunnel: bool,
+) -> YoutubeCheckResult {
+    result.via_tunnel = via_tunnel;
+
     let measured: Vec<(String, NodeVerdict)> = result
         .nodes
         .iter()
@@ -809,7 +836,7 @@ pub async fn run_youtube_throttle_check(via_tunnel: bool) -> YoutubeCheckResult 
     // with the lane on - merge_measurements above was a no-op, so a
     // refresh here would only re-apply the old state and claim
     // `applied`, which the UI would read as "this check blocked".
-    if lane_enabled && smart_hosts_enabled && !via_tunnel {
+    if result.lane_enabled && result.smart_hosts_enabled && !via_tunnel {
         match crate::platform::smart_hosts::refresh_smart_hosts().await {
             Ok(st) => {
                 result.applied = true;

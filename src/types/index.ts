@@ -94,6 +94,10 @@ export interface SingBoxStatus {
   warmup_delay_ms: number | null;
   /** Last failure, human-readable; null when healthy. */
   last_error: string | null;
+  /** Consecutive auto-restarts used in the current session (stage 6). */
+  restarts_used: number;
+  /** The auto-restart budget (5); the UI shows "used / max". */
+  restarts_max: number;
 }
 
 export interface TgProxyStatus {

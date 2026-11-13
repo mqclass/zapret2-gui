@@ -15,10 +15,16 @@
 //!   unregistered engine answers with "tunnel not initialized".
 //!   The warmup and the watchdog (stage 6) judge the exit from this.
 //!
-//! The selector (`PUT /proxies/{tag}`) and mode switch
-//! (`PATCH /configs`) from the design's stage 6 are not needed yet:
-//! the v1 config has no selector group, and the tunnel scope is fixed
-//! at generation time. They are added when stage 6 needs them.
+//! - `set_mode()` / `get_mode()` - `PATCH /configs` / `GET /configs`:
+//!   the DNS ladder (stage 6) switches the Clash mode between Rule
+//!   (DoH), dns-tcp (the same resolver over plain TCP) and dns-spare
+//!   (a different provider's DoH). The engine silently ignores a mode
+//!   that is not in its mode list (it still answers 204), so every
+//!   set must be verified with a get - the manager does that.
+//!
+//! The selector (`PUT /proxies/{tag}`) from the design's stage 6 is
+//! still not needed: the v1 config has no selector group, and the
+//! DNS ladder only moves the mode. It is added when a selector exists.
 //!
 //! The client never touches the network outside localhost: the base
 //! URL is always `http://127.0.0.1:<port>`.
@@ -43,9 +49,15 @@ pub enum ClashApiError {
     ExitFailed(String),
 
     /// The engine answered 2xx but the body is not the expected JSON
-    /// (`{"delay": <ms>}`).
+    /// (`{"delay": <ms>}` or `{"mode": "..."}`).
     #[error("unexpected clash api response: {0}")]
     BadResponse(String),
+
+    /// A mode read or switch failed (non-2xx on `PATCH` / `GET
+    /// /configs`): separate from `ExitFailed`, which is worded for
+    /// exit measurements and would lie about a config call.
+    #[error("clash api config failed: {0}")]
+    ConfigFailed(String),
 }
 
 /// Client for one sing-box Clash API endpoint.
@@ -121,6 +133,74 @@ impl ClashApiClient {
             Err(ClashApiError::ExitFailed(message))
         }
     }
+
+    /// Switch the Clash mode (`PATCH /configs {"mode": ...}`): the
+    /// DNS ladder's lever (stage 6). A 204 means the request was
+    /// accepted - not that the mode changed: the engine silently
+    /// ignores modes that are not in its mode list (its
+    /// `clashmode.Manager.SetMode` returns without error for an
+    /// unknown mode), so the caller must verify with `get_mode()`.
+    /// A 5 s per-request timeout: the call is local and fast, and
+    /// the watchdog must not stall on it.
+    pub async fn set_mode(&self, mode: &str) -> Result<(), ClashApiError> {
+        let response = self
+            .client
+            .patch(format!("{}/configs", self.base))
+            .header("Authorization", format!("Bearer {}", self.secret))
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(5))
+            .body(mode_patch_body(mode))
+            .send()
+            .await?;
+        let status = response.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let body = response.text().await.unwrap_or_default();
+            let message = extract_error_message(&body).unwrap_or_else(|| format!("HTTP {status}"));
+            Err(ClashApiError::ConfigFailed(message))
+        }
+    }
+
+    /// Read the current Clash mode (`GET /configs {"mode": ...}`):
+    /// the verification after `set_mode()`, and the sync of the
+    /// manager's DNS step after a launch (the engine persists the
+    /// mode in its cache file, so it can outlive a restart).
+    pub async fn get_mode(&self) -> Result<String, ClashApiError> {
+        let response = self
+            .client
+            .get(format!("{}/configs", self.base))
+            .header("Authorization", format!("Bearer {}", self.secret))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await?;
+        let status = response.status();
+        let body = response.text().await?;
+        if status.is_success() {
+            parse_mode_response(&body)
+        } else {
+            let message = extract_error_message(&body).unwrap_or_else(|| format!("HTTP {status}"));
+            Err(ClashApiError::ConfigFailed(message))
+        }
+    }
+}
+
+/// The `PATCH /configs` body for a mode switch: a single JSON field.
+/// Built with serde_json (not a format! string) so a mode name with
+/// quotes or backslashes cannot break the JSON.
+fn mode_patch_body(mode: &str) -> String {
+    serde_json::json!({ "mode": mode }).to_string()
+}
+
+/// Parse a `GET /configs` response: `{"mode": "..."}`. The `mode-list`
+/// field is not needed - the manager only asks what is active.
+fn parse_mode_response(body: &str) -> Result<String, ClashApiError> {
+    let value: serde_json::Value = serde_json::from_str(body)
+        .map_err(|error| ClashApiError::BadResponse(format!("invalid JSON: {error}")))?;
+    value["mode"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| ClashApiError::BadResponse(format!("missing string 'mode' in: {body}")))
 }
 
 /// Build the delay-measurement URL. The proxy tag goes into the path
@@ -225,6 +305,35 @@ mod tests {
     fn parse_delay_response_rejects_invalid_json() {
         assert!(matches!(
             parse_delay_response("not json"),
+            Err(ClashApiError::BadResponse(_))
+        ));
+    }
+
+    #[test]
+    fn mode_patch_body_builds_single_mode_field() {
+        assert_eq!(mode_patch_body("dns-tcp"), r#"{"mode":"dns-tcp"}"#);
+    }
+
+    #[test]
+    fn parse_mode_response_reads_mode() {
+        assert_eq!(
+            parse_mode_response(r#"{"mode":"dns-tcp","mode-list":["Rule","dns-tcp"]}"#).unwrap(),
+            "dns-tcp"
+        );
+    }
+
+    #[test]
+    fn parse_mode_response_rejects_missing_mode() {
+        assert!(matches!(
+            parse_mode_response(r#"{"mode-list":["Rule"]}"#),
+            Err(ClashApiError::BadResponse(_))
+        ));
+    }
+
+    #[test]
+    fn parse_mode_response_rejects_invalid_json() {
+        assert!(matches!(
+            parse_mode_response("not json"),
             Err(ClashApiError::BadResponse(_))
         ));
     }

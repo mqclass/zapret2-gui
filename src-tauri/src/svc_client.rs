@@ -21,7 +21,7 @@ use tokio::sync::Mutex;
 
 use crate::engine::{
     LogEntry, SingBoxStatus, Supervisor, SupervisorStatus, TgProxyManager, TgProxyStatus,
-    TunnelState,
+    TunnelState, MAX_AUTO_RESTARTS,
 };
 use crate::svc_ipc::{ClientMessage, ServerMessage, SvcEvent, PROTOCOL_VERSION};
 #[cfg(windows)]
@@ -534,6 +534,8 @@ impl SupervisorBackend {
                 clash_api_port: None,
                 warmup_delay_ms: None,
                 last_error: Some("svc unreachable".to_string()),
+                restarts_used: 0,
+                restarts_max: MAX_AUTO_RESTARTS,
             }),
         }
     }
