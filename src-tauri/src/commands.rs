@@ -300,8 +300,10 @@ pub async fn parse_args_string(raw: String) -> Result<Vec<String>, String> {
 /// item and `exit_app`. The X button and OS close request hide to tray by
 /// design (the bypass keeps running); only an explicit Quit tears everything
 /// down. Stops the in-process bridge and engine, then asks the svc (which
-/// owns winws + the bridge once attached) to stop both and terminate itself:
-/// its Job Object kills winws with it and `stop()` cleans up the WinDivert
+/// owns winws + the bridge once attached) to stop both and terminate itself.
+/// That request is bounded: a storm-starved svc runtime can wedge its pipe so
+/// the command never lands, so Quit then force-kills the svc image (its Job
+/// Object takes winws with it), sweeps stray engines and stops the WinDivert
 /// driver. Quitting must never leave zapret2-svc + winws filtering traffic
 /// with no GUI behind.
 pub async fn graceful_exit(app: &tauri::AppHandle) {
@@ -319,19 +321,39 @@ pub async fn graceful_exit(app: &tauri::AppHandle) {
     if !backend.is_remote() {
         let _ = backend.stop().await;
     }
-    // Best-effort svc shutdown: use the attached client when present,
-    // otherwise try to connect (covers a Local GUI state while a svc from
-    // an earlier session still runs). Silent when no svc answers.
-    let remote_client = match &backend {
-        crate::svc_client::SupervisorBackend::Remote(c) => Some(c.clone()),
-        _ => crate::svc_client::SvcClient::connect()
-            .await
-            .ok()
-            .map(std::sync::Arc::new),
+    // Best-effort graceful svc shutdown, bounded so a wedged pipe can't hang
+    // Quit: a storm-starved svc runtime stops accepting connections, so the
+    // shutdown command may never land. Use the attached client when present,
+    // otherwise connect (covers a Local GUI while an earlier svc still runs).
+    let graceful = async {
+        let client = match &backend {
+            crate::svc_client::SupervisorBackend::Remote(c) => Some(c.clone()),
+            _ => crate::svc_client::SvcClient::connect()
+                .await
+                .ok()
+                .map(std::sync::Arc::new),
+        };
+        if let Some(client) = client {
+            let _ = client.shutdown().await;
+        }
     };
-    if let Some(client) = remote_client {
-        let _ = client.shutdown().await;
-    }
+    let _ = tokio::time::timeout(Duration::from_secs(4), graceful).await;
+
+    // Guarantee: Quit must never leave zapret2-svc + winws filtering traffic
+    // with no GUI behind, even when the graceful shutdown above timed out on a
+    // wedged pipe. Force-kill the svc image (its Job Object takes winws with
+    // it), sweep any stray engine, then stop the WinDivert driver. Idempotent:
+    // a svc that already exited cleanly leaves nothing to kill.
+    let _ = tokio::task::spawn_blocking(|| {
+        crate::platform::process::kill_stray_svc_processes(None);
+        crate::platform::process::kill_stray_winws2_processes(None);
+    })
+    .await;
+    // Let the terminated engine release its WinDivert handles before the driver
+    // service is stopped — tearing it down under a live winws blackholes traffic.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    crate::platform::process::cleanup_windivert_driver().await;
+
     app.exit(0);
 }
 
