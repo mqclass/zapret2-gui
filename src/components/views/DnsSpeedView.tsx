@@ -11,7 +11,6 @@ import {
   DownloadCloud,
   CheckCircle2,
   RefreshCw,
-  Activity,
   ShieldCheck,
   Trash2,
   Plus,
@@ -800,7 +799,7 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4 items-start">
       {/* DNS Manager Section */}
       <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
         <div className="flex items-center justify-between border-b border-line pb-3">
@@ -1342,7 +1341,7 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
       </div>
 
       {/* YouTube 4K Stream Speedtest Section */}
-      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
+      <div className="t-card p-4 space-y-2.5 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
         <div className="flex items-center justify-between border-b border-line pb-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-red-500/20 to-red-600/5 border border-red-500/25 text-red-400 shadow-sm shadow-red-500/5">
@@ -1362,60 +1361,37 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
           </div>
         )}
 
-        {/* Digital Benchmark Display */}
-        <div className="rounded-panel border border-line bg-cardin p-5 flex flex-col items-center justify-center space-y-4">
-          <div className="flex items-center gap-2 text-xs text-ink4">
-            <Activity className="h-3.5 w-3.5 text-red-400" />
-            <span>{t.speedtest.targetNode}</span>
-          </div>
-
-          {/* Speed Value & Live Pulse */}
-          <div className="flex flex-col items-center justify-center py-2">
+        {/* Compact result row, same layout as the simple view */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
             {isSpeedRunning ? (
-              <div className="flex flex-col items-center space-y-2">
-                <Loader2 className="h-8 w-8 animate-spin text-red-400" />
-                <span className="text-xs font-medium text-ink3">
-                  {t.speedtest.measuringNote}
-                </span>
-                {/* Indeterminate progress: the measurement has no honest % */}
-                <div className="w-56 h-1.5 bg-hovert rounded-full overflow-hidden">
-                  <div className="h-full w-full bg-red-500/70 animate-pulse rounded-full" />
-                </div>
+              <div className="flex items-center gap-2 text-xs text-ink3">
+                <Loader2 className="h-4 w-4 animate-spin text-red-400 shrink-0" />
+                <span>{t.speedtest.measuringNote}</span>
               </div>
             ) : speedResult ? (
-              <div className="flex flex-col items-center">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-4xl font-extrabold tracking-tight text-ink font-mono">
-                    {speedValue.toFixed(1)}
-                  </span>
-                  <span className="text-xs font-bold uppercase text-red-400 font-mono">
-                    {t.speedtest.mbps}
-                  </span>
-                </div>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-2xl font-extrabold tracking-tight text-ink font-mono">
+                  {speedValue.toFixed(1)}
+                </span>
+                <span className="text-xs font-bold uppercase text-red-400 font-mono">
+                  {t.speedtest.mbps}
+                </span>
                 {currentTier && (
-                  <span
-                    className={`mt-2 rounded-chip border px-2.5 py-0.5 text-xs font-semibold ${currentTier.badgeClass}`}
-                  >
+                  <span className={`rounded-chip border px-2 py-0.5 text-[10px] font-semibold ${currentTier.badgeClass}`}>
                     {currentTier.label}
                   </span>
                 )}
               </div>
             ) : (
-              <div className="flex flex-col items-center text-center py-2 space-y-1">
-                <span className="text-2xl font-bold font-mono text-ink5">—</span>
-                <span className="text-xs text-ink4">
-                  {t.speedtest.pressToStart}
-                </span>
-              </div>
+              <span className="text-2xl font-bold font-mono text-ink5">—</span>
             )}
           </div>
-
-          {/* Action Button */}
           <button
             type="button"
             onClick={handleStartSpeedtest}
             disabled={isSpeedRunning}
-            className="flex items-center gap-2 rounded-panel bg-danger-fill hover:bg-danger-fill-hover px-6 py-2.5 text-xs font-semibold text-white shadow-sm transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-2 rounded-panel bg-danger-fill hover:bg-danger-fill-hover px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50 shrink-0"
           >
             {isSpeedRunning ? (
               <>
@@ -1431,44 +1407,32 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
           </button>
         </div>
 
-        {/* Speedtest Metrics Cards */}
+        {/* Metrics, one compact row (the tier badge above already says
+            what the speed is enough for - no bitrate reference card) */}
         {speedResult && (
-          <div className="space-y-2 rounded-panel border border-line bg-cardin p-3.5">
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="flex items-center gap-2">
-                <Timer className="h-4 w-4 text-ink5" />
-                <span className="text-ink4">{t.speedtest.resultDuration}</span>
-                <span className="font-mono font-semibold text-ink2">
-                  {((speedResult.duration_ms ?? speedResult.download_time_ms ?? 0) / 1000).toFixed(2)} {t.speedtest.secShort}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <DownloadCloud className="h-4 w-4 text-ink5" />
-                <span className="text-ink4">{t.speedtest.resultPayload}</span>
-                <span className="font-mono font-semibold text-ink2">
-                  {(speedResult.bytes_downloaded / (1024 * 1024)).toFixed(1)} {t.speedtest.mbShort}
-                </span>
-              </div>
-            </div>
+          <div className="flex items-center gap-3 flex-wrap text-[11px] text-ink4">
+            <span className="flex items-center gap-1.5">
+              <Timer className="h-3.5 w-3.5 text-ink5" />
+              {t.speedtest.resultDuration}
+              <span className="font-mono font-semibold text-ink2">
+                {((speedResult.duration_ms ?? speedResult.download_time_ms ?? 0) / 1000).toFixed(2)} {t.speedtest.secShort}
+              </span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <DownloadCloud className="h-3.5 w-3.5 text-ink5" />
+              {t.speedtest.resultPayload}
+              <span className="font-mono font-semibold text-ink2">
+                {(speedResult.bytes_downloaded / (1024 * 1024)).toFixed(1)} {t.speedtest.mbShort}
+              </span>
+            </span>
             {currentTier && (
-              <div className="pt-2 border-t border-line text-[11px] text-ink4 flex items-center gap-1.5">
+              <span className="flex items-center gap-1.5">
                 <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
                 <span>{currentTier.desc}</span>
-              </div>
+              </span>
             )}
           </div>
         )}
-
-        {/* Speed Requirements Helper Card */}
-        <div className="rounded-panel border border-line bg-cardin p-3 space-y-1.5 text-[11px]">
-          <span className="font-semibold text-ink3">{t.speedtest.bitrateTitle}</span>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-ink4">
-            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrate4k}</span></div>
-            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrate2k}</span></div>
-            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrateFhd}</span></div>
-            <div>• <span className="font-mono font-semibold">{t.speedtest.bitrateHd}</span></div>
-          </div>
-        </div>
       </div>
 
       {/* WARP tunnel (stage 5): third grid item, under the DNS card. */}

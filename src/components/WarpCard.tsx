@@ -23,7 +23,7 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
     const [retrying, setRetrying] = useState(false);
     const [error, setError] = useState<string | null>(null);
     // Engine log tail (stage 7, O4): loaded on demand for an
-    // unregistered tunnel, cached while the state holds.
+    // unregistered or degraded tunnel, cached while the state holds.
     const [engineLog, setEngineLog] = useState<string | null>(null);
     const [engineLogLoading, setEngineLogLoading] = useState(false);
     const [showEngineLog, setShowEngineLog] = useState(false);
@@ -75,15 +75,18 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
     const isTransitioning = state === "starting" || state === "stopping";
     const unavailable = warpTransport !== null && !warpTransport.available;
 
-    // The engine log belongs to one unregistered run: drop it when
-    // the tunnel leaves that state, so a later Unregistered never
+    // The engine log is useful whenever the tunnel is up but broken:
+    // Unregistered (registration failed) and Degraded (a dead exit on
+    // a live engine) both show it. The log belongs to one run: drop
+    // it when the tunnel leaves those states, so a later one never
     // shows a stale tail.
+    const logVisible = state === "unregistered" || state === "degraded";
     useEffect(() => {
-      if (state !== "unregistered") {
+      if (!logVisible) {
         setShowEngineLog(false);
         setEngineLog(null);
       }
-    }, [state]);
+    }, [logVisible]);
 
     const statusLabel =
       state === "running"
@@ -157,8 +160,9 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
     }, [retrying, busy, isTransitioning, unavailable, refresh]);
 
     // Engine log tail (stage 7, O4): loaded on demand, cached while
-    // the tunnel stays unregistered. A failed load shows the empty
-    // message - the log is a diagnostic aid, not a second error.
+    // the tunnel stays unregistered or degraded. A failed load shows
+    // the empty message - the log is a diagnostic aid, not a second
+    // error.
     const toggleEngineLog = useCallback(async () => {
       if (showEngineLog) {
         setShowEngineLog(false);
@@ -289,7 +293,7 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
           </div>
         )}
 
-        {variant === "full" && state === "unregistered" && showEngineLog && (
+        {variant === "full" && logVisible && showEngineLog && (
           <pre className="max-h-48 overflow-auto rounded-panel border border-line bg-cardin p-3 font-mono text-[10px] leading-relaxed text-ink3 whitespace-pre-wrap break-words">
             {engineLog === null || engineLog === ""
               ? t.warp.engineLogEmpty
@@ -334,7 +338,7 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
               {retrying ? t.warp.retrying : t.warp.retryBtn}
             </button>
           )}
-          {variant === "full" && state === "unregistered" && (
+          {variant === "full" && logVisible && (
             <button
               type="button"
               onClick={toggleEngineLog}
