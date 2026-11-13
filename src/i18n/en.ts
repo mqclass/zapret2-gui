@@ -491,7 +491,7 @@ export const en: Translations = {
     description: "If the site opens but videos hang at low quality, your provider may be throttling individual video servers. The app adds them to hosts, and the player moves to other servers.",
     laneLabel: "Block slow video servers",
     laneDesc: "Known slow servers from the community list plus the ones the check below finds",
-    needSmartHosts: "The blocks live inside Smart hosts — enable it above, otherwise the toggle and the check apply nothing.",
+    needSmartHosts: "The blocks live inside Smart hosts — enable it, otherwise the toggle and the check apply nothing.",
     checkBtn: "Check video",
     checking: "Checking video servers, this can take a couple of minutes…",
     blockedNowLabel: "Servers blocked right now:",
