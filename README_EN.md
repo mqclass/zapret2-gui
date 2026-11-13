@@ -5,10 +5,12 @@
 # zapret2-gui
 
 <p align="center">
-  <a href="https://github.com/mqclass/zapret2-gui/releases/latest"><img src="https://img.shields.io/github/v/release/mqclass/zapret2-gui?style=flat&color=brightgreen&label=Latest%20Release" alt="Latest Release" /></a>
-  <a href="https://github.com/mqclass/zapret2-gui/releases"><img src="https://img.shields.io/github/downloads/mqclass/zapret2-gui/total?style=flat&color=blue&label=Downloads" alt="Downloads" /></a>
-  <a href="https://github.com/mqclass/zapret2-gui/stargazers"><img src="https://img.shields.io/github/stars/mqclass/zapret2-gui?style=flat&color=yellow&label=Stars" alt="Stars" /></a>
+  <a href="https://github.com/MixasV/zapret2-gui/releases/latest"><img src="https://img.shields.io/github/v/release/MixasV/zapret2-gui?style=flat&color=brightgreen&label=Latest%20Release" alt="Latest Release" /></a>
+  <a href="https://github.com/MixasV/zapret2-gui/releases"><img src="https://img.shields.io/github/downloads/MixasV/zapret2-gui/total?style=flat&color=blue&label=Downloads" alt="Downloads" /></a>
+  <a href="https://github.com/MixasV/zapret2-gui/stargazers"><img src="https://img.shields.io/github/stars/MixasV/zapret2-gui?style=flat&color=yellow&label=Stars" alt="Stars" /></a>
 </p>
+
+> **This is a fork.** The original project lives at [mqclass/zapret2-gui](https://github.com/mqclass/zapret2-gui): that is where the main development, the releases and the official Telegram channel [«Незапретка»](https://t.me/zapret2_gui) are. This repository is the same program plus reliability fixes that the original does not have yet: an exit that actually stops everything, a service the window can always connect to, a Telegram bridge that stands back up on its own. All the differences, in order, are in ["What this fork changes compared to the original"](#what-this-fork-changes-compared-to-the-original).
 
 A program for a free internet: no blocks, no throttling, and nobody else deciding what you may watch or read. YouTube, Discord and blocked sites open again, and the whole internet works the way it should. No VPN and no servers abroad: the bypass runs entirely on your own computer.
 
@@ -16,13 +18,25 @@ It exists out of plain frustration. The free internet was quietly turning into a
 
 Under the hood is the [zapret2](https://github.com/bol-van/zapret2) engine by bol-van, which fools DPI, the provider's system that inspects traffic and cuts connections to banned sites. The program archive weighs 17 megabytes, small enough to forward to a friend right in a messenger.
 
-[Download the latest version](https://github.com/mqclass/zapret2-gui/releases) · [Русский](README.md)
+[Download the latest version](https://github.com/MixasV/zapret2-gui/releases) · [Русский](README.md)
 
 <p align="center">
   <img src="assets/screenshot.png" width="860" alt="zapret2-gui main window" />
 </p>
 
-> **A word about fakes.** The program is distributed only here, on GitHub, and project news is published only in the official Telegram channel [«Незапретка»](https://t.me/zapret2_gui). The project has no YouTube pages and no mirrors on file-sharing sites. If zapret2-gui is offered to you anywhere else, that is not us, and anything could be inside.
+> **A word about fakes.** Neither the original project nor this fork is distributed anywhere but GitHub: the original lives at [mqclass](https://github.com/mqclass/zapret2-gui), this fork at [MixasV](https://github.com/MixasV/zapret2-gui), and news of the original is published in the Telegram channel [«Незапретка»](https://t.me/zapret2_gui). The project has no YouTube pages and no mirrors on file-sharing sites. If zapret2-gui is offered to you anywhere else, that is not us, and anything could be inside.
+
+## What this fork changes compared to the original
+
+The original project belongs to [mqclass](https://github.com/mqclass/zapret2-gui), and the main development happens there. This fork is the same program plus reliability fixes that the original does not have yet.
+
+- **An exit that actually stops everything.** "Quit" in the tray used to stop only what ran inside the program window, while the background service and the engine went on filtering traffic with no window behind them — the process had to be finished off by hand in Task Manager. Now "Quit" stops the whole chain: first the service gets four seconds for a graceful shutdown; if it does not make it, it is stopped forcibly — together with the engine it keeps an eye on — and the traffic interception driver is unloaded after that. The window's X button still just folds the program into the tray, and the bypass keeps running: only an explicit "Quit" stops everything.
+- **A service the window can always connect to.** Two causes of the window hanging forever on connecting to the background service are fixed: the service's communication channel was created in a mode its networking library cannot use, and starting the service failed when the system refused to break a new process out of the window's process group. Both cases are handled now, and the service starts and answers the way it should.
+- **A Telegram bridge that stands back up on its own.** When Telegram's relays are unreachable and the messenger's server addresses are hard-blocked, the bridge used to re-walk every relay with full timeouts on each new connection and flood the engine with attempts to reach dead addresses — and never crawled out of that storm by itself. Now every unreachable relay and every dead address gets a breather for a while: they are skipped without attempts during it, and the ones that come back to life are picked up again automatically, without restarting the program.
+- **A quiet engine and a clean auto-list.** The bypass engine no longer logs every packet it processes: the log does not bloat, the service does not choke on the output stream under load, and a verbosity level explicitly set in your own configs is still respected. And bare IP addresses no longer end up in the auto domain list: because of them, the engine used to "bypass" traffic to completely unrelated servers where a connection just happened to fail.
+- **Honest documentation of the design.** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has been rewritten to match how the program is actually built: the window and the service as two separate binaries, LOCAL and REMOTE modes, communication over a named pipe, handing the engine over to the service's care, the guaranteed teardown on exit, and the bridge's circuit breaker.
+
+The current release, v1.4.0, was built before these fixes and behaves the old way; the next release will ship with them.
 
 ## Features
 
@@ -44,7 +58,7 @@ Everything on this list is already in the current version.
 
 You need Windows 10 or 11, 64-bit.
 
-1. Download the `zapret2-v<version>-windows-x64.zip` archive from the [releases page](https://github.com/mqclass/zapret2-gui/releases) and unpack it into any folder.
+1. Download the `zapret2-v<version>-windows-x64.zip` archive from the [releases page of this repository](https://github.com/MixasV/zapret2-gui/releases) and unpack it into any folder.
 2. Run `zapret2.exe`. The program will ask for administrator rights: they are needed by the driver that wraps traffic into the bypass.
 3. Press "Enable bypass" and answer what you want to unblock. That's all.
 
@@ -63,7 +77,7 @@ If some site still doesn't open after that, add its domain on the sites tab or r
 You need Node.js 18+, stable Rust and Tauri CLI v2.
 
 ```powershell
-git clone https://github.com/mqclass/zapret2-gui.git
+git clone https://github.com/MixasV/zapret2-gui.git
 cd zapret2-gui
 npm install
 powershell -ExecutionPolicy Bypass -File scripts/setup_binaries.ps1
@@ -76,7 +90,7 @@ The finished file: `src-tauri/target/release/zapret2-supervisor.exe`.
 
 ## Where the binaries come from
 
-There are no compiled files in the repository, and that is verifiable. During the build, the `setup_binaries.ps1` script downloads the engine and the data from the official releases of [zapret2](https://github.com/bol-van/zapret2/releases) (v1.0.7) and [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube/releases) (1.10.4), and the SHA256 checksum of every archive is written into the script in advance: if a checksum does not match the reference, the build stops. The per-app split engine `winws2-split.exe` is built from [our fork of zapret2](https://github.com/mqclass/zapret2); its address and checksum are recorded in the same place.
+There are no compiled files in the repository, and that is verifiable. During the build, the `setup_binaries.ps1` script downloads the engine and the data from the official releases of [zapret2](https://github.com/bol-van/zapret2/releases) (v1.0.7) and [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube/releases) (1.10.4), and the SHA256 checksum of every archive is written into the script in advance: if a checksum does not match the reference, the build stops. The per-app split engine `winws2-split.exe` is built from [the zapret2 fork maintained by the original project's author](https://github.com/mqclass/zapret2); its address and checksum are recorded in the same place.
 
 ## Linux
 
@@ -84,10 +98,11 @@ The Linux version is already written and lives in the dev branch: the same inter
 
 ## Found a bug?
 
-This program is made by one person, and one person cannot test it on every provider and every computer. Bug reports genuinely help: they are what makes the program better. If something does not work, [open an issue](https://github.com/mqclass/zapret2-gui/issues/new/choose): a short form there will suggest what to write. The most useful things to include are the program version, your internet provider, and the check result for the site that does not open — it is collected on the Diagnostics tab.
+The program is made by one person — the original author — and one person cannot test it on every provider and every computer, so bug reports genuinely help. Where to write depends on what broke: if it is one of this fork's fixes or a build from this repository, [open an issue here](https://github.com/MixasV/zapret2-gui/issues/new/choose); if it is a general bug in the program, take it to the [original project's issues](https://github.com/mqclass/zapret2-gui/issues/new/choose) instead — the main development lives there, and a fix made there will land here too. The most useful things to include are the program version, your internet provider, and the check result for the site that does not open — it is collected on the Diagnostics tab.
 
 ## Thanks
 
+- [mqclass](https://github.com/mqclass/zapret2-gui) for the original zapret2-gui project: the interface, the service, the auto-tuning and all the day-to-day work; this fork only adds fixes on top of it.
 - [bol-van](https://github.com/bol-van/zapret2) for the zapret2 engine and the DPI bypass method itself.
 - [Flowseal](https://github.com/Flowseal/zapret-discord-youtube) for the strategies and domain lists.
 - [medvedeff-true](https://github.com/medvedeff-true/Zapret-Gui) for interface ideas.
