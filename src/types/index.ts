@@ -80,7 +80,8 @@ export type TunnelState =
   | "stopping"
   | "error"
   | "degraded"
-  | "unregistered";
+  | "unregistered"
+  | "upstreamdown";
 
 /** WARP tunnel snapshot (IPC `get_tunnel_status` / `SupervisorStatus.tunnel`). */
 export interface SingBoxStatus {

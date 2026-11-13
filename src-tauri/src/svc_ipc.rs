@@ -247,6 +247,36 @@ mod tests {
     }
 
     #[test]
+    fn upstream_down_state_round_trips() {
+        // Stage 7: the eighth tunnel state crosses the pipe the
+        // same way - event and status snapshot alike.
+        let event = SvcEvent::TunnelState {
+            state: TunnelState::UpstreamDown,
+        };
+        let line = serde_json::to_string(&ServerMessage::Event(event)).unwrap();
+        assert_eq!(
+            line,
+            r#"{"type":"event","event":"tunnel-state","state":"upstreamdown"}"#
+        );
+        let back: ServerMessage = serde_json::from_str(&line).unwrap();
+        assert!(matches!(
+            back,
+            ServerMessage::Event(SvcEvent::TunnelState {
+                state: TunnelState::UpstreamDown
+            })
+        ));
+        let snapshot = SingBoxStatus {
+            state: TunnelState::UpstreamDown,
+            last_error: Some("нет сети".to_string()),
+            ..Default::default()
+        };
+        let line = serde_json::to_string(&snapshot).unwrap();
+        let back: SingBoxStatus = serde_json::from_str(&line).unwrap();
+        assert_eq!(back.state, TunnelState::UpstreamDown);
+        assert_eq!(back.last_error.as_deref(), Some("нет сети"));
+    }
+
+    #[test]
     fn response_with_tunnel_status_round_trips() {
         let msg = ServerMessage::Response {
             ok: true,

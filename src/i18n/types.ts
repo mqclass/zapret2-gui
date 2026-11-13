@@ -534,6 +534,7 @@ export interface Translations {
     statusError: string;
     statusStopping: string;
     statusUnavailable: string;
+    statusUpstreamDown: string;
     enableBtn: string;
     disableBtn: string;
     enabling: string;
@@ -541,6 +542,9 @@ export interface Translations {
     retryBtn: string;
     retrying: string;
     restartsLabel: string;
+    engineLogBtn: string;
+    engineLogHide: string;
+    engineLogEmpty: string;
     engineVersionLabel: string;
     clashPortLabel: string;
     delayLabel: string;

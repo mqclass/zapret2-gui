@@ -744,6 +744,19 @@ pub async fn tunnel_stop(state: State<'_, AppState>, app: tauri::AppHandle) -> R
     backend.tunnel_stop().await
 }
 
+/// Returns the tail (up to 64 KiB) of the sing-box engine log, for
+/// the "show engine log" action on an unregistered tunnel (stage 7,
+/// O4 - design section 8). No IPC round-trip: the GUI and the svc
+/// run on the same machine under the same user, so the log file
+/// (`%LOCALAPPDATA%\zapret2\singbox\sing-box.log`) is readable
+/// directly from here. An empty string means the log is missing or
+/// unreadable - the UI shows its "log unavailable" line.
+#[tauri::command]
+pub async fn get_tunnel_engine_log() -> Result<String, String> {
+    use crate::engine::singbox::{read_engine_log_tail, singbox_home_dir};
+    Ok(read_engine_log_tail(&singbox_home_dir()))
+}
+
 /// Migrates the Telegram-bridge backend to follow the supervisor backend:
 /// when the engine runs inside the svc, the bridge must run there too
 /// (a GUI crash must not kill either). Idempotent.
@@ -1286,7 +1299,9 @@ pub async fn run_youtube_throttle_check(
 }
 
 /// Tunnel states in which the check's traffic goes through the
-/// tunnel (Starting is not one of them: the TUN is not up yet).
+/// tunnel (Starting is not one of them: the TUN is not up yet;
+/// UpstreamDown is not one either: the engine never started, so
+/// there is no TUN at all).
 fn tunnel_counts_as_up(state: TunnelState) -> bool {
     matches!(
         state,

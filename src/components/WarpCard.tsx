@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Cloud, Play, Square, Loader2, AlertTriangle, RefreshCw } from "lucide-react";
+import { Cloud, Play, Square, Loader2, AlertTriangle, RefreshCw, FileText } from "lucide-react";
 import { SingBoxStatus, TunnelState, TransportView } from "../types";
 import { useI18n } from "../i18n";
 
@@ -22,6 +22,11 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
     const [busy, setBusy] = useState(false);
     const [retrying, setRetrying] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Engine log tail (stage 7, O4): loaded on demand for an
+    // unregistered tunnel, cached while the state holds.
+    const [engineLog, setEngineLog] = useState<string | null>(null);
+    const [engineLogLoading, setEngineLogLoading] = useState(false);
+    const [showEngineLog, setShowEngineLog] = useState(false);
 
     const refresh = useCallback(async () => {
       try {
@@ -70,6 +75,16 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
     const isTransitioning = state === "starting" || state === "stopping";
     const unavailable = warpTransport !== null && !warpTransport.available;
 
+    // The engine log belongs to one unregistered run: drop it when
+    // the tunnel leaves that state, so a later Unregistered never
+    // shows a stale tail.
+    useEffect(() => {
+      if (state !== "unregistered") {
+        setShowEngineLog(false);
+        setEngineLog(null);
+      }
+    }, [state]);
+
     const statusLabel =
       state === "running"
         ? t.warp.statusWorking
@@ -81,9 +96,11 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
               ? t.warp.statusDegraded
               : state === "unregistered"
                 ? t.warp.statusUnregistered
-                : state === "error"
-                  ? t.warp.statusError
-                  : t.warp.statusOff;
+                : state === "upstreamdown"
+                  ? t.warp.statusUpstreamDown
+                  : state === "error"
+                    ? t.warp.statusError
+                    : t.warp.statusOff;
     const statusBadgeClass =
       state === "running"
         ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
@@ -115,8 +132,12 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
     // On Error it is the explicit affordance after the auto-restart
     // budget is spent; on Unregistered it is the only retry path -
     // the main button there is "Disable", and a re-registration
-    // needs a real restart, not a toggle.
-    const showRetry = state === "error" || state === "unregistered";
+    // needs a real restart, not a toggle. Stage 7 adds
+    // UpstreamDown: the network may be back by the time the user
+    // presses it (the restart loop re-checks the gate on its own,
+    // but the button is the explicit path).
+    const showRetry =
+      state === "error" || state === "unregistered" || state === "upstreamdown";
     const handleRetry = useCallback(async () => {
       if (retrying || busy || isTransitioning || unavailable) return;
       setRetrying(true);
@@ -134,6 +155,27 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
         setRetrying(false);
       }
     }, [retrying, busy, isTransitioning, unavailable, refresh]);
+
+    // Engine log tail (stage 7, O4): loaded on demand, cached while
+    // the tunnel stays unregistered. A failed load shows the empty
+    // message - the log is a diagnostic aid, not a second error.
+    const toggleEngineLog = useCallback(async () => {
+      if (showEngineLog) {
+        setShowEngineLog(false);
+        return;
+      }
+      if (engineLog === null) {
+        setEngineLogLoading(true);
+        try {
+          setEngineLog(await invoke<string>("get_tunnel_engine_log"));
+        } catch {
+          setEngineLog("");
+        } finally {
+          setEngineLogLoading(false);
+        }
+      }
+      setShowEngineLog(true);
+    }, [engineLog, showEngineLog]);
 
     // The engine version line is "sing-box version 1.14.3-...": the
     // prefix adds nothing in the UI, show the version only.
@@ -204,6 +246,13 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
           </div>
         )}
 
+        {state === "upstreamdown" && status?.last_error && (
+          <div className="flex items-start gap-2 rounded-panel border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+            <span className="break-words">{status.last_error}</span>
+          </div>
+        )}
+
         {status && status.restarts_used > 0 && (
           <div className="flex items-center gap-1.5 text-[11px] text-ink4">
             <RefreshCw className="h-3 w-3 shrink-0" />
@@ -238,6 +287,14 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
               </div>
             </div>
           </div>
+        )}
+
+        {variant === "full" && state === "unregistered" && showEngineLog && (
+          <pre className="max-h-48 overflow-auto rounded-panel border border-line bg-cardin p-3 font-mono text-[10px] leading-relaxed text-ink3 whitespace-pre-wrap break-words">
+            {engineLog === null || engineLog === ""
+              ? t.warp.engineLogEmpty
+              : engineLog}
+          </pre>
         )}
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -275,6 +332,21 @@ export const WarpCard: React.FC<WarpCardProps> = React.memo(
                 <RefreshCw className="h-4 w-4" />
               )}
               {retrying ? t.warp.retrying : t.warp.retryBtn}
+            </button>
+          )}
+          {variant === "full" && state === "unregistered" && (
+            <button
+              type="button"
+              onClick={toggleEngineLog}
+              disabled={engineLogLoading || busy || retrying || isTransitioning}
+              className="t-btn t-btn-ghost"
+            >
+              {engineLogLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4" />
+              )}
+              {showEngineLog ? t.warp.engineLogHide : t.warp.engineLogBtn}
             </button>
           )}
           {variant === "simple" && onShowExpert && (

@@ -34,6 +34,7 @@ Everything on this list is already in the current version.
 - **Per-app split tunneling.** You can send only selected programs through the bypass, say Discord and a browser, and leave everything else direct. Or the other way round: everything through the bypass except the selected ones.
 - **Telegram without a VPN.** A built-in bridge for Telegram, for the cases when the messenger won't open through the regular bypass.
 - **Your own DNS in one click.** Cloudflare, Google, Quad9 and others instead of the provider's, plus a split mode: one DNS for blocked domains, another for the rest. The same screen has a YouTube speed test right in the program, so you can see that the bypass is not throttling your video.
+- **A spare exit for video.** When YouTube opens but the video hangs or crawls, the provider is throttling the video servers, and desync can't help there. WARP mode sends the video through a Cloudflare tunnel: one button on the DNS & Speed tab, independent of the bypass. See the [WARP mode docs](docs/WARP.md) (in Russian).
 - **Diagnostics in one button.** The "Doctor" checks the network, finds conflicts with other bypass tools (GoodbyeDPI and the like), tidies up stuck processes and resets the site addresses the system has memorized (the DNS cache).
 - **It doesn't die with the window.** When you close it, the program folds into the tray, and a separate background service keeps the bypass running. Close the window through Task Manager and the bypass carries on. Stop the service, and it leaves no stuck drivers and no broken internet behind: stuck drivers and a dead network after shutdown are the eternal disease of tools like this, here the service cleans up after itself.
 - **Starts together with Windows.** Set it up once and forget it: when you sign in, the bypass turns itself on, with no extra windows or confirmations.
@@ -55,6 +56,7 @@ If some site still doesn't open after that, add its domain on the sites tab or r
 - `zapret2.exe` is the program window: settings, strategies, diagnostics.
 - `zapret2-svc.exe` is the background service. It keeps the bypass on while the window is closed and makes sure the network stays clean after shutdown.
 - `winws2.exe` / `winws.exe` are the bypass engine by bol-van. It is the one that processes the traffic.
+- `sing-box.exe` + `wintun.dll` are the WARP mode engine and the virtual network adapter for the tunnel.
 - Strategies and domain lists are the ready-made bypass recipes: Flowseal presets and zapret2 Lua presets, plus the lists of which sites to send through the bypass.
 - `WinDivert` is the traffic interception driver. That is why the program needs administrator rights.
 

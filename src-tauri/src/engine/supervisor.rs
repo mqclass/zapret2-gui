@@ -1808,7 +1808,19 @@ impl Supervisor {
         match self.clone().start_tunnel_attempt().await {
             Ok(status) => Ok(status),
             Err(error) => {
-                self.singbox.fail_start(error.to_string());
+                // A start cancelled by a stop is not a failure: the
+                // stop owns the state (Starting while it runs,
+                // Stopped once it lands), and recording it would
+                // resurrect a deliberately stopped tunnel as Error
+                // (stage 7 review m1). The manager already logged
+                // the cancellation itself. Every other error is
+                // recorded - including the early failures, which
+                // arrive with the state still Stopped (the manager
+                // was never started), so the filter must stay on
+                // the error type, not on the state.
+                if !matches!(error, ProcessError::TunnelCancelled) {
+                    self.singbox.fail_start(error.to_string());
+                }
                 Err(error)
             }
         }
@@ -1922,10 +1934,17 @@ impl Supervisor {
     ///
     /// Wired to the IPC tunnel toggle (stage 5): the GUI calls it
     /// through `TunnelStop`, the svc dispatches it here.
+    ///
+    /// The manager cancellation goes BEFORE the lifecycle lock
+    /// (stage 7, O2): a `start_tunnel` in progress holds the lock
+    /// through the whole tunnel start (up to ~70 s), and the
+    /// generation bump makes its manager start abort within ~250 ms
+    /// instead of making this stop wait it out.
     pub async fn stop_tunnel(&self) -> Result<(), ProcessError> {
         let _ = crate::platform::settings::update_settings(|s| {
             s.warp_enabled = false;
         });
+        self.singbox.request_cancel();
         let _guard = self.lifecycle.lock().await;
         self.singbox.stop().await?;
         Ok(())
@@ -2096,6 +2115,7 @@ impl Supervisor {
             dns_provider: settings.dns_provider,
             tun_enabled: true,
             fixed_clash_port: None,
+            upstream_override: None,
         })
     }
 

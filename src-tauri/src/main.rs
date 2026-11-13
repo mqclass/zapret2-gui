@@ -466,6 +466,7 @@ async fn main() {
             commands::get_tunnel_status,
             commands::tunnel_start,
             commands::tunnel_stop,
+            commands::get_tunnel_engine_log,
             commands::set_tgproxy_config,
             commands::regenerate_tgproxy_secret,
             commands::set_tgproxy_mode,

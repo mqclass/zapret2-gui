@@ -15,12 +15,21 @@
 //!   arms a monitor task. Two switches stay independent: the tunnel
 //!   can run with the desync engine on or off (stage 4 wires the
 //!   start side; this stage provides the manager and the stop side).
+//!   Before any of that, the upstream gate (stage 7) checks for a
+//!   default route out of the machine: with no network the start
+//!   fails as `UpstreamDown` instead of spawning an engine that
+//!   cannot register, and the auto-restart loop keeps re-checking
+//!   the gate (without spending the restart budget) so the tunnel
+//!   recovers on its own when the network returns.
 //! - `stop()` kills the child and waits up to 5 s. It deliberately
 //!   does NOT terminate the shared Job Object: winws2 lives in the
 //!   same job, and terminating it would kill the desync engine too.
 //!   sing-box spawns no grandchildren, so kill+wait is a complete
 //!   stop; KILL_ON_JOB_CLOSE still covers the case where svc itself
-//!   dies.
+//!   dies. `stop()` bumps the generation *before* taking the
+//!   lifecycle lock (stage 7, O2): a start in progress polls the
+//!   generation in its wait loops and aborts within ~250 ms, so a
+//!   stop no longer waits out the start's ~70 s worst case.
 //! - The monitor task (500 ms, like the supervisor's) watches the
 //!   child; an unexpected exit moves the tunnel to `Error` and
 //!   schedules an auto-restart (stage 6: at most 5, doubling backoff
@@ -83,8 +92,9 @@ use windows::core::{w, PWSTR};
 use windows::Win32::Foundation::ERROR_SUCCESS;
 #[cfg(windows)]
 use windows::Win32::NetworkManagement::IpHelper::{
-    GetAdaptersAddresses, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_MULTICAST, GAA_FLAG_SKIP_UNICAST,
-    IF_TYPE_SOFTWARE_LOOPBACK, IP_ADAPTER_ADDRESSES_LH,
+    FreeMibTable, GetAdaptersAddresses, GetIpForwardTable2, GAA_FLAG_SKIP_ANYCAST,
+    GAA_FLAG_SKIP_MULTICAST, GAA_FLAG_SKIP_UNICAST, IF_TYPE_SOFTWARE_LOOPBACK,
+    IP_ADAPTER_ADDRESSES_LH, MIB_IPFORWARD_TABLE2,
 };
 #[cfg(windows)]
 use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
@@ -220,9 +230,13 @@ impl DnsStep {
     }
 }
 
-/// Tunnel states (design section 7). Separate from the desync engine
-/// states: the tunnel has its own lifecycle, and a dead exit is not a
-/// dead engine (`Degraded` / `Unregistered` vs `Error`).
+/// Tunnel states (design section 7, with the eighth state from
+/// section 8 - the design lists seven in section 7 but names
+/// UpstreamDown as a state in section 8; stage 7 closes that
+/// inconsistency by making it a real state). Separate from the
+/// desync engine states: the tunnel has its own lifecycle, and a
+/// dead exit is not a dead engine (`Degraded` / `Unregistered` vs
+/// `Error`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TunnelState {
@@ -243,6 +257,15 @@ pub enum TunnelState {
     /// The engine is up but WARP has not registered yet
     /// ("tunnel not initialized").
     Unregistered,
+    /// No network: no up, non-loopback adapter with a default route
+    /// (design section 8, stage 7). A *start-gate* state only - the
+    /// engine is never running in it: the start refused to spawn.
+    /// A network loss mid-run does NOT move here (the engine stays
+    /// up and the watchdog reports it as Degraded, recovering on
+    /// its own when the network returns); this state means "the
+    /// tunnel was (re)started while offline". The retry button and
+    /// the auto-restart loop both re-check the gate.
+    UpstreamDown,
 }
 
 /// Snapshot of the tunnel status. Carries the Clash API *port* (the
@@ -319,6 +342,11 @@ pub struct SingBoxStartOptions {
     /// build so the retry allocates fresh ports.
     /// See `SingBoxConfigInput::fixed_clash_port`.
     pub fixed_clash_port: Option<u16>,
+    /// Override the upstream gate for tests (`None` in production):
+    /// `Some(false)` forces the UpstreamDown path without pulling
+    /// the network cable, `Some(true)` forces the gate open. Same
+    /// seam pattern as `tun_enabled` / `fixed_clash_port` above.
+    pub upstream_override: Option<bool>,
 }
 
 /// Errors from the sing-box manager.
@@ -351,11 +379,33 @@ pub enum SingBoxError {
 
     #[error("sing-box exited during start: {0}")]
     ExitedDuringStart(String),
+
+    /// The upstream gate (stage 7): no up, non-loopback adapter
+    /// with a default route, so the tunnel refuses to spawn. The
+    /// text goes to the UI as `last_error` (Russian: the user-facing
+    /// tunnel errors in this codebase are Russian - see
+    /// `restart_loop`'s budget message).
+    #[error("нет сети: не найден поднятый сетевой адаптер с маршрутом в интернет")]
+    UpstreamDown,
+
+    /// The start was cancelled by a stop (stage 7, O2): `stop()`
+    /// bumped the generation while the start waited for readiness
+    /// or warmup. Not a failure - the stop owns the state from
+    /// here, so the caller must not report it as Error.
+    #[error("start cancelled by stop")]
+    Cancelled,
 }
 
 impl From<SingBoxError> for ProcessError {
     fn from(e: SingBoxError) -> Self {
-        ProcessError::Tunnel(e.to_string())
+        // Cancelled stays typed: the supervisor wrapper must not
+        // record a cancelled start as a failure (stage 7 review
+        // m1), and string-matching the error text would be fragile.
+        if matches!(e, SingBoxError::Cancelled) {
+            ProcessError::TunnelCancelled
+        } else {
+            ProcessError::Tunnel(e.to_string())
+        }
     }
 }
 
@@ -414,25 +464,26 @@ fn if_inet6_has_entries(content: &str) -> bool {
     content.lines().any(|line| !line.trim().is_empty())
 }
 
-/// Discover the system's DNS resolvers via `GetAdaptersAddresses`
-/// (NETZapret's `SystemResolvers.Discover`): up adapters only, the
-/// loopback adapter skipped, our own tunnel adapter skipped (its
-/// resolvers would be our own fake ones), loopback resolver addresses
-/// filtered out, deduplicated.
+/// Walk the adapter list once, calling `f` for each adapter.
+/// Returns false when the enumeration itself failed - the caller
+/// decides what that means (resolvers degrade to an empty list,
+/// the upstream gate fails open). The buffer dance is the same as
+/// before: the first call returns ERROR_BUFFER_OVERFLOW with the
+/// required size.
 #[cfg(windows)]
-fn discover_system_resolvers() -> Vec<IpAddr> {
+fn for_each_adapter(mut f: impl FnMut(&IP_ADAPTER_ADDRESSES_LH)) -> bool {
     // WinError.h: the first call returns ERROR_BUFFER_OVERFLOW and
     // the required buffer size.
     const ERROR_BUFFER_OVERFLOW: u32 = 111;
-    // We need DNS servers, OperStatus, IfType, and the adapter names
-    // only - no address lists.
+    // We need DNS servers, OperStatus, IfType, IfIndex, and the
+    // adapter names only - no address lists.
     let flags = GAA_FLAG_SKIP_UNICAST | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST;
     let family = u32::from(AF_UNSPEC.0);
 
     let mut size: u32 = 0;
     let first = unsafe { GetAdaptersAddresses(family, flags, None, None, &mut size) };
     if first != ERROR_BUFFER_OVERFLOW || size == 0 {
-        return Vec::new();
+        return false;
     }
     let mut buffer = vec![0u8; size as usize];
     let filled = unsafe {
@@ -445,14 +496,28 @@ fn discover_system_resolvers() -> Vec<IpAddr> {
         )
     };
     if filled != 0 {
-        return Vec::new();
+        return false;
     }
 
-    let mut resolvers = Vec::new();
-    let mut seen = HashSet::new();
     let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
     while !current.is_null() {
         let adapter = unsafe { &*current };
+        f(adapter);
+        current = adapter.Next;
+    }
+    true
+}
+
+/// Discover the system's DNS resolvers via `GetAdaptersAddresses`
+/// (NETZapret's `SystemResolvers.Discover`): up adapters only, the
+/// loopback adapter skipped, our own tunnel adapter skipped (its
+/// resolvers would be our own fake ones), loopback resolver addresses
+/// filtered out, deduplicated.
+#[cfg(windows)]
+fn discover_system_resolvers() -> Vec<IpAddr> {
+    let mut resolvers = Vec::new();
+    let mut seen = HashSet::new();
+    for_each_adapter(|adapter| {
         if adapter.OperStatus == IfOperStatusUp
             && adapter.IfType != IF_TYPE_SOFTWARE_LOOPBACK
             && !is_own_tunnel_adapter(adapter)
@@ -468,9 +533,129 @@ fn discover_system_resolvers() -> Vec<IpAddr> {
                 server = entry.Next;
             }
         }
-        current = adapter.Next;
-    }
+    });
     resolvers
+}
+
+/// Is there an upstream path out of this machine? (stage 7 gate,
+/// design section 8: "no up, non-loopback adapter with a route -
+/// UpstreamDown, the tunnel does not start").
+///
+/// Windows: an IPv4 default route (prefix length 0 in the forward
+/// table) on an adapter that is up, non-loopback, and not our own
+/// tunnel. IPv4 only, deliberately: the MASQUE endpoint is the
+/// hardcoded IPv4 address 162.159.198.2, so an IPv6-only machine
+/// cannot reach the tunnel anyway. Any enumeration failure fails
+/// OPEN (assume upstream): a broken query must not block a tunnel
+/// that could work - the warmup still reports a dead exit honestly
+/// as Degraded.
+#[cfg(windows)]
+pub fn upstream_available() -> bool {
+    let Some(route_ifaces) = default_route_interface_indices() else {
+        return true;
+    };
+    let mut found = false;
+    let enumerated = for_each_adapter(|adapter| {
+        if !found
+            && adapter_is_upstream(
+                // IfIndex lives in the anonymous union of
+                // IP_ADAPTER_ADDRESSES_LH (windows 0.58) - the
+                // direct field does not exist.
+                unsafe { adapter.Anonymous1.Anonymous.IfIndex },
+                adapter.OperStatus == IfOperStatusUp,
+                adapter.IfType == IF_TYPE_SOFTWARE_LOOPBACK,
+                is_own_tunnel_adapter(adapter),
+                &route_ifaces,
+            )
+        {
+            found = true;
+        }
+    });
+    if !enumerated {
+        return true;
+    }
+    found
+}
+
+/// Non-Windows upstream gate (tests only - WARP is a
+/// Windows-target feature): the IPv4 default route in
+/// `/proc/net/route`, the same rule as on Windows. A
+/// missing/unreadable file fails open, like the Windows
+/// enumeration failure.
+#[cfg(not(windows))]
+pub fn upstream_available() -> bool {
+    match std::fs::read_to_string("/proc/net/route") {
+        Ok(content) => route_table_has_default_route(&content),
+        Err(_) => true,
+    }
+}
+
+/// Pure core of the Windows gate: an adapter is an upstream path
+/// when it is up, not loopback, not our own tunnel, and its
+/// interface index carries a default route. Windows-only in
+/// production; kept in test builds so the truth table stays
+/// covered on Linux (the mirror of
+/// `disabled_components_disables_ipv6`).
+#[cfg(any(windows, test))]
+fn adapter_is_upstream(
+    if_index: u32,
+    is_up: bool,
+    is_loopback: bool,
+    is_own_tunnel: bool,
+    default_route_ifaces: &HashSet<u32>,
+) -> bool {
+    is_up && !is_loopback && !is_own_tunnel && default_route_ifaces.contains(&if_index)
+}
+
+/// Interface indices carrying an IPv4 default route (prefix length
+/// 0 in the forward table). `None` when the table cannot be read -
+/// the caller fails open. The rows are borrowed from the table, so
+/// the set is built before `FreeMibTable` releases it.
+#[cfg(windows)]
+fn default_route_interface_indices() -> Option<HashSet<u32>> {
+    let mut table: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
+    let result = unsafe { GetIpForwardTable2(AF_INET, &mut table) };
+    if result != ERROR_SUCCESS || table.is_null() {
+        return None;
+    }
+    let mut indices = HashSet::new();
+    unsafe {
+        let count = (*table).NumEntries as usize;
+        let rows = (*table).Table.as_ptr();
+        for i in 0..count {
+            let row = &*rows.add(i);
+            if row.DestinationPrefix.PrefixLength == 0 {
+                indices.insert(row.InterfaceIndex);
+            }
+        }
+        FreeMibTable(table as *const std::ffi::c_void);
+    }
+    Some(indices)
+}
+
+/// Does this `/proc/net/route` content list an IPv4 default route
+/// (destination `00000000`) on a non-loopback interface that is up?
+/// Columns: Iface Destination Gateway Flags RefCnt Use Metric Mask
+/// MTU Window IRTT; Flags is hex, RTF_UP is bit 0. A gateway flag is
+/// NOT required: a directly-connected default (some PPP links) is
+/// still an upstream path. Non-Windows-only in production (the
+/// `/proc` reader is `#[cfg(not(windows))]`); kept in test builds
+/// so the fixtures stay covered on Windows.
+#[cfg(any(not(windows), test))]
+fn route_table_has_default_route(content: &str) -> bool {
+    content.lines().skip(1).any(|line| {
+        let mut fields = line.split_whitespace();
+        let iface = fields.next().unwrap_or("");
+        let destination = fields.next().unwrap_or("");
+        let _gateway = fields.next();
+        let flags = fields.next().unwrap_or("");
+        if iface == "lo" || destination != "00000000" {
+            return false;
+        }
+        u32::from_str_radix(flags, 16)
+            .map(|flags| flags & 0x1 != 0)
+            .unwrap_or(false)
+    })
 }
 
 /// Is this adapter our own sing-box TUN interface (or any wintun
@@ -665,6 +850,48 @@ pub fn singbox_home_dir() -> PathBuf {
     std::env::temp_dir().join("zapret2-singbox")
 }
 
+/// How much of the engine log the UI shows for an unregistered
+/// tunnel (design section 8: the last 64 KiB, like NETZapret's
+/// `Warp.RegistrationFailing` diagnostic). GUI-only: read by the
+/// `get_tunnel_engine_log` command in `commands.rs`, never by the
+/// svc binary - hence the allow, without it the svc build warns
+/// (same pattern as `SINGBOX_SIDECAR_NAME`, stage 5 review m2).
+#[allow(dead_code)]
+pub const ENGINE_LOG_TAIL_MAX_BYTES: usize = 64 * 1024;
+
+/// Read the tail of the engine log (`sing-box.log` in the home
+/// directory), up to `ENGINE_LOG_TAIL_MAX_BYTES`. A missing or
+/// unreadable file yields an empty string - the UI shows its "log
+/// unavailable" line instead of an error. The first (possibly
+/// partial) line is dropped so the tail starts on a line boundary,
+/// unless the tail holds no newline at all (then the whole tail is
+/// shown - a partial line beats no line for a diagnostic).
+/// GUI-only (see above): the allow covers the svc build, where
+/// nothing calls this.
+#[allow(dead_code)]
+pub fn read_engine_log_tail(home_dir: &Path) -> String {
+    read_engine_log_tail_limited(home_dir, ENGINE_LOG_TAIL_MAX_BYTES)
+}
+
+/// Testable core: the same tail read with an explicit byte budget.
+/// GUI-only (see above): only the public wrapper calls this
+/// outside tests.
+#[allow(dead_code)]
+fn read_engine_log_tail_limited(home_dir: &Path, max_bytes: usize) -> String {
+    let Ok(bytes) = std::fs::read(home_dir.join("sing-box.log")) else {
+        return String::new();
+    };
+    let start = bytes.len().saturating_sub(max_bytes);
+    let text = String::from_utf8_lossy(&bytes[start..]);
+    if start == 0 {
+        return text.into_owned();
+    }
+    match text.find('\n') {
+        Some(pos) => text[pos + 1..].to_string(),
+        None => text.into_owned(),
+    }
+}
+
 /// Run `sing-box version` and return the first output line
 /// (e.g. `sing-box version 1.14.3-extended-2.7.3`). Synchronous: the
 /// command prints and exits immediately. Failing to run it means the
@@ -764,6 +991,9 @@ enum Readiness {
     Died(std::process::ExitStatus),
     /// The deadline passed with the child alive but the API silent.
     Timeout,
+    /// A stop bumped the generation while waiting (stage 7, O2):
+    /// the start aborts instead of running out the deadline.
+    Cancelled,
 }
 
 /// Error from one spawn attempt. `bind_error` marks a port-bind
@@ -924,7 +1154,13 @@ impl SingBoxManager {
             | TunnelState::Degraded
             | TunnelState::Unregistered
             | TunnelState::Starting => return Ok(self.status()),
-            TunnelState::Stopped | TunnelState::Stopping | TunnelState::Error => {}
+            // UpstreamDown is a failed start, not a running tunnel:
+            // a retry re-checks the gate (the retry button relies
+            // on this, and so does the auto-restart loop).
+            TunnelState::Stopped
+            | TunnelState::Stopping
+            | TunnelState::Error
+            | TunnelState::UpstreamDown => {}
         }
 
         // The bump invalidates any monitor task from a previous
@@ -935,6 +1171,13 @@ impl SingBoxManager {
         // it stale, so a later engine death would be lost silently
         // while the state stayed Running/Degraded forever.
         *self.generation.write() += 1;
+        // The generation this start belongs to, captured once and
+        // threaded through the whole start (stage 7, O2): `stop()`
+        // bumps the generation *before* taking the lifecycle lock,
+        // so a start that re-read the counter later (in
+        // `spawn_and_warm`, say) could pick up the stop's bump and
+        // miss the cancellation entirely.
+        let generation = *self.generation.read();
         if manual {
             // A user-initiated start is a fresh session: the
             // auto-restart budget is restored. This sits next to
@@ -955,7 +1198,7 @@ impl SingBoxManager {
         *self.clash_api_port.write() = None;
         *self.pid.write() = None;
 
-        match self.start_inner(&options).await {
+        match self.start_inner(&options, generation).await {
             Ok(()) => {
                 *self.tun_scope.write() = Some(options.tun_scope);
                 Ok(self.status())
@@ -967,9 +1210,31 @@ impl SingBoxManager {
                 *self.pid.write() = None;
                 *self.clash_api_port.write() = None;
                 *self.tun_scope.write() = None;
-                self.set_last_error(Some(error.to_string()));
-                self.set_state(TunnelState::Error);
-                self.log("error", &format!("failed to start sing-box: {error}"));
+                match error {
+                    // The upstream gate (stage 7): no network, no
+                    // spawn - a state of its own, not Error. The
+                    // retry button and the auto-restart loop both
+                    // re-check the gate from here.
+                    SingBoxError::UpstreamDown => {
+                        self.set_last_error(Some(error.to_string()));
+                        self.set_state(TunnelState::UpstreamDown);
+                        self.log("warn", &format!("tunnel start refused: {error}"));
+                    }
+                    // Cancelled by a stop (stage 7, O2): only stop()
+                    // bumps the generation mid-start, so a stop is
+                    // in flight and owns the state from here - leave
+                    // it (Starting) and the last error alone.
+                    // Setting Error would flash a spurious failure
+                    // the stop immediately clears.
+                    SingBoxError::Cancelled => {
+                        self.log("info", "sing-box start cancelled by stop");
+                    }
+                    _ => {
+                        self.set_last_error(Some(error.to_string()));
+                        self.set_state(TunnelState::Error);
+                        self.log("error", &format!("failed to start sing-box: {error}"));
+                    }
+                }
                 Err(error)
             }
         }
@@ -988,7 +1253,28 @@ impl SingBoxManager {
     /// message); the state transition - and its event and log line -
     /// fires only once, so a failure already recorded by `start()`
     /// does not double-emit.
+    ///
+    /// Two states are left alone (stage 7): `UpstreamDown` - the
+    /// manager already recorded the gate failure with its own text,
+    /// overwriting it with Error would lose the "no network"
+    /// distinction; and `Starting` - the only path that reaches
+    /// here with the state still Starting is a start cancelled by
+    /// a stop (every other `start()` failure sets Error itself),
+    /// and the stop in flight owns the state from there.
+    ///
+    /// `Stopped` is deliberately NOT guarded: the early failures
+    /// this exists for (no binary, desync restart failed, capture
+    /// never ready) arrive with the state still Stopped - the
+    /// manager was never started. A cancelled start is filtered
+    /// by the supervisor wrapper instead, on the error type
+    /// (`ProcessError::TunnelCancelled`, stage 7 review m1).
     pub fn fail_start(&self, error: String) {
+        if matches!(
+            self.state(),
+            TunnelState::UpstreamDown | TunnelState::Starting
+        ) {
+            return;
+        }
         self.set_last_error(Some(error.clone()));
         if self.state() != TunnelState::Error {
             self.log("error", &format!("failed to start tunnel: {error}"));
@@ -998,8 +1284,15 @@ impl SingBoxManager {
 
     /// The start itself, under the lifecycle lock. On success the
     /// state is Running, Degraded, or Unregistered and the monitor
-    /// is armed; on failure no child is running.
-    async fn start_inner(&self, options: &SingBoxStartOptions) -> Result<(), SingBoxError> {
+    /// is armed; on failure no child is running. `generation` is
+    /// the start's own generation (captured in `start_with`): the
+    /// attempt loop and the readiness/warmup waits abort with
+    /// `Cancelled` when it changes (a stop in progress, stage 7 O2).
+    async fn start_inner(
+        &self,
+        options: &SingBoxStartOptions,
+        generation: u64,
+    ) -> Result<(), SingBoxError> {
         if !options.binary.is_file() {
             return Err(SingBoxError::BinaryMissing(options.binary.clone()));
         }
@@ -1012,6 +1305,18 @@ impl SingBoxManager {
                 source,
             }
         })?;
+
+        // The upstream gate (stage 7, design section 8): with no
+        // network, refuse to spawn - an engine that cannot register
+        // would only report Unregistered/Degraded and burn the
+        // restart budget. The gate sits here, in the single start
+        // path, so manual starts, the supervisor reconcile, and
+        // the auto-restart loop all respect it. `upstream_override`
+        // is the test seam (`None` in production).
+        let upstream_ok = options.upstream_override.unwrap_or_else(upstream_available);
+        if !upstream_ok {
+            return Err(SingBoxError::UpstreamDown);
+        }
 
         // Version first: it proves the binary executes at all, and
         // the version line goes into the log for every start.
@@ -1047,6 +1352,11 @@ impl SingBoxManager {
         let config_path = options.home_dir.join("config.json");
 
         for attempt in 1..=MAX_START_ATTEMPTS {
+            // A stop that landed between attempts (stage 7, O2):
+            // do not spawn an engine the stop is about to kill.
+            if !self.generation_ok(generation) {
+                return Err(SingBoxError::Cancelled);
+            }
             // Fresh ports and secrets on every build - that is what
             // makes the TOCTOU retry work.
             let generated = build_config(&input)?;
@@ -1068,6 +1378,7 @@ impl SingBoxManager {
                     &config_path,
                     generated.clash_api_port,
                     &generated.clash_api_secret,
+                    generation,
                 )
                 .await
             {
@@ -1100,12 +1411,19 @@ impl SingBoxManager {
     /// test (with a hand-written minimal config, no TUN - tests must
     /// not raise a TUN adapter). The caller holds the lifecycle lock
     /// (production) or runs single-threaded (test); this method does
-    /// not take it.
+    /// not take it. `generation` is the start's own generation
+    /// (stage 7, O2): the readiness and warmup waits abort with
+    /// `Cancelled` when it changes. Direct test callers pass the
+    /// manager's current generation (0 on a fresh manager - nothing
+    /// bumps it in those tests).
     ///
     /// On success the state is Running, Degraded, or Unregistered.
     /// On failure the (dead) child is removed and the state is left
     /// as Starting - the caller decides whether to retry (bind
-    /// conflict) or fail the start.
+    /// conflict) or fail the start. A start cancelled in readiness
+    /// kills the live child first; a start cancelled in warmup
+    /// returns without killing it - the caller's error arm
+    /// (`start()`) kills it before the stop takes the lock.
     async fn spawn_and_warm(
         &self,
         binary: &Path,
@@ -1113,6 +1431,7 @@ impl SingBoxManager {
         config_path: &Path,
         clash_port: u16,
         clash_secret: &str,
+        generation: u64,
     ) -> Result<(), SpawnAttemptError> {
         let client = ClashApiClient::new(clash_port, clash_secret);
         let args = vec![
@@ -1145,8 +1464,18 @@ impl SingBoxManager {
         );
         *self.child.lock() = Some(spawned.child);
 
-        match self.wait_ready(&client).await {
+        match self.wait_ready(&client, generation).await {
             Readiness::Ready => {}
+            Readiness::Cancelled => {
+                // The stop that cancelled this start is waiting on
+                // the lifecycle lock: kill the live child now, so
+                // the stop finds nothing to wait for.
+                self.kill_child().await;
+                return Err(SpawnAttemptError {
+                    error: SingBoxError::Cancelled,
+                    bind_error: false,
+                });
+            }
             Readiness::Died(status) => {
                 let _ = self.child.lock().take();
                 // Give the stderr pump a moment to drain the pipe:
@@ -1198,7 +1527,7 @@ impl SingBoxManager {
         // run would otherwise survive into this one.
         self.reset_dns_mode(&client).await;
 
-        if let Err(error) = self.warmup(&client).await {
+        if let Err(error) = self.warmup(&client, generation).await {
             return Err(SpawnAttemptError {
                 error,
                 bind_error: false,
@@ -1237,10 +1566,17 @@ impl SingBoxManager {
     }
 
     /// Poll Clash API `alive()` until the engine answers, the child
-    /// dies, or the deadline passes.
-    async fn wait_ready(&self, client: &ClashApiClient) -> Readiness {
+    /// dies, the deadline passes, or a stop bumps the generation
+    /// (stage 7, O2 - the poll interval bounds the cancellation
+    /// latency to ~250 ms).
+    async fn wait_ready(&self, client: &ClashApiClient, generation: u64) -> Readiness {
         let deadline = Instant::now() + READINESS_TIMEOUT;
         loop {
+            // Cancellation first: a stop is waiting on the
+            // lifecycle lock, and every extra poll delays it.
+            if !self.generation_ok(generation) {
+                return Readiness::Cancelled;
+            }
             // Child first: a dead engine can never become ready.
             if let Some(status) = self.try_wait_child() {
                 return Readiness::Died(status);
@@ -1250,6 +1586,19 @@ impl SingBoxManager {
             }
             if Instant::now() >= deadline {
                 return Readiness::Timeout;
+            }
+            tokio::time::sleep(READINESS_POLL_INTERVAL).await;
+        }
+    }
+
+    /// Wait until the generation changes (a stop in progress, stage
+    /// 7 O2). Races the warmup measurement in `warmup`: the
+    /// measurement is a single HTTP request with a ~15 s ceiling,
+    /// so without this the stop would wait it out.
+    async fn cancelled(&self, generation: u64) {
+        loop {
+            if !self.generation_ok(generation) {
+                return;
             }
             tokio::time::sleep(READINESS_POLL_INTERVAL).await;
         }
@@ -1265,7 +1614,7 @@ impl SingBoxManager {
     /// Clash API to fix cache stickiness) is intentionally skipped:
     /// the v1 config has no selector group - the MASQUE outbound is
     /// referenced directly - so there is nothing to select.
-    async fn warmup(&self, client: &ClashApiClient) -> Result<(), SingBoxError> {
+    async fn warmup(&self, client: &ClashApiClient, generation: u64) -> Result<(), SingBoxError> {
         // The engine was alive a moment ago; if it died in between,
         // say so instead of measuring a corpse.
         if let Some(status) = self.try_wait_child() {
@@ -1274,10 +1623,18 @@ impl SingBoxManager {
                 "exit status: {status}"
             )));
         }
-        match client
-            .measure_exit(MASQUE_TAG, WARMUP_DELAY_TIMEOUT, WARMUP_DELAY_URL)
-            .await
-        {
+        // The measurement is one HTTP request (up to ~15 s with the
+        // grace); race it against a stop (stage 7, O2) so a stop
+        // during warmup does not wait it out. Dropping the request
+        // future mid-flight is safe - reqwest cancels the request.
+        let measured = tokio::select! {
+            result = client.measure_exit(MASQUE_TAG, WARMUP_DELAY_TIMEOUT, WARMUP_DELAY_URL) => Some(result),
+            _ = self.cancelled(generation) => None,
+        };
+        let Some(measured) = measured else {
+            return Err(SingBoxError::Cancelled);
+        };
+        match measured {
             Ok(delay) => {
                 *self.warmup_delay_ms.write() = Some(delay);
                 self.set_state(TunnelState::Running);
@@ -1757,6 +2114,14 @@ impl SingBoxManager {
     /// waits the next backoff and tries again until the budget is
     /// spent. The warmup runs again after every restart - the new
     /// engine instance is judged on its own exit.
+    ///
+    /// UpstreamDown (stage 7) is not a failure of the engine, so it
+    /// does not spend the budget: the chain waits out the capped
+    /// backoff and re-checks the gate, for as long as the tunnel
+    /// stays in UpstreamDown. The tunnel then recovers on its own
+    /// when the network returns, instead of sitting dead until the
+    /// user notices. The wait is generation-gated like everything
+    /// else here - a stop ends the chain on the next check.
     async fn restart_loop(&self, generation: u64, mut attempt: u32, options: SingBoxStartOptions) {
         loop {
             let Some(delay) = restart_delay(attempt) else {
@@ -1780,7 +2145,9 @@ impl SingBoxManager {
                 return;
             };
             tokio::time::sleep(delay).await;
-            if !self.generation_ok(generation) || self.state() != TunnelState::Error {
+            if !self.generation_ok(generation)
+                || !matches!(self.state(), TunnelState::Error | TunnelState::UpstreamDown)
+            {
                 return;
             }
             // The attempt counts as used from the moment it starts:
@@ -1797,6 +2164,27 @@ impl SingBoxManager {
                     );
                     return;
                 }
+                Err(SingBoxError::UpstreamDown) => {
+                    // No network, no engine failure: give the
+                    // attempt back (the counter tracks engine
+                    // restarts, and none happened) and wait out the
+                    // capped backoff before re-checking the gate.
+                    // `attempt` is unchanged, so the loop-top sleep
+                    // stays short - the long wait is this one.
+                    *self.restart_attempts.write() = attempt.saturating_sub(1);
+                    self.log(
+                        "info",
+                        "no network during the auto-restart: tunnel stays UpstreamDown, re-checking the gate",
+                    );
+                    tokio::time::sleep(RESTART_BACKOFF_MAX).await;
+                }
+                Err(SingBoxError::Cancelled) => {
+                    // A stop cancelled this restart attempt: the
+                    // generation check at the top of the loop would
+                    // end the chain anyway - return directly instead
+                    // of logging a misleading "attempt failed".
+                    return;
+                }
                 Err(error) => {
                     self.log(
                         "warn",
@@ -1808,15 +2196,35 @@ impl SingBoxManager {
         }
     }
 
+    /// Request cancellation of an in-flight start (stage 7, O2):
+    /// bumps the generation without taking the lifecycle lock, so a
+    /// start in progress aborts within ~250 ms. `stop()` does this
+    /// itself; the supervisor calls it before taking ITS lifecycle
+    /// lock, so a `stop_tunnel` queued behind a `start_tunnel` does
+    /// not wait out the whole start.
+    pub fn request_cancel(&self) {
+        *self.generation.write() += 1;
+    }
+
     /// Stop the tunnel: kill the child, wait up to 5 s, clear the
     /// state. A no-op while stopped. Deliberately does NOT terminate
     /// the shared Job Object (winws2 lives in the same job - the
     /// independent-switches matrix requires tunnel-off/desync-on to
     /// keep working); sing-box spawns no grandchildren, so kill+wait
     /// is a complete stop.
+    ///
+    /// The generation bump comes BEFORE the lifecycle lock (stage 7,
+    /// O2): a start in progress holds the lock through readiness and
+    /// warmup (up to ~70 s worst case), and bumping first lets its
+    /// wait loops abort within ~250 ms instead. The bump also
+    /// invalidates the monitor/watchdog/restart tasks of a running
+    /// engine - they exit on their next tick, and the stop below
+    /// kills the child anyway. A redundant stop (already Stopped)
+    /// still bumps - harmless, there is no live task left to
+    /// invalidate by then.
     pub async fn stop(&self) -> Result<(), SingBoxError> {
+        self.request_cancel();
         let _guard = self.lifecycle.lock().await;
-        *self.generation.write() += 1;
 
         if matches!(
             *self.state.read(),
@@ -1987,6 +2395,7 @@ mod tests {
             // a TUN device: the generated config must not include it.
             tun_enabled: false,
             fixed_clash_port: None,
+            upstream_override: None,
         }
     }
 
@@ -2225,6 +2634,94 @@ mod tests {
             serde_json::from_str::<TunnelState>("\"degraded\"").unwrap(),
             TunnelState::Degraded
         );
+        // Stage 7: the eighth state serializes the same way
+        // ("upstreamdown", no separator - the lowercase convention).
+        assert_eq!(
+            serde_json::to_string(&TunnelState::UpstreamDown).unwrap(),
+            "\"upstreamdown\""
+        );
+        assert_eq!(
+            serde_json::from_str::<TunnelState>("\"upstreamdown\"").unwrap(),
+            TunnelState::UpstreamDown
+        );
+    }
+
+    #[test]
+    fn route_table_default_route_detection() {
+        let header =
+            "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n";
+        // A default route on a real interface, up with a gateway.
+        assert!(route_table_has_default_route(&format!(
+            "{header}eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
+        )));
+        // Up without a gateway (directly-connected default) still
+        // counts: traffic has a way out.
+        assert!(route_table_has_default_route(&format!(
+            "{header}ppp0\t00000000\t00000000\t0001\t0\t0\t0\t00000000\t0\t0\t0\n"
+        )));
+        // A default route on loopback does not count.
+        assert!(!route_table_has_default_route(&format!(
+            "{header}lo\t00000000\t00000000\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
+        )));
+        // A default route on a down interface does not count.
+        assert!(!route_table_has_default_route(&format!(
+            "{header}eth0\t00000000\t0101A8C0\t0000\t0\t0\t0\t00000000\t0\t0\t0\n"
+        )));
+        // Connected routes only, no default: a LAN without a way out.
+        assert!(!route_table_has_default_route(&format!(
+            "{header}eth0\t0001A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n"
+        )));
+        // Empty table (header only) and garbage.
+        assert!(!route_table_has_default_route(header));
+        assert!(!route_table_has_default_route(""));
+        assert!(!route_table_has_default_route(&format!(
+            "{header}eth0\t00000000\t0101A8C0\tZZZZ\t0\t0\t0\t00000000\t0\t0\t0\n"
+        )));
+    }
+
+    #[test]
+    fn adapter_upstream_decision_table() {
+        let routes: HashSet<u32> = [7, 9].into_iter().collect();
+        // Up, not loopback, not our tunnel, carries a default route.
+        assert!(adapter_is_upstream(7, true, false, false, &routes));
+        // Down.
+        assert!(!adapter_is_upstream(7, false, false, false, &routes));
+        // Loopback.
+        assert!(!adapter_is_upstream(7, true, true, false, &routes));
+        // Our own tunnel adapter.
+        assert!(!adapter_is_upstream(7, true, false, true, &routes));
+        // Up and clean, but no default route on it.
+        assert!(!adapter_is_upstream(11, true, false, false, &routes));
+        // No default routes at all.
+        assert!(!adapter_is_upstream(7, true, false, false, &HashSet::new()));
+    }
+
+    #[test]
+    fn engine_log_tail_reads_last_lines() {
+        let dir =
+            std::env::temp_dir().join(format!("zapret2-singbox-logtail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sing-box.log");
+        // Whole file fits the budget: returned as-is.
+        std::fs::write(&log, "line one\nline two\n").unwrap();
+        assert_eq!(
+            read_engine_log_tail_limited(&dir, 1024),
+            "line one\nline two\n"
+        );
+        // Budget cuts mid-file: the tail starts on a line boundary,
+        // the partial first line is dropped.
+        std::fs::write(&log, "aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\n").unwrap();
+        // 15 bytes from the end: "bbb\ncccccccccc\n" - the partial
+        // "bbb" line is dropped, only the full last line survives.
+        assert_eq!(read_engine_log_tail_limited(&dir, 15), "cccccccccc\n");
+        // No newline in the tail at all: the partial line is shown
+        // anyway - a diagnostic with one cut line beats an empty one.
+        std::fs::write(&log, "0123456789abcdef").unwrap();
+        assert_eq!(read_engine_log_tail_limited(&dir, 6), "abcdef");
+        // Missing file: empty, not an error.
+        std::fs::remove_file(&log).unwrap();
+        assert_eq!(read_engine_log_tail_limited(&dir, 1024), "");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -2352,6 +2849,172 @@ mod tests {
         assert_eq!(manager.state(), TunnelState::Stopped);
     }
 
+    /// Stage 7: with the upstream gate closed, the start refuses to
+    /// spawn and lands in UpstreamDown (not Error), with a message
+    /// the UI can show. The binary is a dummy file that is never
+    /// executed - the gate runs before the version check. The
+    /// `upstream_override` seam forces the gate closed without
+    /// pulling the network cable.
+    #[tokio::test]
+    async fn start_with_no_upstream_reports_upstream_down() {
+        let dir =
+            std::env::temp_dir().join(format!("zapret2-singbox-nogate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dummy = dir.join("dummy-sing-box");
+        std::fs::write(&dummy, "").unwrap();
+        let options = SingBoxStartOptions {
+            upstream_override: Some(false),
+            ..test_options(dummy, dir.clone())
+        };
+        let manager = test_manager();
+        let error = manager.start(options).await.unwrap_err();
+        assert!(matches!(error, SingBoxError::UpstreamDown));
+        assert_eq!(manager.state(), TunnelState::UpstreamDown);
+        let status = manager.status();
+        assert!(status.pid.is_none(), "the gate must not spawn anything");
+        assert!(status.clash_api_port.is_none());
+        let message = status.last_error.expect("a gate message for the UI");
+        assert!(
+            message.contains("нет сети"),
+            "unexpected gate message: {message}"
+        );
+        // UpstreamDown counts as active (the tunnel is wanted, the
+        // restart loop may still re-check the gate), and a stop
+        // clears it like any other failed start.
+        assert!(manager.is_active());
+        manager.stop().await.unwrap();
+        assert_eq!(manager.state(), TunnelState::Stopped);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Stage 7: `fail_start` (the supervisor's wrapper for early
+    /// failures) must not overwrite UpstreamDown with Error - the
+    /// manager already recorded the gate failure, and the "no
+    /// network" distinction is the whole point of the state.
+    #[tokio::test]
+    async fn fail_start_keeps_upstream_down() {
+        let dir =
+            std::env::temp_dir().join(format!("zapret2-singbox-failstart-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dummy = dir.join("dummy-sing-box");
+        std::fs::write(&dummy, "").unwrap();
+        let options = SingBoxStartOptions {
+            upstream_override: Some(false),
+            ..test_options(dummy, dir.clone())
+        };
+        let manager = test_manager();
+        manager.start(options).await.unwrap_err();
+        assert_eq!(manager.state(), TunnelState::UpstreamDown);
+        let before = manager.status().last_error.clone();
+        manager.fail_start("some supervisor-side failure".to_string());
+        assert_eq!(manager.state(), TunnelState::UpstreamDown);
+        assert_eq!(manager.status().last_error, before);
+        manager.stop().await.unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Stage 7 review m1: the early failures `fail_start` exists
+    /// for (no binary, desync restart failed, capture never ready)
+    /// arrive with the state still Stopped - the manager was never
+    /// started - so a Stopped guard would swallow them. This pins
+    /// that `fail_start` on Stopped records the Error; the
+    /// cancelled-start case is filtered by the supervisor wrapper
+    /// on the error type instead.
+    #[test]
+    fn fail_start_on_stopped_records_error() {
+        let manager = test_manager();
+        assert_eq!(manager.state(), TunnelState::Stopped);
+        manager.fail_start("sing-box не найден в установке".to_string());
+        assert_eq!(manager.state(), TunnelState::Error);
+        assert_eq!(
+            manager.status().last_error.as_deref(),
+            Some("sing-box не найден в установке")
+        );
+    }
+
+    /// Stage 7 review m1: the cancellation must survive the
+    /// conversion to `ProcessError` as its own variant, so the
+    /// supervisor wrapper can skip recording it - and every other
+    /// error still lands in `Tunnel`.
+    #[test]
+    fn cancelled_start_error_stays_typed() {
+        assert!(matches!(
+            ProcessError::from(SingBoxError::Cancelled),
+            ProcessError::TunnelCancelled
+        ));
+        assert!(matches!(
+            ProcessError::from(SingBoxError::VersionFailed("x".to_string())),
+            ProcessError::Tunnel(_)
+        ));
+        assert!(matches!(
+            ProcessError::from(SingBoxError::UpstreamDown),
+            ProcessError::Tunnel(_)
+        ));
+    }
+
+    /// Stage 7, O2: a start stuck in readiness (a fake engine that
+    /// never answers its Clash API) must abort within seconds when
+    /// stop() is called - not run out the 20 s readiness timeout
+    /// (and not the ~70 s worst case of a two-attempt start).
+    /// Unix-only: the fake engine is a shell script. The error is
+    /// the discriminating assertion: without the cancellation the
+    /// start would fail with NotReady after 20 s, not Cancelled.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stop_cancels_a_start_stuck_in_readiness() {
+        let dir =
+            std::env::temp_dir().join(format!("zapret2-singbox-cancel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("fake-sing-box");
+        // Answers `version` and `check` like a healthy engine, but
+        // `run` sleeps: the Clash API never comes up, so the start
+        // sits in the readiness wait until it is cancelled.
+        let script = "#!/bin/sh\n\
+             case \"$1\" in\n\
+             \x20 version)\n\
+             \x20\x20 echo \"sing-box version 9.9.9-fake\"\n\
+             \x20\x20 ;;\n\
+             \x20 check)\n\
+             \x20\x20 exit 0\n\
+             \x20\x20 ;;\n\
+             \x20 run)\n\
+             \x20\x20 sleep 60\n\
+             \x20\x20 ;;\n\
+             esac\n";
+        std::fs::write(&fake, script).unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let manager = test_manager();
+        let starter = manager.clone();
+        let options = test_options(fake, dir.clone());
+        let start_task = tokio::spawn(async move { starter.start(options).await });
+        // Let the start reach the readiness wait (version + check +
+        // spawn take well under a second in the sandbox).
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(manager.state(), TunnelState::Starting);
+
+        let started = Instant::now();
+        manager.stop().await.unwrap();
+        let start_result = start_task.await.expect("start task joined");
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "stop took {elapsed:?} - the start was not cancelled (readiness timeout is 20 s)"
+        );
+        let error = start_result.expect_err("the cancelled start must fail");
+        assert!(
+            matches!(error, SingBoxError::Cancelled),
+            "expected Cancelled, got {error:?}"
+        );
+        assert_eq!(manager.state(), TunnelState::Stopped);
+        assert!(manager.status().pid.is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Live test: spawn the real sing-box with a minimal config (no
     /// TUN - tests must not raise a tunnel adapter), check Clash API
     /// readiness and warmup, then stop. Gated on SINGBOX_TEST_BINARY
@@ -2389,7 +3052,7 @@ mod tests {
 
         let manager = test_manager();
         manager
-            .spawn_and_warm(&binary, &dir, &config_path, clash_port, "test-secret")
+            .spawn_and_warm(&binary, &dir, &config_path, clash_port, "test-secret", 0)
             .await
             .expect("spawn and warmup");
         let status = manager.status();
@@ -2429,7 +3092,7 @@ mod tests {
 
         let manager = test_manager();
         manager
-            .spawn_and_warm(&binary, &dir, &config_path, clash_port, "test-secret")
+            .spawn_and_warm(&binary, &dir, &config_path, clash_port, "test-secret", 0)
             .await
             .expect("spawn and warmup");
         assert_eq!(manager.state(), TunnelState::Degraded);
@@ -2496,7 +3159,7 @@ mod tests {
 
         let manager = test_manager();
         let attempt = manager
-            .spawn_and_warm(&binary, &dir, &config_path, clash_port, "test-secret")
+            .spawn_and_warm(&binary, &dir, &config_path, clash_port, "test-secret", 0)
             .await
             .expect_err("engine must die on the occupied Clash port");
         assert!(

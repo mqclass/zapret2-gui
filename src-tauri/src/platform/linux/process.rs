@@ -74,6 +74,14 @@ pub enum ProcessError {
     #[error("WARP-туннель: {0}")]
     Tunnel(String),
 
+    /// A tunnel start cancelled by a stop (stage 7, O2): not a
+    /// failure - the stop owns the state, so the caller must not
+    /// report it as Error (stage 7 review m1). Kept distinct from
+    /// `Tunnel` so the supervisor wrapper can skip recording it
+    /// without string-matching the error text.
+    #[error("WARP-туннель: запуск отменён остановкой")]
+    TunnelCancelled,
+
     #[error("I/O error during process management: {0}")]
     Io(#[from] io::Error),
 }
