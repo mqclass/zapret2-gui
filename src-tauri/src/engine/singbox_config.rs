@@ -232,8 +232,17 @@ pub struct SingBoxConfigInput {
     pub system_resolvers: Vec<IpAddr>,
     /// Desync preset subnets (ipset CIDRs) kept out of the TUN as a
     /// safety net (`route_exclude_address`). Empty when desync is off.
-    /// Each entry must be a valid CIDR (`192.0.2.0/24`); invalid
-    /// entries fail the build rather than shipping a broken config.
+    /// Written only in Everything scope. In ProxyOnly the capture set
+    /// is just the fakeip ranges and the resolvers: the fakeip ranges
+    /// (198.18.0.0/15, fc00::/18) can never overlap a public preset
+    /// list, and a resolver overlap (e.g. 1.1.1.0/24 vs resolver
+    /// 1.1.1.1) must NOT be excluded - the resolver's traffic is
+    /// DNS-only and lands in hijack-dns, so excluding it would only
+    /// break DNS capture while protecting nothing. The preset's ipset
+    /// can also be huge (33k CIDRs on zapret2-ru-ultimate), so
+    /// writing it into a ProxyOnly config is pure bloat. Each entry
+    /// must be a valid CIDR (`192.0.2.0/24`); invalid entries fail
+    /// the build rather than shipping a broken config.
     pub desync_exclude_cidrs: Vec<String>,
     /// DoH endpoint for the `remote` DNS server, from the app's DNS
     /// provider setting (`DohEndpoint::from_provider_id`).
@@ -551,10 +560,18 @@ fn build_tun_inbound(input: &SingBoxConfigInput) -> Value {
         tun["route_address"] = json!(proxy_only_route_addresses(input));
     }
 
-    if !input.desync_exclude_cidrs.is_empty() {
-        // Desync subnets as a safety net: a proxy rule must never
-        // swallow an address the desync preset owns. Written in both
-        // scopes; the manager passes an empty list when desync is off.
+    // Desync subnets as a safety net: a proxy rule must never swallow
+    // an address the desync preset owns. Everything only: ProxyOnly
+    // captures just the fakeip ranges and the resolvers, and the
+    // fakeip ranges cannot overlap a public preset list; a resolver
+    // overlap must not be excluded either (it would only break
+    // hijack-dns). The preset's ipset can also be huge (33k CIDRs
+    // on zapret2-ru-ultimate) - writing it there bloats the config
+    // and the TUN setup for nothing. The manager passes an empty list
+    // when desync is off, so today the supervisor never produces
+    // Everything + a non-empty list; the branch stays as
+    // defense-in-depth for a future Everything+desync mode.
+    if input.tun_scope == TunScope::Everything && !input.desync_exclude_cidrs.is_empty() {
         let mut excluded: Vec<String> = input
             .desync_exclude_cidrs
             .iter()
@@ -957,8 +974,13 @@ mod tests {
         );
         // No v6 range without IPv6.
         assert!(!route_address.iter().any(|c| c.contains(':')));
-        // Desync subnets stay out of the TUN.
-        assert_eq!(tun["route_exclude_address"], json!(["203.0.113.0/24"]));
+        // No exclusion list in ProxyOnly: the capture set is already
+        // just fakeip + resolvers, so no preset subnet can overlap
+        // it - writing the (potentially huge) ipset here is pure bloat.
+        assert!(
+            tun.get("route_exclude_address").is_none(),
+            "ProxyOnly TUN must not carry route_exclude_address"
+        );
         // TUN shape.
         assert_eq!(tun["interface_name"], TUN_INTERFACE_NAME);
         assert_eq!(tun["auto_route"], true);
@@ -1000,6 +1022,9 @@ mod tests {
             tun.get("route_address").is_none(),
             "Everything TUN must not restrict route_address"
         );
+        // The safety net lives here: Everything captures all traffic,
+        // so the desync preset subnets must be carved out.
+        assert_eq!(tun["route_exclude_address"], json!(["203.0.113.0/24"]));
         assert_eq!(config.value["route"]["final"], MASQUE_TAG);
         // No proxy-domain rule needed: the final sends everything.
         let rules = config.value["route"]["rules"].as_array().unwrap();

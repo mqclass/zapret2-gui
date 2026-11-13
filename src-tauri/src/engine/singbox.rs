@@ -768,10 +768,13 @@ fn disabled_components_disables_ipv6(value: u32) -> bool {
 
 /// Read the desync preset's ipset subnets for `route_exclude_address`
 /// (the safety net that keeps desync-covered subnets out of the
-/// tunnel). Reads `ipset-all.txt` from the lists directory; a missing
-/// file yields an empty list - the exclusion is a safety net, not a
-/// gate (NETZapret's `ReadListFile` behaves the same). Returns the
-/// CIDRs and the count of skipped unparseable lines.
+/// tunnel). The generator writes the list only in Everything scope;
+/// in ProxyOnly the capture set is already just fakeip + resolvers,
+/// so the list is discarded there. Reads `ipset-all.txt` from the
+/// lists directory; a missing file yields an empty list - the
+/// exclusion is a safety net, not a gate (NETZapret's `ReadListFile`
+/// behaves the same). Returns the CIDRs and the count of skipped
+/// unparseable lines.
 pub fn read_ipset_cidrs(lists_dir: Option<&Path>) -> (Vec<String>, usize) {
     let Some(dir) = lists_dir else {
         return (Vec::new(), 0);
