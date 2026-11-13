@@ -609,3 +609,50 @@ pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
 
     terminated_count
 }
+
+/// Discovers and terminates any orphaned `zapret2-svc` supervisor processes.
+///
+/// Quit's force-kill fallback when the svc socket is wedged and the graceful
+/// shutdown command can never land. As the unprivileged GUI this can only kill
+/// a svc it owns; a root-owned svc under systemd is stopped via the service
+/// manager instead. The count honestly reports only what this process killed.
+pub fn kill_stray_svc_processes(exclude_pid: Option<u32>) -> usize {
+    let mut terminated_count = 0;
+    let target = "zapret2-svc";
+    let own_pid = std::process::id();
+
+    let entries = match fs::read_dir("/proc") {
+        Ok(e) => e,
+        Err(_) => return 0,
+    };
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name_str) = name.to_str() else { continue };
+        let Ok(pid) = name_str.parse::<u32>() else { continue };
+        if pid <= 1 || pid == own_pid || Some(pid) == exclude_pid {
+            continue;
+        }
+        let exe = match fs::read_link(entry.path().join("exe")) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let exe_name = exe
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .trim_end_matches(" (deleted)");
+        if exe_name != target {
+            continue;
+        }
+        // L-6 TOCTOU guard: re-verify the image from a fresh read before killing.
+        if !process_image_matches(pid, exe_name) {
+            continue;
+        }
+        if unsafe { libc::kill(pid as i32, libc::SIGKILL) } == 0 {
+            terminated_count += 1;
+        }
+    }
+
+    terminated_count
+}

@@ -680,13 +680,27 @@ pub fn spawn_svc_detached(path: &PathBuf) -> io::Result<()> {
         const DETACHED_PROCESS: u32 = 0x00000008;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
-        std::process::Command::new(path)
-            .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()?;
-        Ok(())
+        let base = DETACHED_PROCESS | CREATE_NO_WINDOW;
+        let spawn_with = |flags: u32| {
+            std::process::Command::new(path)
+                .creation_flags(flags)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+        };
+        // Prefer breakaway so the svc outlives any job the GUI sits in. When
+        // the GUI is inside a job that forbids breakaway, CreateProcess fails
+        // with ERROR_ACCESS_DENIED; retry without the flag so the svc still
+        // starts (it keeps its own KILL_ON_JOB_CLOSE job for the engine).
+        match spawn_with(base | CREATE_BREAKAWAY_FROM_JOB) {
+            Ok(_) => Ok(()),
+            Err(e) if e.raw_os_error() == Some(5) => {
+                spawn_with(base)?;
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
     #[cfg(target_os = "linux")]
     {

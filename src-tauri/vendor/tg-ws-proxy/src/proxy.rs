@@ -107,6 +107,17 @@ static IP_FAIL: CooldownMap<String> = CooldownMap::new();
 static UPSTREAM_FAIL: CooldownMap<String> = CooldownMap::new();
 /// Per-Worker cooldown for the Cloudflare Worker path.
 static CF_WORKER_FAIL: CooldownMap<String> = CooldownMap::new();
+/// Per-DC cooldown for the raw-TCP last-resort fallback, keyed by the DC IP.
+///
+/// A SYN-blocked DC IP answers nothing, so re-paying its connect timeout on
+/// every client is the second half of the storm (the CF relay walk is the
+/// first). The address is skipped for a short breather, then re-probed on
+/// expiry, so a DC that becomes reachable is picked up again automatically.
+static TCP_FALLBACK_FAIL: CooldownMap<String> = CooldownMap::new();
+/// Breather for a DC IP whose raw-TCP connect timed out. Shorter than the CF
+/// relay cooldown: this is the last-resort path and a DC address can come back
+/// quickly, so it is re-probed sooner.
+const TCP_FALLBACK_COOLDOWN: Duration = Duration::from_secs(30);
 
 fn upstream_key(host: &str, port: u16) -> String {
     format!("{}:{}", host, port)
@@ -1718,10 +1729,24 @@ async fn bridge_tcp(
         runtime,
     } = params;
 
+    // Fast-drop while this DC address is in its TCP cooldown: a SYN-blocked IP
+    // answers nothing, and re-paying the connect timeout on every client is the
+    // storm. Expiry re-probes it, so recovery is automatic.
+    if TCP_FALLBACK_FAIL.active(dst) {
+        warn!("[{}] TCP fallback {} in cooldown — dropping fast", label, dst);
+        return;
+    }
+
     let remote = match runtime.outbound().connect(dst, 443, connect_timeout).await {
-        Ok(s) => s,
+        Ok(s) => {
+            TCP_FALLBACK_FAIL.clear(dst);
+            s
+        }
         Err(e) => {
             warn!("[{}] TCP fallback connect failed: {}", label, e);
+            if e.timed_out {
+                TCP_FALLBACK_FAIL.set(dst.to_string(), TCP_FALLBACK_COOLDOWN);
+            }
             return;
         }
     };

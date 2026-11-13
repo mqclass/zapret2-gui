@@ -571,3 +571,58 @@ pub fn kill_stray_winws2_processes(exclude_pid: Option<u32>) -> usize {
 
     terminated_count
 }
+
+/// Discovers and terminates any orphaned `zapret2-svc.exe` supervisor processes.
+///
+/// Quit's force-kill fallback: a storm-starved svc runtime stops accepting pipe
+/// connections, so the graceful shutdown command can never land and the svc
+/// would keep filtering traffic with no GUI behind. Killing the svc closes its
+/// Job Object (`KILL_ON_JOB_CLOSE`), which takes the supervised winws with it.
+pub fn kill_stray_svc_processes(exclude_pid: Option<u32>) -> usize {
+    let mut terminated_count = 0;
+    let target = "zapret2-svc.exe";
+
+    unsafe {
+        if let Ok(handle) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            let mut entry = PROCESSENTRY32W::default();
+            entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+            if Process32FirstW(handle, &mut entry).is_ok() {
+                loop {
+                    let len = entry
+                        .szExeFile
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(entry.szExeFile.len());
+                    let exe_name = String::from_utf16_lossy(&entry.szExeFile[..len]);
+
+                    if exe_name.eq_ignore_ascii_case(target) {
+                        let pid = entry.th32ProcessID;
+                        if Some(pid) != exclude_pid {
+                            if let Ok(proc_handle) = OpenProcess(
+                                PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+                                false,
+                                pid,
+                            ) {
+                                // L-6 TOCTOU guard: re-verify the image from the handle.
+                                if process_image_matches(proc_handle, target)
+                                    && TerminateProcess(proc_handle, 1).is_ok()
+                                {
+                                    terminated_count += 1;
+                                }
+                                let _ = CloseHandle(proc_handle);
+                            }
+                        }
+                    }
+
+                    if Process32NextW(handle, &mut entry).is_err() {
+                        break;
+                    }
+                }
+            }
+            let _ = CloseHandle(handle);
+        }
+    }
+
+    terminated_count
+}
