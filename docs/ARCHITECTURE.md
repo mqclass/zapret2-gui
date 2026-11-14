@@ -100,8 +100,10 @@ Backend в GUI (`SupervisorBackend`) бывает двух видов:
 
 Переходы:
 
-1. **Обычный запуск** — GUI стартует в LOCAL и подключается к службе, только если
-   она **уже** работает (сам службу не spawn-ит).
+1. **Обычный запуск** — GUI стартует в LOCAL; при нажатии Start, если найден
+   `zapret2-svc.exe`, вызывает `ensure_svc_attached` (spawn службы при
+   необходимости + ожидание pipe до 10 с) и переключается в REMOTE. Только
+   если бинаря службы нет или attach не удался, движок остаётся in-process.
 2. **Автозапуск** (`--minimized` / `--autostart`) — после короткой задержки GUI
    проверяет `backend_needs_attach` (LOCAL + найден `zapret2-svc.exe`), вызывает
    `ensure_svc_attached` (spawn службы + ожидание pipe до 10 с), переключается в
@@ -208,8 +210,10 @@ Fallback идемпотентен: если служба уже чисто за�
 
 ## 🌉 Telegram-bridge (tgproxy) и cooldown circuit-breaker
 
-Bridge (MTProto → WebSocket) живёт **в службе** (`engine/tgproxy.rs` — обёртка;
-сам прокси — вендорный `src-tauri/vendor/tg-ws-proxy/`). Режимы соединения:
+Bridge (MTProto → WebSocket) живёт **в службе** в REMOTE (`engine/tgproxy.rs` —
+обёртка; сам прокси — вендорный `src-tauri/vendor/tg-ws-proxy/`), а в LOCAL —
+in-process в GUI. При переходе в REMOTE in-process bridge останавливается,
+служба поднимает свой из сохранённого флага. Режимы соединения:
 `auto`, `cfproxy`, `direct`. В `auto`/`cfproxy` используется tier Cloudflare-реле
 (community CF domain list), затем raw-TCP last-resort к DC IP.
 
