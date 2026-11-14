@@ -3814,7 +3814,11 @@ mod tests {
     #[test]
     fn test_imported_args_shape_for_all_strategies() {
         let all = crate::engine::imported_strategies::all();
-        assert_eq!(all.len(), 7, "first kinlay0 group is exactly 7 strategies");
+        assert_eq!(
+            all.len(),
+            24,
+            "kinlay0 groups 1+2 are exactly 24 strategies (7 + 17)"
+        );
         for strat in all {
             let args = imported_test_args(strat.id, None);
             // Our root capture first, stock lua inits, no collection
@@ -3854,7 +3858,14 @@ mod tests {
                 .collect();
             assert_eq!(sections.len(), 7, "{}", strat.id);
             // Blob completeness: every blob a desync chain references
-            // is registered our way before the profiles start.
+            // is registered our way before the profiles start. Blob
+            // references come as blob= (fake payload),
+            // seqovl_pattern= (multisplit/multidisorder overlap
+            // pattern) and fallback= (the clone's fallback payload):
+            // all three resolve through blob() in the stock Lua.
+            // Runtime blobs (ch_clone) are filled in by the desync
+            // function itself and are exempt; 0x.. values are inline
+            // hex patterns, not blob names.
             let first_section = args
                 .iter()
                 .position(|a| a.starts_with("--new="))
@@ -3862,17 +3873,24 @@ mod tests {
             for arg in &args {
                 if let Some(pos) = arg.find("--lua-desync=") {
                     for part in arg[pos..].split(':') {
-                        if let Some(name) = part.strip_prefix("blob=") {
-                            let reg = format!("--blob={}:@", name);
-                            assert!(
-                                args[..first_section]
-                                    .iter()
-                                    .any(|a| a.starts_with(&reg)),
-                                "{}: blob {} used but not registered",
-                                strat.id,
-                                name
-                            );
+                        let name = ["blob=", "seqovl_pattern=", "fallback="]
+                            .iter()
+                            .find_map(|prefix| part.strip_prefix(prefix));
+                        let Some(name) = name else { continue };
+                        if name.starts_with("0x")
+                            || crate::engine::imported_strategies::is_runtime_blob(name)
+                        {
+                            continue;
                         }
+                        let reg = format!("--blob={}:@", name);
+                        assert!(
+                            args[..first_section]
+                                .iter()
+                                .any(|a| a.starts_with(&reg)),
+                            "{}: blob {} used but not registered",
+                            strat.id,
+                            name
+                        );
                     }
                 }
             }
@@ -3904,6 +3922,62 @@ mod tests {
         assert!(section
             .iter()
             .any(|a| a.starts_with("--lua-desync=hostfakesplit:")));
+    }
+
+    #[test]
+    fn test_imported_exp5_clones_client_hello_without_file_blob() {
+        // EXP5's defining trait: tls_client_hello_clone fills the
+        // ch_clone slot at runtime (with the chain's fallback blob
+        // if the clone fails), so ch_clone must be a runtime blob
+        // with no --blob registration, while the fallback IS one.
+        assert!(crate::engine::imported_strategies::is_runtime_blob(
+            "ch_clone"
+        ));
+        let args = imported_test_args("kinlay0-exp5", None);
+        let section = section_of(&args, "domain_tls");
+        assert!(section.iter().any(|a| a.starts_with(
+            "--lua-desync=tls_client_hello_clone:blob=ch_clone:fallback=tls_steamchat"
+        )));
+        assert!(section
+            .iter()
+            .any(|a| a.starts_with("--lua-desync=fake:blob=ch_clone:")));
+        assert!(!args.iter().any(|a| a.starts_with("--blob=ch_clone:")));
+        assert!(args
+            .iter()
+            .any(|a| a == "--blob=tls_steamchat:@tls_clienthello_steam_chat_com.bin"));
+    }
+
+    #[test]
+    fn test_imported_blob_registry_is_complete() {
+        // Every blob any strategy lists must have a payload file:
+        // build_imported_args silently skips unmapped names, so a
+        // translator slip here would ship a strategy whose desync
+        // chain references a blob the engine never sees.
+        for strat in crate::engine::imported_strategies::all() {
+            for name in strat.blobs {
+                assert!(
+                    crate::engine::imported_strategies::blob_file(name).is_some(),
+                    "{}: blob {} has no file mapping",
+                    strat.id,
+                    name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_imported_strategies_are_all_distinct() {
+        // The pool's value is variety: no two strategies may carry
+        // the same profile set, or auto-tune would probe the same
+        // recipe twice under different names.
+        let mut seen = std::collections::HashSet::new();
+        for strat in crate::engine::imported_strategies::all() {
+            assert!(
+                seen.insert(strat.profiles),
+                "{} duplicates another strategy's profiles",
+                strat.id
+            );
+        }
     }
 
     #[test]

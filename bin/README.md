@@ -26,6 +26,14 @@
 Аналогично: SNI внутри принадлежит другому сервису. Используется только как
 generic fake-payload, переименование не требуется.
 
+### `tls_clienthello_retext_ai.bin` — из сборника kinlay0
+Единственный payload-файл, взятый из чужого сборника: ClientHello сервиса
+retext.ai из `bin/` kinlay0/zapret2-discord-youtube-strats, пин-коммит
+`ce0cddc` (MIT, см. `strategies/imported/kinlay0/LICENSE`). Используется
+только как fake-payload в импортированных стратегиях EXP2/EXP3/EXP4
+(блоб `tls_retext`); как seqovl-паттерн нигде не задействован, связки
+«размер ↔ seqovl» для него нет.
+
 ## Связка «размер файла ↔ seqovl»
 Значения `--dpi-desync-split-seqovl` в пресетах (`681` для
 `tls_clienthello_www_google_com.bin`, `664` для `tls_clienthello_max_ru.bin`)

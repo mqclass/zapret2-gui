@@ -48,6 +48,25 @@ export const AUTO_TUNE_CANDIDATES = [
   "kinlay0-single-fake-alt",
   "kinlay0-hostfakesplit-ts",
   "kinlay0-hostfakesplit-ts-alt",
+  // Second kinlay0 group: the ClientHello clone (EXP5), the EXP mix
+  // and the continuations of known families, in translator order.
+  "kinlay0-exp5",
+  "kinlay0-exp",
+  "kinlay0-alt14",
+  "kinlay0-alt15",
+  "kinlay0-alt16",
+  "kinlay0-simple-fake-alt3",
+  "kinlay0-simple-fake-alt4",
+  "kinlay0-fake-tls-auto-alt4",
+  "kinlay0-fake-tls-auto-alt5",
+  "kinlay0-fake-tls-auto-alt6",
+  "kinlay0-legacy10",
+  "kinlay0-legacy11",
+  "kinlay0-exp1",
+  "kinlay0-exp2",
+  "kinlay0-exp3",
+  "kinlay0-exp4",
+  "kinlay0-experimental-ts",
 ];
 
 export interface UseAutoTuneOptions {
