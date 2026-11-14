@@ -55,7 +55,7 @@
 //!   in the list, so it survives the 40-address truncation.
 //! * The fakeip range `198.18.0.0/15` (the v6 fakeip range needs no
 //!   test: winws2 excludes `fc00::/7` itself).
-//! * Our TUN addresses (`172.19.0.1`, `fdfe:dcba:9876::1`, from the
+//! * Our TUN addresses (`10.201.0.1`, `fdfe:dcba:9876::1`, from the
 //!   generator constants): packets to and from the tunnel adapter.
 //! * The virtual LANs (Radmin `26.0.0.0/8`, Hamachi `25.0.0.0/8` and
 //!   `2620:9b::/96`): decrypted game traffic on those adapters.
@@ -653,7 +653,7 @@ mod tests {
         assert_eq!(input.servers.first(), Some(&v4(MASQUE_ENDPOINT_IP)));
         assert_eq!(input.fake_range.as_deref(), Some("198.18.0.0/15"));
         assert!(input.udp_off.is_empty());
-        assert!(input.tun.contains(&v4("172.19.0.1")));
+        assert!(input.tun.contains(&v4("10.201.0.1")));
         let filter = build_filter(&input);
         // The registration host must never appear in the exclusion.
         assert!(

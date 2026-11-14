@@ -99,8 +99,11 @@ pub const FAKEIP_V6_RANGE: &str = "fc00::/18";
 
 /// TUN interface name (our own, not NETZapret's `netzapret0`).
 pub const TUN_INTERFACE_NAME: &str = "zapret2tun0";
-/// TUN interface addresses (NETZapret values, proven in the field).
-pub const TUN_ADDRESS_V4: &str = "172.19.0.1/30";
+/// TUN interface addresses. Was NETZapret's `172.19.0.1/30`, but that
+/// address is already held by Happ's adapter (happ-xray), so the subnet
+/// moved to `10.201.0.1/30`: 172.16/12 belongs to WSL2/Hyper-V/Docker,
+/// 192.168/16 to home LANs, and 10.201 is no known VPN default.
+pub const TUN_ADDRESS_V4: &str = "10.201.0.1/30";
 pub const TUN_ADDRESS_V6: &str = "fdfe:dcba:9876::1/126";
 /// TUN MTU (NETZapret default).
 pub const TUN_MTU: u16 = 1400;
@@ -621,7 +624,7 @@ fn prefix_host(addr: IpAddr) -> String {
 }
 
 /// The TUN adapter's DNS address: the TUN v4 address plus one
-/// (NETZapret's `TunDnsAddress`): 172.19.0.1/30 -> 172.19.0.2.
+/// (NETZapret's `TunDnsAddress`): 10.201.0.1/30 -> 10.201.0.2.
 fn tun_dns_address() -> String {
     let base: std::net::Ipv4Addr = TUN_ADDRESS_V4
         .split_once('/')
@@ -988,7 +991,7 @@ mod tests {
         assert_eq!(tun["stack"], "gvisor");
         assert_eq!(tun["mtu"], TUN_MTU);
         assert_eq!(tun["address"], json!([TUN_ADDRESS_V4]));
-        assert_eq!(tun["dns_address"], json!(["172.19.0.2"]));
+        assert_eq!(tun["dns_address"], json!(["10.201.0.2"]));
     }
 
     #[test]
@@ -1288,7 +1291,7 @@ mod tests {
 
     #[test]
     fn tun_dns_address_is_the_next_ip() {
-        assert_eq!(tun_dns_address(), "172.19.0.2");
+        assert_eq!(tun_dns_address(), "10.201.0.2");
     }
 
     #[test]
