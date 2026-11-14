@@ -301,11 +301,13 @@ pub async fn parse_args_string(raw: String) -> Result<Vec<String>, String> {
 /// design (the bypass keeps running); only an explicit Quit tears everything
 /// down. Stops the in-process bridge and engine, then asks the svc (which
 /// owns winws + the bridge once attached) to stop both and terminate itself.
-/// That request is bounded: a storm-starved svc runtime can wedge its pipe so
-/// the command never lands, so Quit then force-kills the svc image (its Job
-/// Object takes winws with it), sweeps stray engines and stops the WinDivert
-/// driver. Quitting must never leave zapret2-svc + winws filtering traffic
-/// with no GUI behind.
+/// The svc answers OK before it has fully stopped, so Quit waits for its
+/// endpoint to disappear rather than killing it mid-teardown. The request and
+/// the wait are bounded: a storm-starved svc runtime can wedge its pipe so the
+/// command never lands or the process never exits — only then does Quit
+/// force-kill the svc image (its Job Object takes winws with it) and sweep
+/// stray engines, before stopping the WinDivert driver. Quitting must never
+/// leave zapret2-svc + winws filtering traffic with no GUI behind.
 pub async fn graceful_exit(app: &tauri::AppHandle) {
     // Extract owned clones first so no state/guard is held across an await —
     // the future must stay Send for the spawned exit tasks.
@@ -339,16 +341,35 @@ pub async fn graceful_exit(app: &tauri::AppHandle) {
     };
     let _ = tokio::time::timeout(Duration::from_secs(4), graceful).await;
 
-    // Guarantee: Quit must never leave zapret2-svc + winws filtering traffic
-    // with no GUI behind, even when the graceful shutdown above timed out on a
-    // wedged pipe. Force-kill the svc image (its Job Object takes winws with
-    // it), sweep any stray engine, then stop the WinDivert driver. Idempotent:
-    // a svc that already exited cleanly leaves nothing to kill.
-    let _ = tokio::task::spawn_blocking(|| {
-        crate::platform::process::kill_stray_svc_processes(None);
-        crate::platform::process::kill_stray_winws2_processes(None);
-    })
-    .await;
+    // The svc answers OK before it has actually finished stopping, so killing
+    // it right after the shutdown command would interrupt it mid-teardown.
+    // Wait for its endpoint to disappear: the pipe/socket is gone only once the
+    // process exits, after it stopped winws + the bridge. Bounded so a wedged
+    // svc that never exits can't hang Quit.
+    let svc_gone = {
+        let deadline = std::time::Instant::now() + Duration::from_secs(6);
+        loop {
+            if !crate::svc_client::svc_is_alive().await {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline {
+                break false;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    };
+
+    // Sweep only if the svc is still alive after the wait (wedged pipe, or it
+    // refused to die). A svc that exited cleanly already took winws with it via
+    // its Job Object, so there is nothing to kill. Force-killing the svc image
+    // closes that Job Object; the stray-engine sweep covers any orphan.
+    if !svc_gone {
+        let _ = tokio::task::spawn_blocking(|| {
+            crate::platform::process::kill_stray_svc_processes(None);
+            crate::platform::process::kill_stray_winws2_processes(None);
+        })
+        .await;
+    }
     // Let the terminated engine release its WinDivert handles before the driver
     // service is stopped — tearing it down under a live winws blackholes traffic.
     tokio::time::sleep(Duration::from_millis(300)).await;

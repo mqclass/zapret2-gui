@@ -61,6 +61,35 @@ async fn open_svc_stream() -> io::Result<SvcStream> {
     tokio::net::UnixStream::connect(crate::svc_ipc::svc_socket_path()).await
 }
 
+/// Liveness probe for the svc endpoint: `true` while the svc is still running,
+/// `false` once it has exited and its endpoint is gone. Quit waits on this so it
+/// never force-kills a svc that is still mid-shutdown.
+///
+/// "Gone" is platform-specific. On Windows the pipe name vanishes when the
+/// process exits, so only `NotFound` proves it left — a busy pipe
+/// (`ERROR_PIPE_BUSY`, every instance held while a wedged runtime can't accept)
+/// still means the process is alive, and must not be mistaken for a clean exit
+/// or Quit would skip its force-kill sweep. On Linux the socket file lingers
+/// after exit, so any connect error (stale `ConnectionRefused`, or `NotFound`)
+/// means the listener is gone. A probe that times out counts as alive.
+pub async fn svc_is_alive() -> bool {
+    match tokio::time::timeout(Duration::from_millis(400), open_svc_stream()).await {
+        Ok(Ok(_)) => true,
+        Ok(Err(e)) => {
+            #[cfg(windows)]
+            {
+                e.kind() != io::ErrorKind::NotFound
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = e;
+                false
+            }
+        }
+        Err(_) => true,
+    }
+}
+
 /// Connected client to a running svc instance. Commands are serialized
 /// through a mutex: one in-flight request at a time.
 pub struct SvcClient {
