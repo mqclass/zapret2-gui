@@ -752,6 +752,11 @@ struct CfAttempts<'a> {
     next_ordinal: usize,
     /// The domain just attempted for the first time, until its retry is due.
     pending_retry: Option<usize>,
+    /// Whether the domain last returned by `next_domain` was its retry (second
+    /// attempt) rather than the first. The CF failure cooldown is recorded only
+    /// once this retry also fails, so it never kills the load-bearing second
+    /// attempt within the same walk.
+    last_was_retry: bool,
 }
 
 impl<'a> CfAttempts<'a> {
@@ -771,12 +776,14 @@ impl<'a> CfAttempts<'a> {
             },
             next_ordinal: 0,
             pending_retry: None,
+            last_was_retry: false,
         }
     }
 
     /// The next record to attempt.
     fn next_domain(&mut self) -> Option<String> {
         if let Some(domain_index) = self.pending_retry.take() {
+            self.last_was_retry = true;
             return Some(self.hostname(domain_index));
         }
 
@@ -792,6 +799,7 @@ impl<'a> CfAttempts<'a> {
             }
 
             self.pending_retry = Some(domain_index);
+            self.last_was_retry = false;
             return Some(self.hostname(domain_index));
         }
 
@@ -802,6 +810,11 @@ impl<'a> CfAttempts<'a> {
     /// timeout, so it is not retried.
     fn note_timed_out(&mut self) {
         self.pending_retry = None;
+    }
+
+    /// Whether the domain last returned by `next_domain` was its retry.
+    fn last_was_retry(&self) -> bool {
+        self.last_was_retry
     }
 
     fn hostname(&self, domain_index: usize) -> String {
@@ -970,12 +983,17 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
             WsConnectResult::Failed(reason) => {
                 warn!("CF WS DC{}{} failed on {}: {}", dc, media, domain, reason);
                 all_redirects = false;
-                if !cooldown.is_zero() {
+                // Cool the relay down only once its load-bearing retry also
+                // failed. Recording it after the first failure would make the
+                // cooldown skip above kill the second attempt in this walk.
+                if !cooldown.is_zero() && attempts.last_was_retry() {
                     CF_DOMAIN_FAIL.set(base.to_string(), cooldown);
                 }
             }
             WsConnectResult::TimedOut | WsConnectResult::ConnectTimedOut(_) => {
                 warn!("CF WS DC{}{} timed out on {}", dc, media, domain);
+                // A timeout cancels the retry (note_timed_out), so this is the
+                // domain's last attempt — cool it down now.
                 attempts.note_timed_out();
                 all_redirects = false;
                 if !cooldown.is_zero() {
