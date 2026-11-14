@@ -21,9 +21,9 @@ pub use custom_profiles::{delete_custom_profile, load_custom_profiles, parse_com
 pub use job_object::{JobObject, JobObjectError};
 pub use privileges::{ensure_elevated, is_elevated, relaunch_elevated, PrivilegeError};
 pub use process::{
-    cleanup_windivert_driver, discover_strategies, kill_stray_winws2_processes, resolve_binaries,
-    spawn_winws2, stop_winws2_gracefully, LuaStrategy, ProcessError, SupervisedProcess,
-    ZapretBinaries,
+    cleanup_windivert_driver, discover_strategies, kill_stray_svc_processes,
+    kill_stray_winws2_processes, resolve_binaries, spawn_winws2, stop_winws2_gracefully,
+    LuaStrategy, ProcessError, SupervisedProcess, ZapretBinaries,
 };
 
 /// Returns the absolute path of a Windows system binary (L-3 hardening).

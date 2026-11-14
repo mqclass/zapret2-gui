@@ -29,7 +29,7 @@ use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSe
 #[cfg(windows)]
 use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 #[cfg(windows)]
-use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
+use windows::Win32::Storage::FileSystem::{FILE_FLAG_OVERLAPPED, PIPE_ACCESS_DUPLEX};
 #[cfg(windows)]
 use windows::Win32::System::Pipes::{
     CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
@@ -345,9 +345,13 @@ fn create_secure_pipe() -> std::io::Result<NamedPipeServer> {
             bInheritHandle: false.into(),
         };
 
+        // FILE_FLAG_OVERLAPPED is mandatory: tokio registers the handle with an
+        // I/O completion port (PollEvented), which rejects a synchronous pipe
+        // with ERROR_INVALID_PARAMETER. Without it `from_raw_handle` fails and
+        // the server can never accept a client.
         let handle = CreateNamedPipeW(
             PCWSTR(name.as_ptr()),
-            PIPE_ACCESS_DUPLEX,
+            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             PIPE_UNLIMITED_INSTANCES,
             65536,
@@ -355,11 +359,13 @@ fn create_secure_pipe() -> std::io::Result<NamedPipeServer> {
             0,
             Some(&sa),
         );
+        // Capture the error before LocalFree can clobber GetLastError.
+        let err = std::io::Error::last_os_error();
         // The pipe captured the descriptor; free our copy.
         let _ = LocalFree(windows::Win32::Foundation::HLOCAL(sd.0));
 
         if handle == INVALID_HANDLE_VALUE {
-            return Err(std::io::Error::last_os_error());
+            return Err(err);
         }
         NamedPipeServer::from_raw_handle(handle.0 as *mut std::ffi::c_void)
     }

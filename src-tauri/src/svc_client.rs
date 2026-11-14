@@ -61,6 +61,35 @@ async fn open_svc_stream() -> io::Result<SvcStream> {
     tokio::net::UnixStream::connect(crate::svc_ipc::svc_socket_path()).await
 }
 
+/// Liveness probe for the svc endpoint: `true` while the svc is still running,
+/// `false` once it has exited and its endpoint is gone. Quit waits on this so it
+/// never force-kills a svc that is still mid-shutdown.
+///
+/// "Gone" is platform-specific. On Windows the pipe name vanishes when the
+/// process exits, so only `NotFound` proves it left — a busy pipe
+/// (`ERROR_PIPE_BUSY`, every instance held while a wedged runtime can't accept)
+/// still means the process is alive, and must not be mistaken for a clean exit
+/// or Quit would skip its force-kill sweep. On Linux the socket file lingers
+/// after exit, so any connect error (stale `ConnectionRefused`, or `NotFound`)
+/// means the listener is gone. A probe that times out counts as alive.
+pub async fn svc_is_alive() -> bool {
+    match tokio::time::timeout(Duration::from_millis(400), open_svc_stream()).await {
+        Ok(Ok(_)) => true,
+        Ok(Err(e)) => {
+            #[cfg(windows)]
+            {
+                e.kind() != io::ErrorKind::NotFound
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = e;
+                false
+            }
+        }
+        Err(_) => true,
+    }
+}
+
 /// Connected client to a running svc instance. Commands are serialized
 /// through a mutex: one in-flight request at a time.
 pub struct SvcClient {
@@ -680,13 +709,27 @@ pub fn spawn_svc_detached(path: &PathBuf) -> io::Result<()> {
         const DETACHED_PROCESS: u32 = 0x00000008;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
-        std::process::Command::new(path)
-            .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()?;
-        Ok(())
+        let base = DETACHED_PROCESS | CREATE_NO_WINDOW;
+        let spawn_with = |flags: u32| {
+            std::process::Command::new(path)
+                .creation_flags(flags)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+        };
+        // Prefer breakaway so the svc outlives any job the GUI sits in. When
+        // the GUI is inside a job that forbids breakaway, CreateProcess fails
+        // with ERROR_ACCESS_DENIED; retry without the flag so the svc still
+        // starts (it keeps its own KILL_ON_JOB_CLOSE job for the engine).
+        match spawn_with(base | CREATE_BREAKAWAY_FROM_JOB) {
+            Ok(_) => Ok(()),
+            Err(e) if e.raw_os_error() == Some(5) => {
+                spawn_with(base)?;
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
     #[cfg(target_os = "linux")]
     {

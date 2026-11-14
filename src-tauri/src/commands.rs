@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::engine::probes::{DiagnosticsReport, DiagnosticsService};
 use crate::engine::supervisor::{LogEntry, SupervisorState, SupervisorStatus};
@@ -296,22 +296,93 @@ pub async fn parse_args_string(raw: String) -> Result<Vec<String>, String> {
     Ok(crate::platform::custom_profiles::parse_command_line_args(&raw, &resolved.bin_dir, &lists_dir))
 }
 
+/// Full graceful shutdown for the explicit exit paths — the tray "Выход"
+/// item and `exit_app`. The X button and OS close request hide to tray by
+/// design (the bypass keeps running); only an explicit Quit tears everything
+/// down. Stops the in-process bridge and engine, then asks the svc (which
+/// owns winws + the bridge once attached) to stop both and terminate itself.
+/// The svc answers OK before it has fully stopped, so Quit waits for its
+/// endpoint to disappear rather than killing it mid-teardown. The request and
+/// the wait are bounded: a storm-starved svc runtime can wedge its pipe so the
+/// command never lands or the process never exits — only then does Quit
+/// force-kill the svc image (its Job Object takes winws with it) and sweep
+/// stray engines, before stopping the WinDivert driver. Quitting must never
+/// leave zapret2-svc + winws filtering traffic with no GUI behind.
+pub async fn graceful_exit(app: &tauri::AppHandle) {
+    // Extract owned clones first so no state/guard is held across an await —
+    // the future must stay Send for the spawned exit tasks.
+    let (tgproxy, backend) = {
+        let state = app.state::<AppState>();
+        let tgproxy = state.tgproxy.read().clone();
+        let backend = state.backend.read().clone();
+        (tgproxy, backend)
+    };
+    if !tgproxy.is_remote() {
+        let _ = tgproxy.stop().await;
+    }
+    if !backend.is_remote() {
+        let _ = backend.stop().await;
+    }
+    // Best-effort graceful svc shutdown, bounded so a wedged pipe can't hang
+    // Quit: a storm-starved svc runtime stops accepting connections, so the
+    // shutdown command may never land. Use the attached client when present,
+    // otherwise connect (covers a Local GUI while an earlier svc still runs).
+    let graceful = async {
+        let client = match &backend {
+            crate::svc_client::SupervisorBackend::Remote(c) => Some(c.clone()),
+            _ => crate::svc_client::SvcClient::connect()
+                .await
+                .ok()
+                .map(std::sync::Arc::new),
+        };
+        if let Some(client) = client {
+            let _ = client.shutdown().await;
+        }
+    };
+    let _ = tokio::time::timeout(Duration::from_secs(4), graceful).await;
+
+    // The svc answers OK before it has actually finished stopping, so killing
+    // it right after the shutdown command would interrupt it mid-teardown.
+    // Wait for its endpoint to disappear: the pipe/socket is gone only once the
+    // process exits, after it stopped winws + the bridge. Bounded so a wedged
+    // svc that never exits can't hang Quit.
+    let svc_gone = {
+        let deadline = std::time::Instant::now() + Duration::from_secs(6);
+        loop {
+            if !crate::svc_client::svc_is_alive().await {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline {
+                break false;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    };
+
+    // Sweep only if the svc is still alive after the wait (wedged pipe, or it
+    // refused to die). A svc that exited cleanly already took winws with it via
+    // its Job Object, so there is nothing to kill. Force-killing the svc image
+    // closes that Job Object; the stray-engine sweep covers any orphan.
+    if !svc_gone {
+        let _ = tokio::task::spawn_blocking(|| {
+            crate::platform::process::kill_stray_svc_processes(None);
+            crate::platform::process::kill_stray_winws2_processes(None);
+        })
+        .await;
+    }
+    // Let the terminated engine release its WinDivert handles before the driver
+    // service is stopped — tearing it down under a live winws blackholes traffic.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    crate::platform::process::cleanup_windivert_driver().await;
+
+    app.exit(0);
+}
+
 /// Exits the application cleanly, stopping the Telegram bridge, the background
 /// supervisor and WinDivert first.
 #[tauri::command]
-pub async fn exit_app(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    // A remote svc outlives the GUI by design (the bypass AND the bridge
-    // stay up, and their persisted intent must survive); only stop what
-    // runs in this process.
-    if !state.tgproxy.read().is_remote() {
-        let tgproxy = state.tgproxy.read().clone();
-        let _ = tgproxy.stop().await;
-    }
-    if !state.backend.read().clone().is_remote() {
-        let backend = state.backend.read().clone();
-        let _ = backend.stop().await;
-    }
-    app.exit(0);
+pub async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
+    graceful_exit(&app).await;
     Ok(())
 }
 
