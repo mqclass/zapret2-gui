@@ -799,650 +799,665 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4 items-start">
-      {/* DNS Manager Section */}
-      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
-        <div className="flex items-center justify-between border-b border-line pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-accent-fill/5">
-              <Globe2 className="h-4 w-4 shrink-0" />
-            </div>
-            <div>
-              <h3 className="text-xs font-semibold text-ink">{t.dns.title}</h3>
-              <p className="text-[11px] text-ink4">{t.dns.subtitle}</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={loadDns}
-            disabled={isLoadingDns}
-            className="p-1.5 rounded-control border border-line bg-raise text-ink4 hover:text-ink hover:bg-hovert transition-all cursor-pointer disabled:opacity-50 shrink-0"
-            title={t.dns.refreshCurrentTitle}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${isLoadingDns ? "animate-spin" : ""}`} />
-          </button>
-        </div>
-
-        {dnsError && (
-          <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
-            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
-            <span>{dnsError}</span>
-          </div>
-        )}
-
-        {dnsMessage && (
-          <div className="flex items-center gap-2 rounded-panel border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{dnsMessage}</span>
-          </div>
-        )}
-
-        {/* DNS Scope Selector (Whole Windows vs Selective Split-DNS) */}
-        <div className="rounded-panel border border-line bg-hovert p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-ink3">{t.dns.scopeLabel}</span>
-            <div className="flex items-center gap-2">
-              {dnsStatus?.split_dns_active && (
-                <button
-                  type="button"
-                  onClick={() => setIsDnsSplitOpen(true)}
-                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-hovert border border-line text-ink3 hover:text-accent hover:border-accent-line transition-all cursor-pointer"
-                >
-                  {t.dnsSplit.configure}
-                </button>
-              )}
-              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full font-mono ${
-                dnsStatus?.split_dns_active
-                  ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
-                  : "bg-accent-wash border border-accent-line text-accent-soft"
-              }`}>
-                {dnsStatus?.split_dns_active ? t.dns.splitActiveBadge : "ADAPTER"}
-              </span>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleScopeChange("full")}
-              className={`flex flex-col text-left p-2.5 rounded-control border transition-all cursor-pointer ${
-                dnsScope === "full"
-                  ? "border-accent-line bg-accent-wash text-ink ring-1 ring-accent-line shadow-sm"
-                  : "border-line bg-card text-ink4 hover:text-ink2 hover:bg-hovert"
-              }`}
-            >
-              <span className="text-xs font-semibold">{t.dns.scopeFullTitle}</span>
-              <span className="text-[10px] text-ink4 mt-1 leading-tight">{t.dns.scopeFullDesc}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleScopeChange("split")}
-              className={`flex flex-col text-left p-2.5 rounded-control border transition-all cursor-pointer ${
-                dnsScope === "split"
-                  ? "border-emerald-500/50 bg-emerald-500/15 text-ink ring-1 ring-emerald-500/30 shadow-sm"
-                  : "border-line bg-card text-ink4 hover:text-ink2 hover:bg-hovert"
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold">{t.dns.scopeSplitTitle}</span>
+    <div className="flex flex-col lg:flex-row gap-4 pb-4 items-start">
+      {/* Two independent flex columns, not a grid: a grid row is as
+          tall as its tallest card, so the shorter card's column sat
+          empty until the next row (~120px under the DNS manager,
+          ~380px under YouTube). With two columns there are no gaps
+          inside a column at all; the only leftover is the height
+          difference at the bottom of the shorter column, at the end
+          of the page. Below lg the columns stack (left first, then
+          right): manager, smart hosts, speedtest, providers, YouTube,
+          WARP - a deliberate trade-off for the desktop layout. */}
+      {/* Left column: DNS manager, smart hosts, speedtest. */}
+      <div className="flex flex-col gap-4 flex-1 min-w-0">
+        {/* DNS Manager Section */}
+        <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-accent-fill/5">
+                <Globe2 className="h-4 w-4 shrink-0" />
               </div>
-              <span className="text-[10px] text-ink4 mt-1 leading-tight">{t.dns.scopeSplitDesc}</span>
+              <div>
+                <h3 className="text-xs font-semibold text-ink">{t.dns.title}</h3>
+                <p className="text-[11px] text-ink4">{t.dns.subtitle}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={loadDns}
+              disabled={isLoadingDns}
+              className="p-1.5 rounded-control border border-line bg-raise text-ink4 hover:text-ink hover:bg-hovert transition-all cursor-pointer disabled:opacity-50 shrink-0"
+              title={t.dns.refreshCurrentTitle}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${isLoadingDns ? "animate-spin" : ""}`} />
             </button>
           </div>
-        </div>
 
-        {/* Educational Scope & Synergy Card */}
-        <div className="rounded-panel border border-accent-line bg-accent/[0.05] p-3.5 space-y-2 text-xs">
-          <div className="flex items-center gap-2 text-accent-soft font-medium">
-            <ShieldCheck className="h-4 w-4 text-accent shrink-0" />
-            <span>{t.dns.scopeBannerTitle}</span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-ink3">
-            <div className="rounded-control bg-cardin border border-line p-2 space-y-1">
-              <span className="font-semibold text-ink2 block">{t.dns.scopeBannerScope}</span>
-              <p className="text-ink4 leading-relaxed">{t.dns.scopeBannerScopeDesc}</p>
+          {dnsError && (
+            <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+              <span>{dnsError}</span>
             </div>
-            <div className="rounded-control bg-cardin border border-line p-2 space-y-1">
-              <span className="font-semibold text-ink2 block">{t.dns.scopeBannerSynergy}</span>
-              <p className="text-ink4 leading-relaxed">{t.dns.scopeBannerSynergyDesc}</p>
+          )}
+
+          {dnsMessage && (
+            <div className="flex items-center gap-2 rounded-panel border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+              <span>{dnsMessage}</span>
             </div>
-          </div>
+          )}
 
-          <p className="text-[10px] text-accent-soft italic pt-0.5">
-            💡 {t.dns.scopeBannerHint}
-          </p>
-        </div>
-
-        {/* Current DNS Status Card */}
-        {dnsStatus && (
-          <div className="rounded-panel border border-line bg-cardin p-3 space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-ink4">{t.dns.adapterLabel}</span>
-              <span className="font-semibold text-ink truncate max-w-xs font-mono text-[11px]">
-                {dnsStatus.adapter_name}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-ink4">{t.dns.currentDnsLabel}</span>
-              <span className={`font-mono text-[11px] font-semibold ${
-                dnsStatus.split_dns_active ? "text-emerald-400" : "text-accent"
-              }`}>
-                {dnsStatus.split_dns_active
-                  ? `Split NRPT: ${dnsStatus.split_dns_servers?.join(", ") || dnsStatus.current_dns.join(", ")}`
-                  : dnsStatus.current_dns && dnsStatus.current_dns.length > 0
-                  ? dnsStatus.current_dns.join(", ")
-                  : dnsStatus.active_servers && dnsStatus.active_servers.length > 0
-                  ? dnsStatus.active_servers.join(", ")
-                  : t.dns.dhcpAuto}
-              </span>
-            </div>
-          </div>
-        )}
-
-      </div>
-
-      {/* DNS Providers + Custom DNS */}
-      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
-        {/* DNS Providers List */}
-        <div className="space-y-2">
-          {dnsStatus?.available_providers?.map((p) => {
-            const isCurrent = (dnsStatus.active_provider_id || dnsStatus.current_provider) === p.id;
-            const isApplying = applyingDnsId === p.id;
-
-            return (
-              <div
-                key={p.id}
-                className={`flex items-center justify-between rounded-panel border p-3 transition-colors hover-lift ${
-                  isCurrent
-                    ? "border-linestrong bg-hovert"
-                    : "border-line bg-cardin hover:border-line hover:bg-raise"
-                }`}
-              >
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-ink">{p.name}</span>
-                    {/* No "active" badge here either: the button on the
-                        right already shows the same state (check +
-                        label) — same dedup as the simple rows above. */}
-                    {p.is_doh_capable && (
-                      <span className="rounded-chip bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
-                        {t.dns.dohBadge}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-ink4 font-mono">
-                    {p.primary ? `${p.primary} / ${p.secondary}` : t.dns.dhcpProvider}
-                  </p>
-                  <p className="text-[10px] text-ink5 leading-tight">
-                    {p.description}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {p.id.startsWith("custom:") && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveCustomDns(p.id)}
-                      title={t.dns.customDeleteTitle}
-                      className="flex items-center justify-center rounded-control p-1.5 text-ink5 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition-all cursor-pointer"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
+          {/* DNS Scope Selector (Whole Windows vs Selective Split-DNS) */}
+          <div className="rounded-panel border border-line bg-hovert p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-ink3">{t.dns.scopeLabel}</span>
+              <div className="flex items-center gap-2">
+                {dnsStatus?.split_dns_active && (
                   <button
                     type="button"
-                    onClick={() => handleApplyDns(p.id)}
-                    disabled={isCurrent || isApplying}
-                    className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:cursor-not-allowed shrink-0 ${
-                      isCurrent
-                        ? dnsStatus.split_dns_active
-                          ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                          : "bg-accent-wash text-accent-soft border border-accent-line"
-                        : "bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line"
-                    }`}
+                    onClick={() => setIsDnsSplitOpen(true)}
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-hovert border border-line text-ink3 hover:text-accent hover:border-accent-line transition-all cursor-pointer"
                   >
-                    {isApplying ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
-                    ) : isCurrent ? (
-                      <>
-                        <Check className="h-3.5 w-3.5" />
-                        <span>{dnsStatus.split_dns_active ? t.dns.splitActiveBadge : t.dns.activeBadge}</span>
-                      </>
-                    ) : (
-                      <span>{t.dns.applyBtn}</span>
-                    )}
+                    {t.dnsSplit.configure}
                   </button>
-                </div>
+                )}
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full font-mono ${
+                  dnsStatus?.split_dns_active
+                    ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+                    : "bg-accent-wash border border-accent-line text-accent-soft"
+                }`}>
+                  {dnsStatus?.split_dns_active ? t.dns.splitActiveBadge : "ADAPTER"}
+                </span>
               </div>
-            );
-          })}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleScopeChange("full")}
+                className={`flex flex-col text-left p-2.5 rounded-control border transition-all cursor-pointer ${
+                  dnsScope === "full"
+                    ? "border-accent-line bg-accent-wash text-ink ring-1 ring-accent-line shadow-sm"
+                    : "border-line bg-card text-ink4 hover:text-ink2 hover:bg-hovert"
+                }`}
+              >
+                <span className="text-xs font-semibold">{t.dns.scopeFullTitle}</span>
+                <span className="text-[10px] text-ink4 mt-1 leading-tight">{t.dns.scopeFullDesc}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleScopeChange("split")}
+                className={`flex flex-col text-left p-2.5 rounded-control border transition-all cursor-pointer ${
+                  dnsScope === "split"
+                    ? "border-emerald-500/50 bg-emerald-500/15 text-ink ring-1 ring-emerald-500/30 shadow-sm"
+                    : "border-line bg-card text-ink4 hover:text-ink2 hover:bg-hovert"
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold">{t.dns.scopeSplitTitle}</span>
+                </div>
+                <span className="text-[10px] text-ink4 mt-1 leading-tight">{t.dns.scopeSplitDesc}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Educational Scope & Synergy Card */}
+          <div className="rounded-panel border border-accent-line bg-accent/[0.05] p-3.5 space-y-2 text-xs">
+            <div className="flex items-center gap-2 text-accent-soft font-medium">
+              <ShieldCheck className="h-4 w-4 text-accent shrink-0" />
+              <span>{t.dns.scopeBannerTitle}</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-ink3">
+              <div className="rounded-control bg-cardin border border-line p-2 space-y-1">
+                <span className="font-semibold text-ink2 block">{t.dns.scopeBannerScope}</span>
+                <p className="text-ink4 leading-relaxed">{t.dns.scopeBannerScopeDesc}</p>
+              </div>
+              <div className="rounded-control bg-cardin border border-line p-2 space-y-1">
+                <span className="font-semibold text-ink2 block">{t.dns.scopeBannerSynergy}</span>
+                <p className="text-ink4 leading-relaxed">{t.dns.scopeBannerSynergyDesc}</p>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-accent-soft italic pt-0.5">
+              💡 {t.dns.scopeBannerHint}
+            </p>
+          </div>
+
+          {/* Current DNS Status Card */}
+          {dnsStatus && (
+            <div className="rounded-panel border border-line bg-cardin p-3 space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-ink4">{t.dns.adapterLabel}</span>
+                <span className="font-semibold text-ink truncate max-w-xs font-mono text-[11px]">
+                  {dnsStatus.adapter_name}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-ink4">{t.dns.currentDnsLabel}</span>
+                <span className={`font-mono text-[11px] font-semibold ${
+                  dnsStatus.split_dns_active ? "text-emerald-400" : "text-accent"
+                }`}>
+                  {dnsStatus.split_dns_active
+                    ? `Split NRPT: ${dnsStatus.split_dns_servers?.join(", ") || dnsStatus.current_dns.join(", ")}`
+                    : dnsStatus.current_dns && dnsStatus.current_dns.length > 0
+                    ? dnsStatus.current_dns.join(", ")
+                    : dnsStatus.active_servers && dnsStatus.active_servers.length > 0
+                    ? dnsStatus.active_servers.join(", ")
+                    : t.dns.dhcpAuto}
+                </span>
+              </div>
+            </div>
+          )}
+
         </div>
 
-        {/* Custom DNS form */}
-        <div className="rounded-panel border border-line bg-cardin p-4 space-y-3">
-          <div>
-            <h4 className="text-xs font-semibold text-ink">{t.dns.customTitle}</h4>
-            <p className="text-[11px] text-ink4">{t.dns.customSubtitle}</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium text-ink4 min-h-8 flex items-end">{t.dns.customNameLabel}</label>
-              <input
-                type="text"
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder={t.dns.customNamePlaceholder}
-                maxLength={60}
-                className="w-full rounded-control border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 focus:border-accent-line focus:outline-none"
-              />
+        {/* Smart hosts */}
+        <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-accent-fill/5">
+                <FileText className="h-4 w-4 shrink-0" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-ink">{t.smartHosts.title}</h4>
+                <p className="text-[11px] text-ink4">{t.smartHosts.subtitle}</p>
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium text-ink4 min-h-8 flex items-end">{t.dns.customPrimaryLabel}</label>
-              <input
-                type="text"
-                value={customPrimary}
-                onChange={(e) => setCustomPrimary(e.target.value)}
-                placeholder={t.dns.customPrimaryPlaceholder}
-                inputMode="decimal"
-                className="w-full rounded-control border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 font-mono focus:border-accent-line focus:outline-none"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium text-ink4 min-h-8 flex items-end">{t.dns.customSecondaryLabel}</label>
-              <input
-                type="text"
-                value={customSecondary}
-                onChange={(e) => setCustomSecondary(e.target.value)}
-                placeholder={t.dns.customSecondaryPlaceholder}
-                inputMode="decimal"
-                className="w-full rounded-control border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 font-mono focus:border-accent-line focus:outline-none"
-              />
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleAddCustomDns}
-            disabled={isAddingCustom || !customName.trim() || !customPrimary.trim()}
-            className="flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isAddingCustom ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Plus className="h-3.5 w-3.5" />
-            )}
-            <span>{t.dns.customAddBtn}</span>
-          </button>
-        </div>
-
-      </div>
-
-      {/* Smart hosts */}
-      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
-        <div className="flex items-center justify-between border-b border-line pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-accent-fill/5">
-              <FileText className="h-4 w-4 shrink-0" />
-            </div>
-            <div>
-              <h4 className="text-xs font-semibold text-ink">{t.smartHosts.title}</h4>
-              <p className="text-[11px] text-ink4">{t.smartHosts.subtitle}</p>
-            </div>
-          </div>
-          <span className={`rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 ${
-            hostsStatus?.enabled
-              ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-              : "bg-hovert text-ink4 border-line"
-          }`}>
-            {hostsStatus?.enabled ? t.smartHosts.enabledBadge : t.smartHosts.disabledBadge}
-          </span>
-        </div>
-
-        <p className="text-[11px] text-ink4 leading-relaxed">{t.smartHosts.howItWorks}</p>
-        <p className="text-[10px] text-ink5 leading-relaxed">{t.smartHosts.backupNote}</p>
-
-        {hostsError && (
-          <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
-            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
-            <span>{hostsError}</span>
-          </div>
-        )}
-
-        {/* Sources */}
-        <div className="space-y-1.5">
-          <span className="text-[11px] font-medium text-ink3">{t.smartHosts.sourcesLabel}</span>
-          {hostsStatus?.sources.map((s) => (
-            <label
-              key={s.id}
-              className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors"
-            >
-              <input
-                type="checkbox"
-                checked={s.enabled}
-                disabled={hostsBusy}
-                onChange={() => handleToggleSource(s.id)}
-                className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500 cursor-pointer"
-              />
-              <span>
-                <span className="block text-xs font-semibold text-ink">{s.name}</span>
-                <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{s.description}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-
-        {/* Adblock toggle */}
-        <label className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors">
-          <input
-            type="checkbox"
-            checked={hostsStatus?.include_adblock ?? false}
-            disabled={hostsBusy}
-            onChange={handleToggleAdblock}
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500 cursor-pointer"
-          />
-          <span>
-            <span className="block text-xs font-semibold text-ink">{t.smartHosts.adblockLabel}</span>
-            <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{t.smartHosts.adblockDesc}</span>
-          </span>
-        </label>
-
-        {/* Status line */}
-        {hostsStatus?.enabled && (
-          <div className="flex items-center gap-2 text-[11px] text-ink4">
-            <Clock className="h-3.5 w-3.5 shrink-0" />
-            <span>
-              {t.smartHosts.lastUpdateLabel} {formatHostsDate(hostsStatus.last_update)}
-              {hostsStatus.entry_count > 0 && (
-                <> · {hostsStatus.entry_count} {t.smartHosts.entriesLabel}</>
-              )}
-            </span>
-          </div>
-        )}
-
-        {/* Source problems from the last refresh that still applied */}
-        {hostsStatus?.enabled && hostsStatus.last_error && (
-          <div className="flex items-center gap-2 text-[11px] text-amber-300/90">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            <span>{hostsStatus.last_error}</span>
-          </div>
-        )}
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleToggleSmartHosts}
-            disabled={hostsBusy}
-            className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+            <span className={`rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 ${
               hostsStatus?.enabled
-                ? "bg-hovert hover:bg-rose-500/15 text-ink3 hover:text-rose-300 border-line hover:border-rose-500/30"
-                : "bg-accent-fill hover:opacity-90 text-accent-contrast border-transparent"
-            }`}
-          >
-            {hostsBusy && hostsBusyOp === "toggle" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : null}
-            <span>
-              {hostsBusyOp === "toggle"
-                ? t.smartHosts.enabling
-                : hostsStatus?.enabled
-                ? t.smartHosts.disableBtn
-                : t.smartHosts.enableBtn}
+                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                : "bg-hovert text-ink4 border-line"
+            }`}>
+              {hostsStatus?.enabled ? t.smartHosts.enabledBadge : t.smartHosts.disabledBadge}
             </span>
-          </button>
+          </div>
+
+          <p className="text-[11px] text-ink4 leading-relaxed">{t.smartHosts.howItWorks}</p>
+          <p className="text-[10px] text-ink5 leading-relaxed">{t.smartHosts.backupNote}</p>
+
+          {hostsError && (
+            <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+              <span>{hostsError}</span>
+            </div>
+          )}
+
+          {/* Sources */}
+          <div className="space-y-1.5">
+            <span className="text-[11px] font-medium text-ink3">{t.smartHosts.sourcesLabel}</span>
+            {hostsStatus?.sources.map((s) => (
+              <label
+                key={s.id}
+                className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={s.enabled}
+                  disabled={hostsBusy}
+                  onChange={() => handleToggleSource(s.id)}
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500 cursor-pointer"
+                />
+                <span>
+                  <span className="block text-xs font-semibold text-ink">{s.name}</span>
+                  <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{s.description}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {/* Adblock toggle */}
+          <label className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors">
+            <input
+              type="checkbox"
+              checked={hostsStatus?.include_adblock ?? false}
+              disabled={hostsBusy}
+              onChange={handleToggleAdblock}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500 cursor-pointer"
+            />
+            <span>
+              <span className="block text-xs font-semibold text-ink">{t.smartHosts.adblockLabel}</span>
+              <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{t.smartHosts.adblockDesc}</span>
+            </span>
+          </label>
+
+          {/* Status line */}
           {hostsStatus?.enabled && (
+            <div className="flex items-center gap-2 text-[11px] text-ink4">
+              <Clock className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {t.smartHosts.lastUpdateLabel} {formatHostsDate(hostsStatus.last_update)}
+                {hostsStatus.entry_count > 0 && (
+                  <> · {hostsStatus.entry_count} {t.smartHosts.entriesLabel}</>
+                )}
+              </span>
+            </div>
+          )}
+
+          {/* Source problems from the last refresh that still applied */}
+          {hostsStatus?.enabled && hostsStatus.last_error && (
+            <div className="flex items-center gap-2 text-[11px] text-amber-300/90">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{hostsStatus.last_error}</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handleRefreshSmartHosts}
+              onClick={handleToggleSmartHosts}
               disabled={hostsBusy}
+              className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+                hostsStatus?.enabled
+                  ? "bg-hovert hover:bg-rose-500/15 text-ink3 hover:text-rose-300 border-line hover:border-rose-500/30"
+                  : "bg-accent-fill hover:opacity-90 text-accent-contrast border-transparent"
+              }`}
+            >
+              {hostsBusy && hostsBusyOp === "toggle" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              <span>
+                {hostsBusyOp === "toggle"
+                  ? t.smartHosts.enabling
+                  : hostsStatus?.enabled
+                  ? t.smartHosts.disableBtn
+                  : t.smartHosts.enableBtn}
+              </span>
+            </button>
+            {hostsStatus?.enabled && (
+              <button
+                type="button"
+                onClick={handleRefreshSmartHosts}
+                disabled={hostsBusy}
+                className="flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${hostsBusyOp === "refresh" ? "animate-spin" : ""}`} />
+                <span>{hostsBusyOp === "refresh" ? t.smartHosts.refreshing : t.smartHosts.refreshNowBtn}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* YouTube 4K Stream Speedtest Section */}
+        <div className="t-card p-4 space-y-2.5 stagger-item" style={{ "--stagger-i": 4 } as React.CSSProperties}>
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-red-500/20 to-red-600/5 border border-red-500/25 text-red-400 shadow-sm shadow-red-500/5">
+                <Tv className="h-4 w-4 shrink-0" />
+              </div>
+              <div>
+                <h3 className="text-xs font-semibold text-ink">{t.speedtest.title}</h3>
+                <p className="text-[11px] text-ink4">{t.speedtest.subtitle}</p>
+              </div>
+            </div>
+          </div>
+
+          {speedError && (
+            <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+              <span>{speedError}</span>
+            </div>
+          )}
+
+          {/* Compact result row, same layout as the simple view */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              {isSpeedRunning ? (
+                <div className="flex items-center gap-2 text-xs text-ink3">
+                  <Loader2 className="h-4 w-4 animate-spin text-red-400 shrink-0" />
+                  <span>{t.speedtest.measuringNote}</span>
+                </div>
+              ) : speedResult ? (
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-2xl font-extrabold tracking-tight text-ink font-mono">
+                    {speedValue.toFixed(1)}
+                  </span>
+                  <span className="text-xs font-bold uppercase text-red-400 font-mono">
+                    {t.speedtest.mbps}
+                  </span>
+                  {currentTier && (
+                    <span className={`rounded-chip border px-2 py-0.5 text-[10px] font-semibold ${currentTier.badgeClass}`}>
+                      {currentTier.label}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <span className="text-2xl font-bold font-mono text-ink5">—</span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleStartSpeedtest}
+              disabled={isSpeedRunning}
+              className="flex items-center gap-2 rounded-panel bg-danger-fill hover:bg-danger-fill-hover px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50 shrink-0"
+            >
+              {isSpeedRunning ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>{t.speedtest.running}</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-3.5 w-3.5 fill-current" />
+                  <span>{t.speedtest.runBtn}</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Metrics, one compact row (the tier badge above already says
+              what the speed is enough for - no bitrate reference card) */}
+          {speedResult && (
+            <div className="flex items-center gap-3 flex-wrap text-[11px] text-ink4">
+              <span className="flex items-center gap-1.5">
+                <Timer className="h-3.5 w-3.5 text-ink5" />
+                {t.speedtest.resultDuration}
+                <span className="font-mono font-semibold text-ink2">
+                  {((speedResult.duration_ms ?? speedResult.download_time_ms ?? 0) / 1000).toFixed(2)} {t.speedtest.secShort}
+                </span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <DownloadCloud className="h-3.5 w-3.5 text-ink5" />
+                {t.speedtest.resultPayload}
+                <span className="font-mono font-semibold text-ink2">
+                  {(speedResult.bytes_downloaded / (1024 * 1024)).toFixed(1)} {t.speedtest.mbShort}
+                </span>
+              </span>
+              {currentTier && (
+                <span className="flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                  <span>{currentTier.desc}</span>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      {/* Right column: DNS providers, YouTube throttle, WARP. */}
+      <div className="flex flex-col gap-4 flex-1 min-w-0">
+        {/* DNS Providers + Custom DNS */}
+        <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>
+          {/* DNS Providers List */}
+          <div className="space-y-2">
+            {dnsStatus?.available_providers?.map((p) => {
+              const isCurrent = (dnsStatus.active_provider_id || dnsStatus.current_provider) === p.id;
+              const isApplying = applyingDnsId === p.id;
+
+              return (
+                <div
+                  key={p.id}
+                  className={`flex items-center justify-between rounded-panel border p-3 transition-colors hover-lift ${
+                    isCurrent
+                      ? "border-linestrong bg-hovert"
+                      : "border-line bg-cardin hover:border-line hover:bg-raise"
+                  }`}
+                >
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-ink">{p.name}</span>
+                      {/* No "active" badge here either: the button on the
+                          right already shows the same state (check +
+                          label) — same dedup as the simple rows above. */}
+                      {p.is_doh_capable && (
+                        <span className="rounded-chip bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
+                          {t.dns.dohBadge}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-ink4 font-mono">
+                      {p.primary ? `${p.primary} / ${p.secondary}` : t.dns.dhcpProvider}
+                    </p>
+                    <p className="text-[10px] text-ink5 leading-tight">
+                      {p.description}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {p.id.startsWith("custom:") && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCustomDns(p.id)}
+                        title={t.dns.customDeleteTitle}
+                        className="flex items-center justify-center rounded-control p-1.5 text-ink5 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition-all cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleApplyDns(p.id)}
+                      disabled={isCurrent || isApplying}
+                      className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:cursor-not-allowed shrink-0 ${
+                        isCurrent
+                          ? dnsStatus.split_dns_active
+                            ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                            : "bg-accent-wash text-accent-soft border border-accent-line"
+                          : "bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line"
+                      }`}
+                    >
+                      {isApplying ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                      ) : isCurrent ? (
+                        <>
+                          <Check className="h-3.5 w-3.5" />
+                          <span>{dnsStatus.split_dns_active ? t.dns.splitActiveBadge : t.dns.activeBadge}</span>
+                        </>
+                      ) : (
+                        <span>{t.dns.applyBtn}</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Custom DNS form */}
+          <div className="rounded-panel border border-line bg-cardin p-4 space-y-3">
+            <div>
+              <h4 className="text-xs font-semibold text-ink">{t.dns.customTitle}</h4>
+              <p className="text-[11px] text-ink4">{t.dns.customSubtitle}</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-ink4 min-h-8 flex items-end">{t.dns.customNameLabel}</label>
+                <input
+                  type="text"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  placeholder={t.dns.customNamePlaceholder}
+                  maxLength={60}
+                  className="w-full rounded-control border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 focus:border-accent-line focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-ink4 min-h-8 flex items-end">{t.dns.customPrimaryLabel}</label>
+                <input
+                  type="text"
+                  value={customPrimary}
+                  onChange={(e) => setCustomPrimary(e.target.value)}
+                  placeholder={t.dns.customPrimaryPlaceholder}
+                  inputMode="decimal"
+                  className="w-full rounded-control border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 font-mono focus:border-accent-line focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-ink4 min-h-8 flex items-end">{t.dns.customSecondaryLabel}</label>
+                <input
+                  type="text"
+                  value={customSecondary}
+                  onChange={(e) => setCustomSecondary(e.target.value)}
+                  placeholder={t.dns.customSecondaryPlaceholder}
+                  inputMode="decimal"
+                  className="w-full rounded-control border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-ink5 font-mono focus:border-accent-line focus:outline-none"
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleAddCustomDns}
+              disabled={isAddingCustom || !customName.trim() || !customPrimary.trim()}
               className="flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${hostsBusyOp === "refresh" ? "animate-spin" : ""}`} />
-              <span>{hostsBusyOp === "refresh" ? t.smartHosts.refreshing : t.smartHosts.refreshNowBtn}</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* YouTube throttle */}
-      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-red-500/20 to-red-600/5 border border-red-500/25 text-red-400 shadow-sm shadow-red-500/5">
-              <Gauge className="h-4 w-4 shrink-0" />
-            </div>
-            <div>
-              <h4 className="text-xs font-semibold text-ink">{t.youtubeThrottle.title}</h4>
-              <p className="text-[11px] text-ink4">{t.youtubeThrottle.description}</p>
-            </div>
-          </div>
-          {(hostsStatus?.youtube_blocked_count ?? 0) > 0 && (
-            <span className="rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 bg-red-500/15 text-red-300 border-red-500/30">
-              {t.youtubeThrottle.blockedNowLabel} {hostsStatus?.youtube_blocked_count}
-            </span>
-          )}
-        </div>
-
-        {!hostsStatus?.enabled && (
-          <p className="text-[11px] text-amber-300/90 leading-relaxed">{t.youtubeThrottle.needSmartHosts}</p>
-        )}
-
-        {/* Lane toggle */}
-        <label className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors">
-          <input
-            type="checkbox"
-            checked={hostsStatus?.youtube_throttle_enabled ?? false}
-            disabled={hostsBusy || ytBusy}
-            onChange={handleToggleYtLane}
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-red-500 cursor-pointer"
-          />
-          <span>
-            <span className="block text-xs font-semibold text-ink">{t.youtubeThrottle.laneLabel}</span>
-            <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{t.youtubeThrottle.laneDesc}</span>
-          </span>
-        </label>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleRunYtCheck}
-            disabled={ytBusy || hostsBusy}
-            className="flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {ytBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            <span>{t.youtubeThrottle.checkBtn}</span>
-          </button>
-          {ytBusy && <span className="text-[11px] text-ink4">{t.youtubeThrottle.checking}</span>}
-        </div>
-
-        {ytError && (
-          <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
-            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
-            <span>{ytError}</span>
-          </div>
-        )}
-
-        {ytResult && !ytBusy && (
-          <div className="space-y-1.5 text-[11px] text-ink3 leading-relaxed">
-            {ytResult.outcome === "unknown" && <p>{t.youtubeThrottle.unknownText}</p>}
-            {ytResult.outcome === "unreachable" && <p>{t.youtubeThrottle.unreachableText}</p>}
-            {ytResult.outcome === "fast" && (
-              <p>
-                {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}. {t.youtubeThrottle.fastText}
-              </p>
-            )}
-            {ytResult.outcome === "throttled" && (
-              <>
-                <p>
-                  {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}, {t.youtubeThrottle.throttledLabel}{" "}
-                  {ytResult.nodes.filter((n) => n.verdict === "throttled").length}
-                  {ytRecordedUnreachable.length > 0 && (
-                    <>
-                      , {t.youtubeThrottle.unreachableLabel} {ytRecordedUnreachable.length}
-                    </>
-                  )}
-                  . {t.youtubeThrottle.throttledText}
-                  {ytResult.applied
-                    ? ` ${t.youtubeThrottle.appliedNote}`
-                    : ytResult.lane_enabled
-                      ? ""
-                      : ` ${t.youtubeThrottle.laneOffNote}`}
-                </p>
-                <p className="font-mono text-[10px] text-ink4 break-all">
-                  {ytResult.nodes
-                    .filter((n) => n.verdict === "throttled")
-                    .map((n) => n.host)
-                    .join(", ")}
-                </p>
-                {ytRecordedUnreachable.length > 0 && (
-                  <p className="text-[10px] text-ink4">
-                    {t.youtubeThrottle.unreachableLabel}{" "}
-                    <span className="font-mono break-all">
-                      {ytRecordedUnreachable.map((n) => n.host).join(", ")}
-                    </span>
-                  </p>
-                )}
-              </>
-            )}
-            {ytResult.outcome === "mixed" && (
-              <>
-                <p>
-                  {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}, {t.youtubeThrottle.unreachableLabel}{" "}
-                  {ytRecordedUnreachable.length}. {t.youtubeThrottle.mixedText}
-                  {ytResult.applied
-                    ? ` ${t.youtubeThrottle.appliedNote}`
-                    : ytResult.lane_enabled
-                      ? ""
-                      : ` ${t.youtubeThrottle.laneOffNote}`}
-                </p>
-                <p className="font-mono text-[10px] text-ink4 break-all">
-                  {ytRecordedUnreachable.map((n) => n.host).join(", ")}
-                </p>
-                {ytResult.substitution.length > 0 && (
-                  <p>
-                    {ytResult.substitution.some((s) => s.verdict === "fast")
-                      ? t.youtubeThrottle.substitutionWorks
-                      : t.youtubeThrottle.substitutionFailed}
-                  </p>
-                )}
-              </>
-            )}
-            {ytResult.mapping_node && (
-              <p className="text-ink4">
-                {t.youtubeThrottle.mappingLabel}{" "}
-                <span className="font-mono text-[10px]">{ytResult.mapping_node}</span>
-              </p>
-            )}
-            {ytResult.via_tunnel && (
-              <p className="text-amber-300/90">{t.youtubeThrottle.viaTunnelNote}</p>
-            )}
-            {ytResult.apply_error && (
-              <p className="text-rose-300">
-                {t.youtubeThrottle.applyErrorLabel} {ytResult.apply_error}
-              </p>
-            )}
-          </div>
-        )}
-
-        <p className="text-[10px] text-ink5 leading-relaxed">{t.youtubeThrottle.dohNote}</p>
-      </div>
-
-      {/* YouTube 4K Stream Speedtest Section */}
-      <div className="t-card p-4 space-y-2.5 stagger-item" style={{ "--stagger-i": 4 } as React.CSSProperties}>
-        <div className="flex items-center justify-between border-b border-line pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-red-500/20 to-red-600/5 border border-red-500/25 text-red-400 shadow-sm shadow-red-500/5">
-              <Tv className="h-4 w-4 shrink-0" />
-            </div>
-            <div>
-              <h3 className="text-xs font-semibold text-ink">{t.speedtest.title}</h3>
-              <p className="text-[11px] text-ink4">{t.speedtest.subtitle}</p>
-            </div>
-          </div>
-        </div>
-
-        {speedError && (
-          <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
-            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
-            <span>{speedError}</span>
-          </div>
-        )}
-
-        {/* Compact result row, same layout as the simple view */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            {isSpeedRunning ? (
-              <div className="flex items-center gap-2 text-xs text-ink3">
-                <Loader2 className="h-4 w-4 animate-spin text-red-400 shrink-0" />
-                <span>{t.speedtest.measuringNote}</span>
-              </div>
-            ) : speedResult ? (
-              <div className="flex items-baseline gap-2 flex-wrap">
-                <span className="text-2xl font-extrabold tracking-tight text-ink font-mono">
-                  {speedValue.toFixed(1)}
-                </span>
-                <span className="text-xs font-bold uppercase text-red-400 font-mono">
-                  {t.speedtest.mbps}
-                </span>
-                {currentTier && (
-                  <span className={`rounded-chip border px-2 py-0.5 text-[10px] font-semibold ${currentTier.badgeClass}`}>
-                    {currentTier.label}
-                  </span>
-                )}
-              </div>
-            ) : (
-              <span className="text-2xl font-bold font-mono text-ink5">—</span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={handleStartSpeedtest}
-            disabled={isSpeedRunning}
-            className="flex items-center gap-2 rounded-panel bg-danger-fill hover:bg-danger-fill-hover px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50 shrink-0"
-          >
-            {isSpeedRunning ? (
-              <>
+              {isAddingCustom ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>{t.speedtest.running}</span>
-              </>
-            ) : (
-              <>
-                <Play className="h-3.5 w-3.5 fill-current" />
-                <span>{t.speedtest.runBtn}</span>
-              </>
-            )}
-          </button>
+              ) : (
+                <Plus className="h-3.5 w-3.5" />
+              )}
+              <span>{t.dns.customAddBtn}</span>
+            </button>
+          </div>
+
         </div>
 
-        {/* Metrics, one compact row (the tier badge above already says
-            what the speed is enough for - no bitrate reference card) */}
-        {speedResult && (
-          <div className="flex items-center gap-3 flex-wrap text-[11px] text-ink4">
-            <span className="flex items-center gap-1.5">
-              <Timer className="h-3.5 w-3.5 text-ink5" />
-              {t.speedtest.resultDuration}
-              <span className="font-mono font-semibold text-ink2">
-                {((speedResult.duration_ms ?? speedResult.download_time_ms ?? 0) / 1000).toFixed(2)} {t.speedtest.secShort}
-              </span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <DownloadCloud className="h-3.5 w-3.5 text-ink5" />
-              {t.speedtest.resultPayload}
-              <span className="font-mono font-semibold text-ink2">
-                {(speedResult.bytes_downloaded / (1024 * 1024)).toFixed(1)} {t.speedtest.mbShort}
-              </span>
-            </span>
-            {currentTier && (
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                <span>{currentTier.desc}</span>
+        {/* YouTube throttle */}
+        <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-red-500/20 to-red-600/5 border border-red-500/25 text-red-400 shadow-sm shadow-red-500/5">
+                <Gauge className="h-4 w-4 shrink-0" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-ink">{t.youtubeThrottle.title}</h4>
+                <p className="text-[11px] text-ink4">{t.youtubeThrottle.description}</p>
+              </div>
+            </div>
+            {(hostsStatus?.youtube_blocked_count ?? 0) > 0 && (
+              <span className="rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 bg-red-500/15 text-red-300 border-red-500/30">
+                {t.youtubeThrottle.blockedNowLabel} {hostsStatus?.youtube_blocked_count}
               </span>
             )}
           </div>
-        )}
-      </div>
 
-      {/* WARP tunnel (stage 5): sixth grid item. Its stagger index (2)
-          is hardcoded inside WarpCard - this file cannot set it. */}
-      <WarpCard variant="full" />
+          {!hostsStatus?.enabled && (
+            <p className="text-[11px] text-amber-300/90 leading-relaxed">{t.youtubeThrottle.needSmartHosts}</p>
+          )}
+
+          {/* Lane toggle */}
+          <label className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors">
+            <input
+              type="checkbox"
+              checked={hostsStatus?.youtube_throttle_enabled ?? false}
+              disabled={hostsBusy || ytBusy}
+              onChange={handleToggleYtLane}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-red-500 cursor-pointer"
+            />
+            <span>
+              <span className="block text-xs font-semibold text-ink">{t.youtubeThrottle.laneLabel}</span>
+              <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{t.youtubeThrottle.laneDesc}</span>
+            </span>
+          </label>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRunYtCheck}
+              disabled={ytBusy || hostsBusy}
+              className="flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {ytBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              <span>{t.youtubeThrottle.checkBtn}</span>
+            </button>
+            {ytBusy && <span className="text-[11px] text-ink4">{t.youtubeThrottle.checking}</span>}
+          </div>
+
+          {ytError && (
+            <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+              <span>{ytError}</span>
+            </div>
+          )}
+
+          {ytResult && !ytBusy && (
+            <div className="space-y-1.5 text-[11px] text-ink3 leading-relaxed">
+              {ytResult.outcome === "unknown" && <p>{t.youtubeThrottle.unknownText}</p>}
+              {ytResult.outcome === "unreachable" && <p>{t.youtubeThrottle.unreachableText}</p>}
+              {ytResult.outcome === "fast" && (
+                <p>
+                  {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}. {t.youtubeThrottle.fastText}
+                </p>
+              )}
+              {ytResult.outcome === "throttled" && (
+                <>
+                  <p>
+                    {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}, {t.youtubeThrottle.throttledLabel}{" "}
+                    {ytResult.nodes.filter((n) => n.verdict === "throttled").length}
+                    {ytRecordedUnreachable.length > 0 && (
+                      <>
+                        , {t.youtubeThrottle.unreachableLabel} {ytRecordedUnreachable.length}
+                      </>
+                    )}
+                    . {t.youtubeThrottle.throttledText}
+                    {ytResult.applied
+                      ? ` ${t.youtubeThrottle.appliedNote}`
+                      : ytResult.lane_enabled
+                        ? ""
+                        : ` ${t.youtubeThrottle.laneOffNote}`}
+                  </p>
+                  <p className="font-mono text-[10px] text-ink4 break-all">
+                    {ytResult.nodes
+                      .filter((n) => n.verdict === "throttled")
+                      .map((n) => n.host)
+                      .join(", ")}
+                  </p>
+                  {ytRecordedUnreachable.length > 0 && (
+                    <p className="text-[10px] text-ink4">
+                      {t.youtubeThrottle.unreachableLabel}{" "}
+                      <span className="font-mono break-all">
+                        {ytRecordedUnreachable.map((n) => n.host).join(", ")}
+                      </span>
+                    </p>
+                  )}
+                </>
+              )}
+              {ytResult.outcome === "mixed" && (
+                <>
+                  <p>
+                    {t.youtubeThrottle.checkedLabel} {ytResult.nodes.length}, {t.youtubeThrottle.unreachableLabel}{" "}
+                    {ytRecordedUnreachable.length}. {t.youtubeThrottle.mixedText}
+                    {ytResult.applied
+                      ? ` ${t.youtubeThrottle.appliedNote}`
+                      : ytResult.lane_enabled
+                        ? ""
+                        : ` ${t.youtubeThrottle.laneOffNote}`}
+                  </p>
+                  <p className="font-mono text-[10px] text-ink4 break-all">
+                    {ytRecordedUnreachable.map((n) => n.host).join(", ")}
+                  </p>
+                  {ytResult.substitution.length > 0 && (
+                    <p>
+                      {ytResult.substitution.some((s) => s.verdict === "fast")
+                        ? t.youtubeThrottle.substitutionWorks
+                        : t.youtubeThrottle.substitutionFailed}
+                    </p>
+                  )}
+                </>
+              )}
+              {ytResult.mapping_node && (
+                <p className="text-ink4">
+                  {t.youtubeThrottle.mappingLabel}{" "}
+                  <span className="font-mono text-[10px]">{ytResult.mapping_node}</span>
+                </p>
+              )}
+              {ytResult.via_tunnel && (
+                <p className="text-amber-300/90">{t.youtubeThrottle.viaTunnelNote}</p>
+              )}
+              {ytResult.apply_error && (
+                <p className="text-rose-300">
+                  {t.youtubeThrottle.applyErrorLabel} {ytResult.apply_error}
+                </p>
+              )}
+            </div>
+          )}
+
+          <p className="text-[10px] text-ink5 leading-relaxed">{t.youtubeThrottle.dohNote}</p>
+        </div>
+
+      {/* WARP tunnel (stage 5): third item of the right column.
+          Its stagger index (2) is hardcoded inside WarpCard -
+          this file cannot set it. */}
+        <WarpCard variant="full" />
+      </div>
 
       <DnsSplitModal isOpen={isDnsSplitOpen} onClose={() => setIsDnsSplitOpen(false)} />
     </div>
