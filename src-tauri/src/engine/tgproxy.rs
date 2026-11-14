@@ -450,10 +450,27 @@ impl TgProxyManager {
         }
     }
 
+    /// The IP to advertise in the tg:// link (`--link-ip` for the bridge).
+    /// The library auto-detects the LAN IP whenever the bind address is
+    /// loopback or wildcard — but with LAN off the bridge listens on
+    /// 127.0.0.1 only, so a LAN IP in the link is unreachable (connection
+    /// refused) and Telegram never connects. Advertise loopback unless LAN
+    /// mode is on, where the bridge binds 0.0.0.0 and phones on the LAN
+    /// need the real LAN address; fall back to loopback when detection
+    /// fails (the local client still works).
+    fn link_ip_for(lan_enabled: bool, detected_lan_ip: Option<String>) -> String {
+        if lan_enabled {
+            detected_lan_ip.unwrap_or_else(|| TGWS_DEFAULT_HOST.to_string())
+        } else {
+            TGWS_DEFAULT_HOST.to_string()
+        }
+    }
+
     /// Builds the bridge configuration through the library's own CLI parser,
     /// so all of its defaults (timeouts, pool sizes, fallbacks) stay exactly
     /// as the upstream project ships them — we only override what the user
-    /// controls: port, bind host, secret and connection mode.
+    /// controls: port, bind host, secret, connection mode, and the IP
+    /// advertised in the tg:// link.
     ///
     /// The mode pins the upstream tier order: "auto" leaves the library's
     /// default ladder alone (CF-proxy → TCP fallback; the direct WS tier is
@@ -465,6 +482,7 @@ impl TgProxyManager {
         port: u16,
         secret: &str,
         mode: &str,
+        link_ip: &str,
     ) -> Result<tg_ws_proxy_rs::config::Config, TgProxyError> {
         // M1 hardening: the library declares `env = "TG_..."` on ~40 options.
         // try_parse_from would silently inherit them from our process
@@ -487,6 +505,11 @@ impl TgProxyManager {
             host.to_string(),
             "--secret".to_string(),
             secret.to_string(),
+            // Pin the advertised link IP: without --link-ip the library
+            // auto-detects the LAN IP even when bound to loopback, and the
+            // tg:// link then points at an address nothing listens on.
+            "--link-ip".to_string(),
+            link_ip.to_string(),
         ];
         // Pin the tier order for non-default modes. Media connections keep
         // the default ladder (pinning media too aggressively breaks calls).
@@ -524,7 +547,10 @@ impl TgProxyManager {
             .map(|t| t.elapsed().as_secs())
             .unwrap_or(0);
         let lan_enabled = settings.tgproxy_lan;
-        let link_host = Self::bind_host(lan_enabled);
+        // The fallback link must advertise a connectable address, not the
+        // bind host: with LAN on, bind_host is 0.0.0.0, which no client can
+        // dial. Same rule as the bridge's --link-ip (see link_ip_for).
+        let link_host = Self::link_ip_for(lan_enabled, Self::detect_lan_ip());
         // The library generates the canonical tg:// link on bind; fall back
         // to a locally built one when the bridge has not bound yet.
         let tg_link = {
@@ -637,7 +663,8 @@ impl TgProxyManager {
 
         // M2: a config error must never leave us stuck in `Starting` with no
         // task running — build it before touching the state machine.
-        let config = Self::bridge_config(host, port, &secret, &settings.tgproxy_mode)?;
+        let link_ip = Self::link_ip_for(settings.tgproxy_lan, Self::detect_lan_ip());
+        let config = Self::bridge_config(host, port, &secret, &settings.tgproxy_mode, &link_ip)?;
 
         *self.state.write() = SupervisorState::Starting;
         *self.last_error.write() = None;
@@ -922,5 +949,59 @@ impl TgProxyManager {
         // Same reasoning as set_config: an explicit regeneration is not a loss.
         *self.health.rotated.write() = false;
         Ok(secret)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SECRET: &str = "0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn link_ip_is_loopback_when_lan_off() {
+        // Even when a LAN IP is detected, LAN-off means the bridge binds
+        // 127.0.0.1 only — advertising anything else is unreachable.
+        assert_eq!(
+            TgProxyManager::link_ip_for(false, Some("192.168.1.121".to_string())),
+            "127.0.0.1"
+        );
+        assert_eq!(TgProxyManager::link_ip_for(false, None), "127.0.0.1");
+    }
+
+    #[test]
+    fn link_ip_is_detected_lan_when_lan_on() {
+        assert_eq!(
+            TgProxyManager::link_ip_for(true, Some("192.168.1.121".to_string())),
+            "192.168.1.121"
+        );
+        // Detection failed: loopback still serves the local client.
+        assert_eq!(TgProxyManager::link_ip_for(true, None), "127.0.0.1");
+    }
+
+    #[test]
+    fn bridge_config_advertises_the_passed_link_ip() {
+        // Regression test for issue #3: without --link-ip the library
+        // auto-detects the LAN IP even when bound to loopback, so the
+        // tg:// link points at an address nothing listens on.
+        let cfg = TgProxyManager::bridge_config(
+            TGWS_DEFAULT_HOST,
+            1443,
+            TEST_SECRET,
+            "auto",
+            TGWS_DEFAULT_HOST,
+        )
+        .expect("bridge config must parse");
+        assert_eq!(cfg.link_host(), "127.0.0.1");
+
+        let cfg = TgProxyManager::bridge_config(
+            TGWS_LAN_HOST,
+            1443,
+            TEST_SECRET,
+            "auto",
+            "192.168.1.121",
+        )
+        .expect("bridge config must parse");
+        assert_eq!(cfg.link_host(), "192.168.1.121");
     }
 }
