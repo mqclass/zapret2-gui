@@ -272,7 +272,9 @@ export interface Translations {
     autoTuneDesc: string;
     autoTuneRecommended: string;
     autoTuneApply: string;
-    autoTuneTesting: string;
+    autoTuneScreening: string;
+    autoTuneFinal: string;
+    autoTuneFastMode: string;
     autoTuneCancel: string;
     autoTuneWinner: string;
     autoTuneEngineFailed: string;

@@ -1,6 +1,18 @@
 import { StrategyProbeResult } from "../types";
 
 /**
+ * The only evidence the gate reads: whether the engine really ran and
+ * the probe completed without an error. Both full probe results and
+ * phase-1 screen results carry it, so the gate accepts either: on a
+ * total screen failure (phase 2 skipped) the screened evidence is what
+ * makes the failure honest and classifiable.
+ */
+export interface ClassifierEvidence {
+  engine_running: boolean;
+  error: string | null;
+}
+
+/**
  * Gate for offering the block classifier after a failed auto-tune
  * (design §5.2). The hint is shown only when the failure is the honest
  * kind — every candidate was measured and scored zero — and never when
@@ -18,7 +30,7 @@ import { StrategyProbeResult } from "../types";
  *   engine_running && !error    -> true
  */
 export function shouldOfferClassifier(
-  results: StrategyProbeResult[] | null | undefined,
+  results: ClassifierEvidence[] | null | undefined,
   winner: StrategyProbeResult | null | undefined,
 ): boolean {
   if (winner) return false;

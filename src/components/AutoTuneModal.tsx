@@ -3,7 +3,9 @@ import { createPortal } from "react-dom";
 import { Sparkles, Zap, Loader2, X, HelpCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  ProbeStatus,
   StrategyProbeResult,
+  StrategyScreenResult,
   SupervisorStatusResponse,
 } from "../types";
 import { ClassifierModal, ClassifierTargetRequest } from "./ClassifierModal";
@@ -69,6 +71,53 @@ export const AUTO_TUNE_CANDIDATES = [
   "kinlay0-experimental-ts",
 ];
 
+/** Finalists for phase 2: the full probe set runs only on these. */
+export const AUTO_TUNE_FINALIST_LIMIT = 8;
+
+// Screen-phase ranking: a transliteration of the canonical ordering in
+// Rust (probes.rs: screen_status_rank / compare_screen_results /
+// select_finalists), kept in sync by comment — the loop runs here, so
+// the comparator must live here too. Reachable YouTube first, lower
+// latency breaks ties; a screen is viable only when the engine really
+// ran and YouTube was reachable through it.
+function screenStatusRank(status: ProbeStatus): number {
+  switch (status) {
+    case "operational":
+      return 0;
+    case "degraded":
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+function compareScreenResults(a: StrategyScreenResult, b: StrategyScreenResult): number {
+  return (
+    screenStatusRank(a.youtube_status) - screenStatusRank(b.youtube_status) ||
+    (a.youtube_ms ?? Number.MAX_SAFE_INTEGER) - (b.youtube_ms ?? Number.MAX_SAFE_INTEGER)
+  );
+}
+
+function isViableScreen(r: StrategyScreenResult): boolean {
+  return (
+    r.engine_running &&
+    r.error == null &&
+    (r.youtube_status === "operational" || r.youtube_status === "degraded")
+  );
+}
+
+function selectFinalists(
+  screened: StrategyScreenResult[],
+  limit: number = AUTO_TUNE_FINALIST_LIMIT
+): StrategyScreenResult[] {
+  return [...screened].filter(isViableScreen).sort(compareScreenResults).slice(0, limit);
+}
+
+/** A perfect full score: all three probes Operational (2 points each). */
+function isPerfectProbeResult(res: StrategyProbeResult): boolean {
+  return res.score === 6 && res.engine_running;
+}
+
 export interface UseAutoTuneOptions {
   onSelectAndStartStrategy?: (strategyId: string) => void;
   onNavigateTab?: (tab: NavTab) => void;
@@ -106,9 +155,27 @@ export function useAutoTune({
   );
 
   const [isAutoTuning, setIsAutoTuning] = useState(false);
-  const [autoTuneProgress, setAutoTuneProgress] = useState<{ index: number; total: number; id: string } | null>(null);
+  const [autoTuneProgress, setAutoTuneProgress] = useState<{
+    phase: "screen" | "final";
+    index: number;
+    total: number;
+    id: string;
+  } | null>(null);
   const [probeResults, setProbeResults] = useState<StrategyProbeResult[] | null>(null);
+  // Phase-1 screens: kept for the classifier gate when phase 2 is
+  // skipped (total screen failure) — the screened evidence is what makes
+  // that failure honest and classifiable.
+  const [screenResults, setScreenResults] = useState<StrategyScreenResult[] | null>(null);
   const [isAutoTuneModalOpen, setIsAutoTuneModalOpen] = useState(false);
+  // Fast mode (default on): stop phase 2 at the first perfect full
+  // score. The ref mirrors the checkbox so the running loop reads the
+  // live value — state captured at loop start would be stale.
+  const [fastMode, setFastMode] = useState(true);
+  const fastModeRef = useRef(true);
+  const handleFastModeChange = useCallback((checked: boolean) => {
+    setFastMode(checked);
+    fastModeRef.current = checked;
+  }, []);
   const autoTuneCancelRef = useRef(false);
   const autoTuneRunningRef = useRef(false);
 
@@ -193,15 +260,62 @@ export function useAutoTune({
 
     setIsAutoTuning(true);
     setProbeResults([]);
+    setScreenResults([]);
     setIsAutoTuneModalOpen(true);
     const results: StrategyProbeResult[] = [];
+    const screened: StrategyScreenResult[] = [];
     let probedAny = false;
     let lastStartedId: string | null = null;
+    // ADMIN_REQUIRED aborts the whole run (both phases): without
+    // elevation no probe can measure anything, and phase 2 would only
+    // repeat the same failure on the finalists.
+    let aborted = false;
     try {
+      // Phase 1: screen every candidate, YouTube only. Cheap per
+      // candidate (one probe instead of three) — the full set runs only
+      // on the finalists in phase 2.
       for (let i = 0; i < AUTO_TUNE_CANDIDATES.length; i++) {
         if (autoTuneCancelRef.current) break;
         const id = AUTO_TUNE_CANDIDATES[i];
-        setAutoTuneProgress({ index: i + 1, total: AUTO_TUNE_CANDIDATES.length, id });
+        setAutoTuneProgress({ phase: "screen", index: i + 1, total: AUTO_TUNE_CANDIDATES.length, id });
+        probedAny = true;
+        lastStartedId = id;
+        try {
+          const res = await invoke<StrategyScreenResult>("probe_strategy_screen", { strategyId: id });
+          if (res == null || typeof res !== "object") {
+            // Same null-transport guard as the full probe below: a null
+            // entry would crash the ranking comparator.
+            throw new Error("Проверка не вернула результат");
+          }
+          screened.push(res);
+          if (res.error && res.error.includes("ADMIN_REQUIRED")) {
+            reportError(t.adminGate.message);
+            aborted = true;
+            break;
+          }
+        } catch (err) {
+          console.error("Screen error:", err);
+          screened.push({
+            strategy_id: id,
+            strategy_name: id,
+            youtube_status: "blocked",
+            youtube_ms: null,
+            engine_running: false,
+            error: formatErrorMessage(err),
+          });
+        }
+      }
+      setScreenResults([...screened]);
+
+      // Phase 2: full probes on the top-8 screened finalists, in ranked
+      // order. Skipped on cancel, on abort, and when no candidate
+      // survived the screen — in the last case the classifier hint below
+      // reads the screened evidence instead of full results.
+      const finalists = aborted || autoTuneCancelRef.current ? [] : selectFinalists(screened);
+      for (let i = 0; i < finalists.length; i++) {
+        if (autoTuneCancelRef.current) break;
+        const id = finalists[i].strategy_id;
+        setAutoTuneProgress({ phase: "final", index: i + 1, total: finalists.length, id });
         probedAny = true;
         lastStartedId = id;
         try {
@@ -219,6 +333,9 @@ export function useAutoTune({
             reportError(t.adminGate.message);
             break;
           }
+          // Fast mode: the first perfect full score ends the run — the
+          // remaining finalists cannot beat all-Operational.
+          if (fastModeRef.current && isPerfectProbeResult(res)) break;
         } catch (err) {
           console.error("Probe error:", err);
           results.push({
@@ -342,10 +459,22 @@ export function useAutoTune({
                 <div className="flex items-center gap-2 text-xs text-ink2">
                   <Loader2 className="h-4 w-4 animate-spin text-accent" />
                   <span>
-                    {t.diagnostics.autoTuneTesting} {autoTuneProgress.index}/{autoTuneProgress.total}:{" "}
+                    {autoTuneProgress.phase === "screen"
+                      ? t.diagnostics.autoTuneScreening
+                      : t.diagnostics.autoTuneFinal}{" "}
+                    {autoTuneProgress.index}/{autoTuneProgress.total}:{" "}
                     {autoTuneProgress.id}
                   </span>
                 </div>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={fastMode}
+                    onChange={(e) => handleFastModeChange(e.target.checked)}
+                    className="h-4 w-4 rounded accent-accent cursor-pointer"
+                  />
+                  <span className="text-xs text-ink4">{t.diagnostics.autoTuneFastMode}</span>
+                </label>
                 <button
                   type="button"
                   onClick={handleCancelAutoTune}
@@ -357,6 +486,15 @@ export function useAutoTune({
             ) : (
               <>
                 <div className="mt-3 text-xs text-ink3">{t.diagnostics.autoTuneDesc}</div>
+                <label className="mt-3 flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={fastMode}
+                    onChange={(e) => handleFastModeChange(e.target.checked)}
+                    className="h-4 w-4 rounded accent-accent cursor-pointer"
+                  />
+                  <span className="text-xs text-ink4">{t.diagnostics.autoTuneFastMode}</span>
+                </label>
 
                 {autoTuneWinner && onSelectAndStartStrategy && (
                   <button
@@ -376,8 +514,13 @@ export function useAutoTune({
 
                 {/* Classifier hint (§5): only behind the §5.2 gate —
                     at least one candidate was really started and
-                    measured, and still nothing scored. */}
-                {shouldOfferClassifier(probeResults, autoTuneWinner) && (
+                    measured, and still nothing scored. When phase 2 was
+                    skipped (total screen failure) the gate reads the
+                    screened evidence instead of full results. */}
+                {shouldOfferClassifier(
+                  probeResults && probeResults.length > 0 ? probeResults : screenResults,
+                  autoTuneWinner
+                ) && (
                   <div className="mt-3 rounded-panel border border-raise bg-cardin/40 p-3">
                     <p className="text-xs text-ink2">{t.classifier.hintText}</p>
                     {classifierBusy && (

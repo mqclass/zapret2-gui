@@ -45,6 +45,18 @@ export interface StrategyProbeResult {
   error: string | null;
 }
 
+/** YouTube-only screen result: phase 1 of the two-phase auto-tune.
+ *  Discord/voice were NOT measured here; finalists get the full
+ *  StrategyProbeResult in phase 2. */
+export interface StrategyScreenResult {
+  strategy_id: string;
+  strategy_name: string;
+  youtube_status: ProbeStatus;
+  youtube_ms: number | null;
+  engine_running: boolean;
+  error: string | null;
+}
+
 export interface SupervisorStatus {
   state: SupervisorState;
   pid: number | null;

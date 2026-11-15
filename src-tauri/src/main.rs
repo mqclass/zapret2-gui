@@ -394,6 +394,7 @@ async fn main() {
             commands::get_log_file_path,
             commands::ping_custom_target,
             commands::probe_strategy,
+            commands::probe_strategy_screen,
             commands::classify_target,
             commands::cancel_classify_target,
             commands::take_classifier_restored,

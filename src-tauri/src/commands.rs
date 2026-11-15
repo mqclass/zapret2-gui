@@ -475,9 +475,8 @@ pub async fn probe_strategy(
     strategy_id: String,
     state: State<'_, AppState>,
 ) -> Result<crate::engine::probes::StrategyProbeResult, String> {
-    let strategies = discover_strategies().unwrap_or_default();
-    let strategy_name = match strategies.iter().find(|s| s.id == strategy_id) {
-        Some(s) => s.name.clone(),
+    let strategy_name = match resolve_strategy_name(&strategy_id) {
+        Some(name) => name,
         None => {
             return Ok(probe_error_result(
                 &strategy_id,
@@ -488,25 +487,10 @@ pub async fn probe_strategy(
     };
 
     let backend = state.backend.read().clone();
-    if let Err(e) = backend.start(Some(strategy_id.clone()), None).await {
-        return Ok(probe_error_result(&strategy_id, &strategy_name, &e));
-    }
-
-    // Wait until the engine reports Running (up to ~6s), then let the
-    // WinDivert filter and conntrack settle before measuring: probing a
-    // half-initialized engine would report false Blocked.
-    let mut running = false;
-    for _ in 0..12 {
-        let status = backend.get_status().await;
-        if status.state == crate::engine::supervisor::SupervisorState::Running {
-            running = true;
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    }
-    if running {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
+    let running = match start_engine_for_probe(&backend, &strategy_id).await {
+        Ok(running) => running,
+        Err(e) => return Ok(probe_error_result(&strategy_id, &strategy_name, &e)),
+    };
 
     let diag = state.diagnostics.clone();
     let (yt, disc, voice) = tokio::join!(
@@ -526,20 +510,7 @@ pub async fn probe_strategy(
         Some(latencies.iter().sum::<u64>() / (latencies.len() as u64))
     };
 
-    // The engine counts as measured only if it was up when probing started
-    // AND still up when probing ended: a recovery revival between the two
-    // (or a death mid-probe) leaves a mixed result, which must carry an
-    // error instead of posing as a clean measurement.
-    let final_running = backend.get_status().await.state
-        == crate::engine::supervisor::SupervisorState::Running;
-    let engine_running = running && final_running;
-    let error = if engine_running {
-        None
-    } else if !running {
-        Some("Движок не перешёл в состояние Running".to_string())
-    } else {
-        Some("Движок остановился во время проверки".to_string())
-    };
+    let (engine_running, error) = probe_engine_state(&backend, running).await;
 
     Ok(crate::engine::probes::StrategyProbeResult {
         strategy_id,
@@ -555,6 +526,108 @@ pub async fn probe_strategy(
         engine_running,
         error,
     })
+}
+
+/// Screens one strategy for real, YouTube only: phase 1 of the
+/// two-phase auto-tune. Same engine discipline as probe_strategy
+/// (start, wait for Running, 1s settle, Running-at-both-ends check) —
+/// only the probe set is smaller, so a screen pass is cheaper than a
+/// full probe. Discord/voice are NOT measured here; finalists get the
+/// full probe_strategy in phase 2. Same unknown-id and start-failure
+/// rules as probe_strategy.
+#[tauri::command]
+pub async fn probe_strategy_screen(
+    strategy_id: String,
+    state: State<'_, AppState>,
+) -> Result<crate::engine::probes::StrategyScreenResult, String> {
+    let strategy_name = match resolve_strategy_name(&strategy_id) {
+        Some(name) => name,
+        None => {
+            return Ok(screen_error_result(
+                &strategy_id,
+                &strategy_id,
+                &format!("Стратегия {} не найдена", strategy_id),
+            ));
+        }
+    };
+
+    let backend = state.backend.read().clone();
+    let running = match start_engine_for_probe(&backend, &strategy_id).await {
+        Ok(running) => running,
+        Err(e) => return Ok(screen_error_result(&strategy_id, &strategy_name, &e)),
+    };
+
+    let diag = state.diagnostics.clone();
+    let yt = diag.probe_youtube().await;
+
+    let (engine_running, error) = probe_engine_state(&backend, running).await;
+
+    Ok(crate::engine::probes::StrategyScreenResult {
+        strategy_id,
+        strategy_name,
+        youtube_status: yt.status,
+        youtube_ms: yt.latency_ms,
+        engine_running,
+        error,
+    })
+}
+
+/// Resolves a strategy id to its display name, or None when the id is
+/// not installed. Shared by the full probe and the screen: probing an
+/// unknown id would silently fall back to flowseal-alt and measure the
+/// wrong strategy under this id's name.
+fn resolve_strategy_name(strategy_id: &str) -> Option<String> {
+    discover_strategies()
+        .unwrap_or_default()
+        .iter()
+        .find(|s| s.id == strategy_id)
+        .map(|s| s.name.clone())
+}
+
+/// Starts the engine on a strategy and waits until it reports Running
+/// (up to ~6s), then lets the WinDivert filter and conntrack settle for
+/// 1s before measuring: probing a half-initialized engine would report
+/// false Blocked. Returns whether the engine reached Running; a start
+/// failure is an Err (the caller reports it without probing).
+async fn start_engine_for_probe(
+    backend: &crate::svc_client::SupervisorBackend,
+    strategy_id: &str,
+) -> Result<bool, String> {
+    backend.start(Some(strategy_id.to_string()), None).await?;
+    let mut running = false;
+    for _ in 0..12 {
+        let status = backend.get_status().await;
+        if status.state == crate::engine::supervisor::SupervisorState::Running {
+            running = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    if running {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    Ok(running)
+}
+
+/// The engine counts as measured only if it was up when probing started
+/// AND still up when probing ended: a recovery revival between the two
+/// (or a death mid-probe) leaves a mixed result, which must carry an
+/// error instead of posing as a clean measurement.
+async fn probe_engine_state(
+    backend: &crate::svc_client::SupervisorBackend,
+    was_running: bool,
+) -> (bool, Option<String>) {
+    let final_running = backend.get_status().await.state
+        == crate::engine::supervisor::SupervisorState::Running;
+    let engine_running = was_running && final_running;
+    let error = if engine_running {
+        None
+    } else if !was_running {
+        Some("Движок не перешёл в состояние Running".to_string())
+    } else {
+        Some("Движок остановился во время проверки".to_string())
+    };
+    (engine_running, error)
 }
 
 /// Restores the persisted last-used strategy without starting the engine.
@@ -594,6 +667,22 @@ fn probe_error_result(
         voice_ms: None,
         score: 0,
         average_ping_ms: None,
+        engine_running: false,
+        error: Some(error.to_string()),
+    }
+}
+
+fn screen_error_result(
+    strategy_id: &str,
+    strategy_name: &str,
+    error: &str,
+) -> crate::engine::probes::StrategyScreenResult {
+    use crate::engine::probes::ProbeStatus;
+    crate::engine::probes::StrategyScreenResult {
+        strategy_id: strategy_id.to_string(),
+        strategy_name: strategy_name.to_string(),
+        youtube_status: ProbeStatus::Blocked,
+        youtube_ms: None,
         engine_running: false,
         error: Some(error.to_string()),
     }
