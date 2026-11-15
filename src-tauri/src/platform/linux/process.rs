@@ -310,10 +310,18 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
 
     // 3. Discover local Lua scripts for zapret2 engine (filtering out internal helper/test modules)
     const INTERNAL_LUA_SCRIPTS: &[&str] = &[
+        // zapret-auto.lua is upstream's orchestrator library, not a
+        // preset: it never defines fake/multisplit (they live in
+        // zapret-antidpi.lua, which the discovered-preset builder
+        // does not load), so offering it as a strategy fails the
+        // engine with "desync function 'fake' does not exist"
+        // (issue #4).
+        "zapret-auto.lua",
         "zapret-lib.lua",
         "zapret-obfs.lua",
         "zapret-pcap.lua",
         "zapret-tests.lua",
+        "auto.lua",
         "lib.lua",
         "obfs.lua",
         "pcap.lua",
@@ -359,10 +367,6 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
                                 "antidpi" => (
                                     "zapret2 Универсальный Lua".into(),
                                     "Официальный Lua скрипт zapret-antidpi.lua (winws2)".into(),
-                                ),
-                                "auto" => (
-                                    "zapret2 Автоматический Lua".into(),
-                                    "Автоматический подбор desync в Lua (winws2)".into(),
                                 ),
                                 "yt4k" => (
                                     "zapret2 YouTube 4K".into(),
