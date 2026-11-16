@@ -791,8 +791,12 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
     );
   }
 
+  // items-start on the grid: the DNS card is far taller than the
+  // speedtest card, and the grid default (stretch) turned the short
+  // card into a giant empty void on the right. Each card takes its
+  // natural height.
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4 items-start">
       {/* DNS Manager Section */}
       <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 0 } as React.CSSProperties}>
         <div className="flex items-center justify-between border-b border-line pb-3">
