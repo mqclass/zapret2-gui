@@ -6050,7 +6050,7 @@ dependencies = [
 
 [[package]]
 name = "zapret2-supervisor"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "clap",
  "embed-resource 2.5.2",
