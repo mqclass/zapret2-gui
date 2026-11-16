@@ -126,6 +126,7 @@ async fn handle_client<S>(
                                 &writer,
                                 &ServerMessage::Welcome {
                                     version: PROTOCOL_VERSION,
+                                    app_version: crate::svc_ipc::APP_VERSION.to_string(),
                                     status: supervisor.get_status(),
                                 },
                             )

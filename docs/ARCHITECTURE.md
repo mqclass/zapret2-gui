@@ -113,6 +113,21 @@ Backend в GUI (`SupervisorBackend`) бывает двух видов:
 
 `find_svc_exe` ищет `zapret2-svc.exe` рядом с `current_exe` или в `resources/`.
 
+**Проверка версии службы при attach.** GUI не доверяет версии бинаря
+запущенной службы: при attach сравнивается `app_version` из `Welcome` с
+версией GUI (`svc_is_stale` в `svc_client.rs`). Устаревшая служба —
+старше GUI, либо без версии (1.4.0 и старше не шлют её вообще) — один
+раз перезапускается: graceful `shutdown`, ожидание исчезновения pipe до
+10 с, spawn свежей службы из каталога GUI, повторный `Hello`. Если
+движок был запущен под старой службой, он перезапускается с той же
+стратегией; custom-args запуск не восстанавливается (id стратегии там
+плейсхолдер). Если свежая служба тоже сообщает устаревшую версию —
+ошибка, цикла нет. Протокол при этом остаётся v2: бамп версии протокола
+уронил бы `Hello` к старой службе, а она держит mutex и pipe, и spawn +
+poll ушёл бы в таймаут. Стартовый re-attach при запуске GUI
+(`attach_to_running_svc`) проверяет версию так же, но никогда не
+спавнит службу, если её нет.
+
 ---
 
 ## 🔌 IPC: служба ↔ GUI
@@ -136,8 +151,9 @@ Backend в GUI (`SupervisorBackend`) бывает двух видов:
 `tgproxy-regenerate-secret`, `tgproxy-set-mode`, `tgproxy-test-connection`,
 `tgproxy-set-lan`.
 
-Ответы/события службы (`ServerMessage`): `welcome` (версия + снапшот статуса),
-`response` (`ok`/`error`/снапшоты), `event`. События (`SvcEvent`) зеркалят
+Ответы/события службы (`ServerMessage`): `welcome` (версия протокола +
+версия приложения службы `app_version` + снапшот статуса), `response`
+(`ok`/`error`/снапшоты), `event`. События (`SvcEvent`) зеркалят
 `EventSink` один-к-одному: `log-batch`, `state-changed`, `probe-update`,
 `logs-cleared`, `tgproxy-state`.
 

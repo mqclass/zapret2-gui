@@ -118,15 +118,22 @@ async fn main() {
             // If a svc instance is already running (e.g. the GUI was restarted
             // while the bypass stayed up), attach to it instead of the local
             // engine. The Telegram bridge follows: it runs inside the svc.
+            // A stale running svc (older binary, e.g. after a manual zip
+            // upgrade) is restarted once inside the attach; no svc is ever
+            // spawned here — that is the Start button's job.
             {
                 let app_state = handle.state::<crate::commands::AppState>();
                 let backend = app_state.backend.clone();
                 let tgproxy_backend = app_state.tgproxy.clone();
+                let restored = app_state.classifier_restored.clone();
                 let handle_clone = handle.clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Ok(client) = crate::svc_client::SvcClient::connect().await {
-                        if client.hello().await.is_ok() {
-                            let client = std::sync::Arc::new(client);
+                    match crate::svc_client::attach_to_running_svc(
+                        std::time::Duration::from_secs(10),
+                    )
+                    .await
+                    {
+                        Ok(Some(client)) => {
                             *backend.write() =
                                 crate::svc_client::SupervisorBackend::Remote(client.clone());
                             // The bridge follows into the svc; stop any
@@ -135,34 +142,59 @@ async fn main() {
                             old_tgproxy.stop_local_for_migration().await;
                             *tgproxy_backend.write() =
                                 crate::svc_client::TgproxyBackend::Remote(client);
+                            // Re-check the local copy: the 3s bridge
+                            // autostart may have fired while a svc restart
+                            // was in flight.
+                            old_tgproxy.stop_local_for_migration().await;
+                            // A slow restart may have let the 3s bridge
+                            // autostart take the port locally; the fresh
+                            // svc's one-shot autostart then either takes
+                            // a fallback port or fails outright. If the
+                            // bridge is enabled but not running in the
+                            // svc, start it there (best-effort; a
+                            // running bridge is left alone).
+                            if crate::platform::settings::load_settings().tgproxy_enabled {
+                                let tgproxy = tgproxy_backend.read().clone();
+                                let running = matches!(
+                                    tgproxy.get_status().await.state,
+                                    crate::engine::SupervisorState::Running
+                                        | crate::engine::SupervisorState::Starting
+                                );
+                                if !running {
+                                    if let Err(e) = tgproxy.start().await {
+                                        eprintln!(
+                                            "svc attach: failed to start Telegram bridge in svc: {e}"
+                                        );
+                                    }
+                                }
+                            }
                             tauri::async_runtime::spawn(
                                 crate::svc_client::SvcClient::forward_events(handle_clone),
                             );
                         }
+                        Ok(None) => {}
+                        Err(e) => eprintln!("svc attach at startup failed: {e}"),
                     }
+                    // Block classifier dead-man (§4.3): if the previous GUI
+                    // died mid-classification, the engine may still be
+                    // stopped. Runs here, AFTER the attach probe above, in
+                    // the same task — never on a timer. A stale-svc restart
+                    // takes 1-3 s (up to ~50 s worst case), so a fixed
+                    // delay could fire mid-restart: restore would snapshot
+                    // the still-Local backend and start the engine locally,
+                    // and the later flip to Remote would orphan it (no
+                    // Drop, no stop-on-migration for the engine). After the
+                    // probe the backend is final with respect to this
+                    // probe, whichever way it went — Remote, still
+                    // Local, or errored.
+                    crate::commands::restore_classifier_session_at_startup(backend, restored)
+                        .await;
                 });
             }
             let sink: Arc<dyn crate::engine::EventSink> =
                 Arc::new(crate::engine::TauriSink::new(handle.clone()));
             supervisor.set_event_sink(sink.clone());
             tgproxy.set_event_sink(sink);
-
-            // Block classifier dead-man (§4.3): if the previous GUI died
-            // mid-classification, the engine may still be stopped.
-            // Restore it before the frontend starts any watchdog cycles.
-            // The short delay lets the svc-attach probe above land, so
-            // the restore talks to the backend that actually owns the
-            // engine.
-            {
-                let app_state = handle.state::<crate::commands::AppState>();
-                let backend = app_state.backend.clone();
-                let restored = app_state.classifier_restored.clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-                    crate::commands::restore_classifier_session_at_startup(backend, restored)
-                        .await;
-                });
-            }
 
             // If the Telegram proxy was left enabled, restore it (best-effort).
             // Runs after the attach probe above, so it lands in the svc when

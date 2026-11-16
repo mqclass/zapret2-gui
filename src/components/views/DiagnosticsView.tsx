@@ -53,9 +53,10 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = React.memo(
 
     // Dead-man restore notice (§4.3/§6): shown once, when the backend
     // recovered an interrupted classification at app start. The
-    // backend performs that restore ~1.5 s after launch, and this
-    // view can mount before it lands — take_classifier_restored then
-    // returns null and a single read would lose the notice for good.
+    // backend performs that restore right after the startup
+    // svc-attach probe lands, and this view can mount before it
+    // lands — take_classifier_restored then returns null and a
+    // single read would lose the notice for good.
     // Poll briefly (bounded: 10 tries, 1 s apart) until the record
     // arrives or the window passes.
     useEffect(() => {
