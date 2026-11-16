@@ -617,6 +617,7 @@ impl TgproxyBackend {
                 host: String::new(),
                 port: 0,
                 secret: String::new(),
+                link_secret: String::new(),
                 tg_link: String::new(),
                 uptime_secs: 0,
                 last_error: Some("svc unreachable".to_string()),

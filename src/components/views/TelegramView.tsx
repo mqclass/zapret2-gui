@@ -35,6 +35,16 @@ type BusyKind = "idle" | "toggle" | "save" | "secret";
 
 const SECRET_RE = /^[0-9a-fA-F]{32}$/;
 
+/** Accepts a secret pasted back from the UI: the displayed value carries
+ * the `dd` marker (34 chars), the stored key does not (32 chars).
+ * Strips the marker only on the 34-char form, so a raw 32-hex key that
+ * happens to start with `dd` is untouched. Mirrors the backend
+ * `normalize_secret_input` (tgproxy.rs). */
+function normalizeSecretInput(raw: string): string {
+  const s = raw.trim().toLowerCase();
+  return s.length === 34 && s.startsWith("dd") ? s.slice(2) : s;
+}
+
 const formatUptime = (secs: number, h: string, m: string, s: string) => {
   const hrs = Math.floor(secs / 3600);
   const mins = Math.floor((secs % 3600) / 60);
@@ -197,8 +207,8 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ variant =
   );
 
   const qrLink =
-    status?.lan_enabled && status?.lan_ip && status?.secret
-      ? `https://t.me/proxy?server=${status.lan_ip}&port=${status.port}&secret=${status.secret}`
+    status?.lan_enabled && status?.lan_ip && (status?.link_secret || status?.secret)
+      ? `https://t.me/proxy?server=${status.lan_ip}&port=${status.port}&secret=${status.link_secret || status.secret}`
       : null;
 
   const handleSave = useCallback(async () => {
@@ -207,14 +217,14 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ variant =
       setError(t.telegram.badPort);
       return;
     }
-    if (!SECRET_RE.test(secretInput.trim())) {
+    if (!SECRET_RE.test(normalizeSecretInput(secretInput))) {
       setError(t.telegram.badSecret);
       return;
     }
     setBusy("save");
     setError(null);
     try {
-      await invoke("set_tgproxy_config", { port, secret: secretInput.trim().toLowerCase() });
+      await invoke("set_tgproxy_config", { port, secret: normalizeSecretInput(secretInput) });
       await notifyUser(t.telegram.notifyStoppedTitle, t.telegram.settingsSaved);
       await refresh();
     } catch (e) {
@@ -540,7 +550,10 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ variant =
                 {
                   key: "secret",
                   label: t.telegram.secret,
-                  value: status?.secret || t.telegram.secretEmpty,
+                  // Show the secret as Telegram sees it (with the `dd`
+                  // marker from the tg:// link), not the raw key — the
+                  // two used to look like different secrets.
+                  value: status?.link_secret || status?.secret || t.telegram.secretEmpty,
                   mono: true,
                   secret: true,
                 },

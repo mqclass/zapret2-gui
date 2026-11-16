@@ -44,6 +44,14 @@ pub struct TgProxyStatus {
     pub port: u16,
     /// 32-hex-char MTProto secret; empty when not generated yet.
     pub secret: String,
+    /// The secret exactly as it appears in the `tg://proxy` link: the
+    /// library prefixes the raw key with `dd` (MTProto mode marker),
+    /// so the UI must show this value, not `secret`, or the user sees
+    /// one secret in the app and a different-looking one in Telegram.
+    /// Empty when no secret yet. Serde default keeps older svc replies
+    /// decodable (the UI falls back to `secret` then).
+    #[serde(default)]
+    pub link_secret: String,
     /// Ready-to-use `tg://proxy?...` deep link (empty when no secret yet).
     pub tg_link: String,
     pub uptime_secs: u64,
@@ -392,6 +400,45 @@ impl TgProxyManager {
         s.len() == 32 && s.chars().all(|c| c.is_ascii_hexdigit())
     }
 
+    /// The secret as it appears in the `tg://proxy` link, mirroring the
+    /// library's `link_secret_for` (config.rs): the raw 32-hex key with
+    /// the `dd` MTProto mode marker in front, unless it already carries
+    /// a `dd`/`ee` prefix. Our bridge configures no FakeTLS domain, so
+    /// the `ee`+domain form cannot occur here; when the canonical link
+    /// exists, `secret_from_link` is authoritative instead.
+    fn link_secret_for(secret: &str) -> String {
+        if secret.starts_with("dd") || secret.starts_with("ee") {
+            secret.to_string()
+        } else {
+            format!("dd{secret}")
+        }
+    }
+
+    /// Extracts the `secret=` value from a `tg://proxy?...` link.
+    /// Returns None when the link has no secret parameter.
+    fn secret_from_link(link: &str) -> Option<String> {
+        let rest = link.split("secret=").nth(1)?;
+        let value = rest.split('&').next().unwrap_or("");
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    }
+
+    /// Accepts a secret the user pasted back from the UI: the displayed
+    /// value carries the `dd` marker (34 chars), the stored key does
+    /// not (32 chars). Strips the marker only on the 34-char form, so
+    /// a raw 32-hex key that happens to start with `dd` is untouched.
+    fn normalize_secret_input(secret: &str) -> String {
+        let secret = secret.trim().to_lowercase();
+        if secret.len() == 34 && secret.starts_with("dd") {
+            secret[2..].to_string()
+        } else {
+            secret
+        }
+    }
+
     fn generate_secret() -> String {
         let mut buf = [0u8; 16];
         OsRng.fill_bytes(&mut buf);
@@ -551,6 +598,14 @@ impl TgProxyManager {
         // bind host: with LAN on, bind_host is 0.0.0.0, which no client can
         // dial. Same rule as the bridge's --link-ip (see link_ip_for).
         let link_host = Self::link_ip_for(lan_enabled, Self::detect_lan_ip());
+        // The secret as Telegram sees it: the library prefixes the raw
+        // key with `dd` in the canonical link, so the fallback link
+        // must carry the same value or the two links disagree.
+        let derived_link_secret = if Self::is_valid_secret(&secret) {
+            Self::link_secret_for(&secret)
+        } else {
+            String::new()
+        };
         // The library generates the canonical tg:// link on bind; fall back
         // to a locally built one when the bridge has not bound yet.
         let tg_link = {
@@ -558,12 +613,16 @@ impl TgProxyManager {
             if link.is_empty() && Self::is_valid_secret(&secret) {
                 format!(
                     "tg://proxy?server={}&port={}&secret={}",
-                    link_host, port, secret
+                    link_host, port, derived_link_secret
                 )
             } else {
                 link.clone()
             }
         };
+        // The canonical link is authoritative for the displayed secret
+        // (it also covers the `ee`+domain form, should one ever appear);
+        // the derived value is the fallback when no link exists yet.
+        let link_secret = Self::secret_from_link(&tg_link).unwrap_or(derived_link_secret);
         let host = Self::bind_host(lan_enabled);
         let (stale_secret_detected, secret_rotated, bad_handshake_count, rotation_count, stale_trip_count) =
             self.health.snapshot();
@@ -572,6 +631,7 @@ impl TgProxyManager {
             host: host.to_string(),
             port,
             secret,
+            link_secret,
             tg_link,
             uptime_secs,
             last_error: self.last_error.read().clone(),
@@ -847,7 +907,7 @@ impl TgProxyManager {
         if port == 0 {
             return Err(TgProxyError::BadPort(port));
         }
-        let secret = secret.trim().to_lowercase();
+        let secret = Self::normalize_secret_input(&secret);
         if !Self::is_valid_secret(&secret) {
             return Err(TgProxyError::BadSecret);
         }
@@ -977,6 +1037,68 @@ mod tests {
         );
         // Detection failed: loopback still serves the local client.
         assert_eq!(TgProxyManager::link_ip_for(true, None), "127.0.0.1");
+    }
+
+    #[test]
+    fn link_secret_adds_dd_marker_once() {
+        // The displayed secret is the link secret: raw key + `dd` mode
+        // marker, exactly what Telegram shows for the tg:// link.
+        assert_eq!(
+            TgProxyManager::link_secret_for(TEST_SECRET),
+            format!("dd{TEST_SECRET}")
+        );
+        // Already prefixed: no double marker.
+        assert_eq!(
+            TgProxyManager::link_secret_for(&format!("dd{TEST_SECRET}")),
+            format!("dd{TEST_SECRET}")
+        );
+    }
+
+    #[test]
+    fn secret_from_link_parses_param() {
+        assert_eq!(
+            TgProxyManager::secret_from_link(
+                "tg://proxy?server=127.0.0.1&port=1443&secret=ddabcdef"
+            ),
+            Some("ddabcdef".to_string())
+        );
+        // Trailing params stop the value.
+        assert_eq!(
+            TgProxyManager::secret_from_link(
+                "tg://proxy?server=127.0.0.1&port=1443&secret=ddabcdef&foo=1"
+            ),
+            Some("ddabcdef".to_string())
+        );
+        assert_eq!(
+            TgProxyManager::secret_from_link("tg://proxy?server=127.0.0.1&port=1443"),
+            None
+        );
+        assert_eq!(TgProxyManager::secret_from_link(""), None);
+    }
+
+    #[test]
+    fn normalize_secret_input_strips_only_displayed_form() {
+        // Displayed form (dd + 32 hex): the marker comes off.
+        assert_eq!(
+            TgProxyManager::normalize_secret_input(&format!("DD{TEST_SECRET}")),
+            TEST_SECRET
+        );
+        // Raw 32-hex key: untouched, even when it starts with `dd`.
+        assert_eq!(
+            TgProxyManager::normalize_secret_input(TEST_SECRET),
+            TEST_SECRET
+        );
+        let dd_start = format!("dd{}", "ab".repeat(15));
+        assert_eq!(dd_start.len(), 32);
+        assert_eq!(
+            TgProxyManager::normalize_secret_input(&dd_start),
+            dd_start
+        );
+        // Whitespace and case are normalized like before.
+        assert_eq!(
+            TgProxyManager::normalize_secret_input(&format!("  {}  ", TEST_SECRET.to_uppercase())),
+            TEST_SECRET
+        );
     }
 
     #[test]

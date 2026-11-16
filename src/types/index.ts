@@ -88,6 +88,11 @@ export interface TgProxyStatus {
   port: number;
   /** 32-hex-char MTProto secret; empty when not generated yet. */
   secret: string;
+  /** The secret exactly as it appears in the tg://proxy link (raw key
+      with the `dd` MTProto mode marker). The UI shows this value, not
+      `secret`, so it matches what Telegram displays. May be absent
+      from older svc replies — fall back to `secret` then. */
+  link_secret?: string;
   /** Ready-to-use tg://proxy?... deep link; empty when no secret yet. */
   tg_link: string;
   uptime_secs: number;
