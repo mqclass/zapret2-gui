@@ -426,6 +426,21 @@ impl TgProxyManager {
         }
     }
 
+    /// Picks the tg:// link to advertise. The live link the bridge reported
+    /// on bind is authoritative only while the bridge is alive
+    /// (Starting/Running). A bridge that died into Error leaves its last
+    /// link behind; trusting it after the user changed the secret would
+    /// advertise a secret nothing listens with — the card and the form
+    /// then disagree, and "Open in Telegram" hands Telegram a dead secret.
+    fn advertised_link(state: SupervisorState, live_link: &str, fallback: String) -> String {
+        match state {
+            SupervisorState::Starting | SupervisorState::Running if !live_link.is_empty() => {
+                live_link.to_string()
+            }
+            _ => fallback,
+        }
+    }
+
     /// Accepts a secret the user pasted back from the UI: the displayed
     /// value carries the `dd` marker (34 chars), the stored key does
     /// not (32 chars). Strips the marker only on the 34-char form, so
@@ -607,18 +622,21 @@ impl TgProxyManager {
             String::new()
         };
         // The library generates the canonical tg:// link on bind; fall back
-        // to a locally built one when the bridge has not bound yet.
-        let tg_link = {
-            let link = self.tg_link.read();
-            if link.is_empty() && Self::is_valid_secret(&secret) {
-                format!(
-                    "tg://proxy?server={}&port={}&secret={}",
-                    link_host, port, derived_link_secret
-                )
-            } else {
-                link.clone()
-            }
+        // to a locally built one when the bridge has not bound yet — or
+        // when it is not alive at all (see advertised_link).
+        let fallback_link = if Self::is_valid_secret(&secret) {
+            format!(
+                "tg://proxy?server={}&port={}&secret={}",
+                link_host, port, derived_link_secret
+            )
+        } else {
+            String::new()
         };
+        let tg_link = Self::advertised_link(
+            *self.state.read(),
+            &self.tg_link.read(),
+            fallback_link,
+        );
         // The canonical link is authoritative for the displayed secret
         // (it also covers the `ee`+domain form, should one ever appear);
         // the derived value is the fallback when no link exists yet.
@@ -726,9 +744,12 @@ impl TgProxyManager {
         let link_ip = Self::link_ip_for(settings.tgproxy_lan, Self::detect_lan_ip());
         let config = Self::bridge_config(host, port, &secret, &settings.tgproxy_mode, &link_ip)?;
 
+        // Clear the old link BEFORE flipping the state: between the two
+        // writes get_status could otherwise read Starting + the previous
+        // run's link and advertise a dead secret for one poll.
+        *self.tg_link.write() = String::new();
         *self.state.write() = SupervisorState::Starting;
         *self.last_error.write() = None;
-        *self.tg_link.write() = String::new();
         self.emit_state(SupervisorState::Starting);
         self.supervisor.log(
             "info",
@@ -782,6 +803,12 @@ impl TgProxyManager {
             // The task ended. A deliberate stop() owns the state transition
             // (it set Stopping before awaiting us); anything else is either
             // an unexpected death or a bind failure — surface it honestly.
+            //
+            // No task means no bridge listens with the last reported link
+            // any more: drop it, or get_status would keep advertising a
+            // dead secret after the user changes it. A stop() in flight
+            // clears it again; the write is idempotent.
+            *tg_link.write() = String::new();
             match result {
                 Ok(()) => {
                     let mut st = state.write();
@@ -1074,6 +1101,41 @@ mod tests {
             None
         );
         assert_eq!(TgProxyManager::secret_from_link(""), None);
+    }
+
+    #[test]
+    fn advertised_link_trusts_live_link_only_while_alive() {
+        // Regression test: a bridge that died into Error left its last
+        // tg:// link behind, and get_status advertised its secret even
+        // after the user regenerated — the card and the form disagreed,
+        // and Telegram got a dead secret.
+        let live = "tg://proxy?server=127.0.0.1&port=1443&secret=ddAAAA";
+        let fallback = "tg://proxy?server=127.0.0.1&port=1443&secret=ddBBBB".to_string();
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Running, live, fallback.clone()),
+            live
+        );
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Starting, live, fallback.clone()),
+            live
+        );
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Error, live, fallback.clone()),
+            fallback
+        );
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Stopped, live, fallback.clone()),
+            fallback
+        );
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Stopping, live, fallback.clone()),
+            fallback
+        );
+        // No live link yet: the fallback serves even while alive.
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Running, "", fallback.clone()),
+            fallback
+        );
     }
 
     #[test]
