@@ -1614,14 +1614,7 @@ impl Supervisor {
     /// Falls back to the safe default on any unexpected characters so arbitrary
     /// settings content can never leak into the winws command line.
     fn sanitize_port_spec(raw: &str) -> String {
-        let ok = !raw.is_empty()
-            && raw.len() <= 64
-            && raw.chars().all(|c| c.is_ascii_digit() || c == ',' || c == '-');
-        if ok {
-            raw.to_string()
-        } else {
-            "1024-65535".to_string()
-        }
+        crate::platform::sanitize_port_spec(raw)
     }
 
     fn build_flowseal_args(preset_id: &str, bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
@@ -2512,6 +2505,24 @@ impl Supervisor {
         } else {
             self.resolve_strategy_args(binaries, strategy_id)?
         };
+
+        // Game-filter variables in caller-supplied arguments (issue #6):
+        // a pasted Flowseal command line carries %GameFilterTCP% /
+        // %GameFilterUDP% literally, and profiles saved before the parser
+        // learned to expand them still contain them. Expand from the same
+        // settings the built-in Flowseal presets use, so those profiles
+        // launch without re-import. Built-in presets never contain the
+        // variables, so the check below is a no-op fast path for them.
+        if final_args.iter().any(|a| a.contains("%GameFilter")) {
+            let settings = crate::platform::settings::load_settings();
+            for arg in final_args.iter_mut() {
+                *arg = crate::platform::expand_game_filter_vars(
+                    arg,
+                    &settings.game_filter_tcp,
+                    &settings.game_filter_udp,
+                );
+            }
+        }
 
         // Default winws to quiet (--debug=0). At --debug=1 it logs every
         // desynced packet, which floods the log buffer and can saturate the

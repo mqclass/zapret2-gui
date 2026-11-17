@@ -93,7 +93,35 @@ pub fn delete_custom_profile(id: &str) -> Result<(), String> {
 /// Parses a raw command string (copied from a zapret .bat or shell script)
 /// into tokenized arguments. Expands `%BIN%` and `%LISTS%`, removes leading
 /// executable names and batch escape characters.
+///
+/// Game-filter variables (`%GameFilterTCP%` / `%GameFilterUDP%`, defined by
+/// Flowseal's service.bat, never by the pasted line itself) are expanded from
+/// the game-filter settings — see `parse_command_line_args_inner`.
 pub fn parse_command_line_args(raw: &str, bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
+    let settings = crate::platform::settings::load_settings();
+    parse_command_line_args_inner(
+        raw,
+        bin_dir,
+        lists_dir,
+        &settings.game_filter_tcp,
+        &settings.game_filter_udp,
+    )
+}
+
+/// Pure core of [`parse_command_line_args`]: the game-filter values are
+/// parameters (mirroring `build_flowseal_args_inner`) so tests do not depend
+/// on the settings file on disk.
+//
+// The svc binary compiles the whole platform tree but never parses custom
+// profiles, so this is dead there (as is the public wrapper, pre-existing).
+#[allow(dead_code)]
+fn parse_command_line_args_inner(
+    raw: &str,
+    bin_dir: &Path,
+    lists_dir: &Path,
+    game_filter_tcp: &str,
+    game_filter_udp: &str,
+) -> Vec<String> {
     let bin_str = bin_dir.to_string_lossy().to_string();
     let lists_str = lists_dir.to_string_lossy().to_string();
 
@@ -101,6 +129,15 @@ pub fn parse_command_line_args(raw: &str, bin_dir: &Path, lists_dir: &Path) -> V
         .replace("%BIN%", &format!("{}/", bin_str.trim_end_matches('/')))
         .replace("%LISTS%", &format!("{}/", lists_str.trim_end_matches('/')))
         .replace('^', "");
+    // Flowseal .bat files define %GameFilterTCP% / %GameFilterUDP% in
+    // service.bat, so a pasted command line carries them literally
+    // (issue #6): expand them from the game-filter settings, or winws
+    // receives a non-numeric port list and dies at start.
+    let expanded = crate::platform::expand_game_filter_vars(
+        &expanded,
+        game_filter_tcp,
+        game_filter_udp,
+    );
 
     // Remove leading `start ...` or executable names if present
     let mut clean = expanded.trim();
@@ -149,4 +186,73 @@ pub fn parse_command_line_args(raw: &str, bin_dir: &Path, lists_dir: &Path) -> V
     }
 
     tokens
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Regression test for issue #6: a pasted Flowseal .bat line carries
+    /// %GameFilterTCP% / %GameFilterUDP%, which service.bat defines — the
+    /// paste itself never defines them. The parser must expand them from
+    /// the game-filter settings, or winws receives a literal %...% port
+    /// list and dies at start (its port parser rejects non-numeric input).
+    #[test]
+    fn test_parse_expands_game_filter_vars() {
+        let raw = "start \"zapret: %~n0\" /min \"%BIN%winws.exe\" --wf-tcp=80,443,2053,2083,2087,2096,8443,%GameFilterTCP% --wf-udp=443,19294-19344,50000-50100,%GameFilterUDP% ^\n--filter-tcp=%GameFilterTCP% --ipset=\"%LISTS%ipset-all.txt\" --dpi-desync=fake --new ^\n--filter-udp=%GameFilterUDP% --ipset=\"%LISTS%ipset-all.txt\" --dpi-desync=fake";
+        let tokens = parse_command_line_args_inner(
+            raw,
+            &PathBuf::from("/opt/zapret2/bin"),
+            &PathBuf::from("/opt/zapret2/lists"),
+            "1024-65535",
+            "1024-65535",
+        );
+        assert!(
+            !tokens.iter().any(|t| t.contains('%')),
+            "unexpanded variable left in tokens: {:?}",
+            tokens
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|t| t == "--wf-tcp=80,443,2053,2083,2087,2096,8443,1024-65535"),
+            "tokens: {:?}",
+            tokens
+        );
+        assert!(
+            tokens.iter().any(|t| t == "--filter-tcp=1024-65535"),
+            "tokens: {:?}",
+            tokens
+        );
+        assert!(
+            tokens.iter().any(|t| t == "--filter-udp=1024-65535"),
+            "tokens: {:?}",
+            tokens
+        );
+    }
+
+    /// Garbage from user-writable settings must never reach the engine's
+    /// port lists: an invalid game-filter value falls back to the default.
+    #[test]
+    fn test_parse_game_filter_falls_back_on_invalid_value() {
+        let raw = "--filter-tcp=%GameFilterTCP% --filter-udp=%GameFilterUDP%";
+        let tokens = parse_command_line_args_inner(
+            raw,
+            &PathBuf::from("/opt/zapret2/bin"),
+            &PathBuf::from("/opt/zapret2/lists"),
+            "12;rm -rf",
+            "",
+        );
+        assert!(
+            tokens.iter().any(|t| t == "--filter-tcp=1024-65535"),
+            "tokens: {:?}",
+            tokens
+        );
+        assert!(
+            tokens.iter().any(|t| t == "--filter-udp=1024-65535"),
+            "tokens: {:?}",
+            tokens
+        );
+    }
 }
