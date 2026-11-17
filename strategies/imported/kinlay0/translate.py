@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Translate the pinned kinlay0 .bat strategies into Rust data.
 
-Reads the 24 vendored .bat files in this directory (pin ce0cddc) and
+Reads the 26 vendored .bat files in this directory (pin ce0cddc) and
 regenerates src-tauri/src/engine/imported_strategies.rs. The
 translation is mechanical and total: every token of the engine
 command tail is either carried over verbatim, substituted
@@ -56,9 +56,10 @@ STRATEGIES = [
      "фейк плюс разрезание с большим перекрытием. Из сборника kinlay0."),
     # Second group: EXP5 (the clone technique, no circular orchestrator),
     # EXP (a distinct hostfakesplit+multisplit mix) and the continuations
-    # of known families. CIRCULAR/CIRCULAR1 stay out: the circular
-    # orchestrator is a second controller on top of our watchdog and
-    # auto-tune, it comes last as a separate step.
+    # of known families. CIRCULAR/CIRCULAR1 are the third group, at the
+    # end of this list: the circular orchestrator is a second controller
+    # on top of our watchdog and auto-tune, it comes last as a separate
+    # step.
     ("general (EXP5).bat", "kinlay0-exp5",
      "zapret2 Клон ClientHello",
      "Клон настоящего ClientHello в фейк, затем фейк и разрезание: "
@@ -130,10 +131,33 @@ STRATEGIES = [
      "zapret2 Эксперимент TS",
      "Вариация disorder с подменой временной метки TCP. "
      "Из сборника kinlay0."),
+    # Third group, last: CIRCULAR/CIRCULAR1. These are not fixed
+    # recipes — the circular orchestrator (stock zapret-auto.lua)
+    # rotates between two strategy=N chains per section when the
+    # current one fails (fails=2 within 120s, retrans=2). It is a
+    # second controller on top of our watchdog and auto-tune, which
+    # is why it comes last as its own step. The supervisor needs no
+    # changes for it: conntrack is on by default, and winws2 always
+    # redirects inbound SYN/RST/FIN plus HTTP 302/307 replies when
+    # TCP filters exist (nfqws.c wf_make_filter), which is exactly
+    # what the failure detector reads.
+    ("general (CIRCULAR).bat", "kinlay0-circular",
+     "zapret2 Циркуляр",
+     "Оркестратор circular: в TLS-секциях два набора приёмов, "
+     "движок сам переключается между ними, когда текущий перестаёт "
+     "работать. Наборы — клон ClientHello плюс фейки и фейки "
+     "с модификацией TLS и беспорядком пакетов. "
+     "Из сборника kinlay0."),
+    ("general (CIRCULAR1).bat", "kinlay0-circular1",
+     "zapret2 Циркуляр 1",
+     "Оркестратор circular, второй вариант: в TLS-секциях два "
+     "набора приёмов, движок сам переключается между ними при "
+     "неудачах. Наборы — клон ClientHello плюс фейки и фейки "
+     "со сдвигом seq/ack. Из сборника kinlay0."),
 ]
 
 # Blob name -> payload file, subset of the collection's blobs.lua that
-# the 24 strategies use. Files ship in the engine bin/ (upstream
+# the 26 strategies use. Files ship in the engine bin/ (upstream
 # zapret2/Flowseal bin folder); registration is ours (--blob=name:@file).
 # tls_retext is the one file taken from the collection's own bin/
 # (tls_clienthello_retext_ai.bin, same class of artifact as the other
@@ -143,6 +167,7 @@ STRATEGIES = [
 BLOB_FILES = {
     "active_discord": "ACTIVE_DISCORD_UDP.bin",
     "quic_google": "quic_initial_www_google_com.bin",
+    "quic_rutube": "quic_initial_rutube_ru.bin",
     "stun": "stun.bin",
     "stun2": "stun2.bin",
     "tls_5ka": "tls_clienthello_5ka_ru.bin",

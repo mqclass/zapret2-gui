@@ -69,6 +69,12 @@ export const AUTO_TUNE_CANDIDATES = [
   "kinlay0-exp3",
   "kinlay0-exp4",
   "kinlay0-experimental-ts",
+  // Third kinlay0 group, last: CIRCULAR/CIRCULAR1. The circular
+  // orchestrator rotates between two desync chains per section when
+  // the current one fails — a second controller on top of the
+  // watchdog and auto-tune, so they are probed last.
+  "kinlay0-circular",
+  "kinlay0-circular1",
 ];
 
 /** Finalists for phase 2: the full probe set runs only on these. */

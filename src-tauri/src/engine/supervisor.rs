@@ -3816,8 +3816,8 @@ mod tests {
         let all = crate::engine::imported_strategies::all();
         assert_eq!(
             all.len(),
-            24,
-            "kinlay0 groups 1+2 are exactly 24 strategies (7 + 17)"
+            26,
+            "kinlay0 groups 1+2+circular are exactly 26 strategies (7 + 17 + 2)"
         );
         for strat in all {
             let args = imported_test_args(strat.id, None);

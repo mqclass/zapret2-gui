@@ -7,15 +7,15 @@
 
 ## Что здесь лежит
 
-- 24 оригинальных `.bat` из сборника, байт в байт как у автора:
+- 26 оригинальных `.bat` из сборника, байт в байт как у автора:
   первая группа (новые техники) — DOUBLE FAKE (×3), SINGLE FAKE (×2),
   HOSTFAKESPLIT TS (×2); вторая группа — EXP5 (клон ClientHello),
   EXP (микс hostfakesplit+multisplit) и продолжения известных семейств:
   ALT14–16, SIMPLE FAKE ALT3–4, FAKE TLS AUTO ALT4–6, LEGACY10–11,
-  EXP1–4, EXPERIMENTAL TS.
-  CIRCULAR и CIRCULAR1 сюда не входят: оркестратор circular — второй
-  контроллер поверх сторожа и автоподбора, он идёт последней очередью
-  отдельным шагом. Дубли и порты уже имеющегося (FAKE TLS AUTO,
+  EXP1–4, EXPERIMENTAL TS; третья группа, последняя — CIRCULAR и
+  CIRCULAR1: оркестратор circular, второй контроллер поверх сторожа
+  и автоподбора, переключает секции между двумя наборами приёмов
+  при неудачах. Дубли и порты уже имеющегося (FAKE TLS AUTO,
   SIMPLE FAKE и его ALT/ALT2, SYNDATA, LEGACY) не берутся.
 - `LICENSE` сборника: MIT с тремя копирайтами (bol-van, Flowseal, kinlay0).
   Стратегии — компиляция работ сообщества (bol-van, Flowseal и другие),
