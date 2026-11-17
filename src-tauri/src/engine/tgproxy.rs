@@ -426,6 +426,20 @@ impl TgProxyManager {
         }
     }
 
+    /// Scrubs the current bridge secret out of a vendor-supplied string
+    /// before it reaches the log — the same redaction the tracing layer
+    /// applies. Today's vendor error shapes never carry the secret, but
+    /// a future vendor version echoing a payload in an error must not
+    /// turn into a leak in an exportable log file.
+    fn redact_secret(&self, text: &str) -> String {
+        let secret = self.log_redact.read();
+        if secret.is_empty() {
+            text.to_string()
+        } else {
+            text.replace(secret.as_str(), "[redacted]")
+        }
+    }
+
     /// Picks the tg:// link to advertise. The live link the bridge reported
     /// on bind is authoritative only while the bridge is alive
     /// (Starting/Running). A bridge that died into Error leaves its last
@@ -706,10 +720,10 @@ impl TgProxyManager {
                 *self.health.rotation_count.write() += 1;
                 self.supervisor.log(
                     "warn",
-                    "Секрет Telegram-моста был утерян (например, после переноса профиля на другого пользователя или машину) и создан заново. Старые ссылки в Telegram больше не работают.",
+                    "[tg-bridge] Секрет моста был утерян (например, после переноса профиля на другого пользователя или машину) и создан заново. Старые ссылки в Telegram больше не работают.",
                 );
             } else {
-                self.supervisor.log("info", "Сгенерирован новый MTProto-secret");
+                self.supervisor.log("info", "[tg-bridge] Сгенерирован новый MTProto-secret");
             }
         }
         let host = Self::bind_host(settings.tgproxy_lan);
@@ -720,7 +734,7 @@ impl TgProxyManager {
         if free != port {
             self.supervisor.log(
                 "info",
-                &format!("Порт {port} занят, мост использует {free}"),
+                &format!("[tg-bridge] Порт {port} занят, мост использует {free}"),
             );
             port = free;
             crate::platform::settings::update_settings(|s| {
@@ -753,7 +767,7 @@ impl TgProxyManager {
         self.emit_state(SupervisorState::Starting);
         self.supervisor.log(
             "info",
-            &format!("Запуск встроенного Telegram-моста на {host}:{port}…"),
+            &format!("[tg-bridge] Запуск встроенного моста на {host}:{port}…"),
         );
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -792,7 +806,7 @@ impl TgProxyManager {
                     cb_supervisor.log(
                         "info",
                         &format!(
-                            "Telegram-мост слушает {} — введите параметры в Telegram-клиенте",
+                            "[tg-bridge] Мост слушает {} — введите параметры в Telegram-клиенте",
                             info.addr
                         ),
                     );
@@ -817,8 +831,8 @@ impl TgProxyManager {
                     }
                 }
                 Err(e) => {
-                    let msg = format!("{e}");
-                    supervisor.log("error", &format!("Telegram-мост: {msg}"));
+                    let msg = this.redact_secret(&format!("{e}"));
+                    supervisor.log("error", &format!("[tg-bridge] Мост завершён с ошибкой: {msg}"));
                     *last_error.write() = Some(msg);
                     let mut st = state.write();
                     if *st != SupervisorState::Stopping && *st != SupervisorState::Stopped {
@@ -861,7 +875,7 @@ impl TgProxyManager {
         }
         *self.state.write() = SupervisorState::Stopping;
         self.emit_state(SupervisorState::Stopping);
-        self.supervisor.log("info", "Остановка Telegram-моста…");
+        self.supervisor.log("info", "[tg-bridge] Остановка моста…");
 
         // Signal shutdown first, then take the task handle — each guarded by
         // its own short critical section, never across an await point.
@@ -895,7 +909,7 @@ impl TgProxyManager {
         if persist_intent {
             let _ = crate::platform::settings::update_settings(|s| s.tgproxy_enabled = false);
         }
-        self.supervisor.log("info", "Telegram-мост остановлен");
+        self.supervisor.log("info", "[tg-bridge] Мост остановлен");
         Ok(())
     }
 
@@ -910,13 +924,22 @@ impl TgProxyManager {
         use tracing_subscriber::layer::SubscriberExt;
         static INSTALLED: std::sync::Once = std::sync::Once::new();
         INSTALLED.call_once(|| {
+            let warn_supervisor = supervisor.clone();
             let layer = BridgeLogLayer {
                 supervisor,
                 redact,
                 health,
             };
             let subscriber = tracing_subscriber::registry().with(layer);
-            let _ = tracing::subscriber::set_global_default(subscriber);
+            if tracing::subscriber::set_global_default(subscriber).is_err() {
+                // Another subscriber already owns the global default: the
+                // library's diagnostics (handshakes, ladder decisions)
+                // would be silently invisible, so say so in our own log.
+                warn_supervisor.log(
+                    "warn",
+                    "[tg-bridge] Не удалось подключить логирование библиотеки: глобальный подписчик tracing уже установлен, события моста не будут видны.",
+                );
+            }
         });
     }
 
@@ -1013,11 +1036,18 @@ impl TgProxyManager {
             tg_ws_proxy_rs::check::BridgeProbeResult::Ok(rtt) => {
                 self.supervisor.log(
                     "info",
-                    &format!("Проверка моста: Telegram ответил за {} мс", rtt.as_millis()),
+                    &format!("[tg-bridge] Проверка моста: Telegram ответил за {} мс", rtt.as_millis()),
                 );
                 Ok(rtt)
             }
             tg_ws_proxy_rs::check::BridgeProbeResult::Fail(e) => {
+                self.supervisor.log(
+                    "warn",
+                    &format!(
+                        "[tg-bridge] Проверка моста не прошла: {}",
+                        self.redact_secret(&format!("{e}"))
+                    ),
+                );
                 Err(TgProxyError::Bridge(format!("проверка не прошла: {e}")))
             }
         }
