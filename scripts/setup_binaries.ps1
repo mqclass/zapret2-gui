@@ -215,6 +215,114 @@ if (-not (Test-Path $SplitTarget)) {
     Test-PinnedHash -Path $SplitTarget -ExpectedSha256 $SplitPinSha256 -Label "mqclass/zapret2 winws2-split.exe"
 }
 
+# 5. Hidden driver (Monkey): a full copy of bin/ with the renamed
+#    WinDivert pair, so the engine can run with the driver masked as
+#    "Monkey" for game anti-cheats. The engine spawns with CWD = its
+#    bin dir, so every sibling file (.lua, .bin, split engine) must be
+#    present here too - hence the whole-directory mirror, not just the
+#    exes. The lists/ subdirectory is NOT mirrored: both modes share
+#    the stock bin/lists/ (see resolve_binaries), so learned domains
+#    and user edits stay in one place and the updater keeps backing
+#    them up.
+#
+#    The renamed pair is BUILT from WinDivert sources, never downloaded
+#    as a binary blob: WinDivert is LGPLv3, and shipping a modified
+#    binary without sources would not comply. The build pins the
+#    WinDivert v2.2.2 tag (same version as the stock driver), applies
+#    our rename patch (scripts/windivert-monkey.patch - service
+#    "Monkey", file Monkey64.sys, device name unchanged), and compiles
+#    only the userspace DLL with MSBuild (no WDK needed; the toolset
+#    is forced to v143 because the project still targets v140).
+#    The .sys is the UNMODIFIED stock driver, copied and renamed - its
+#    signature stays valid because Authenticode signs content, not the
+#    file name. License notice: docs/THIRD_PARTY_NOTICES.md.
+$WinDivertTag = "v2.2.2"
+$WinDivertCommit = "1789526ecfb9ff5397c94f9f54c1a3dc2fb60440"
+$MonkeyPatch = Join-Path $PSScriptRoot "windivert-monkey.patch"
+$MonkeyDir = Join-Path $BinDir "monkey"
+$MonkeyDll = Join-Path $MonkeyDir "WinDivert.dll"
+$MonkeySys = Join-Path $MonkeyDir "Monkey64.sys"
+
+New-Item -ItemType Directory -Path $MonkeyDir -Force | Out-Null
+# Clean the mirror first (except the driver pair): files removed from
+# bin/ upstream must not linger in bin/monkey/ forever.
+Get-ChildItem -Path $MonkeyDir -Force | Where-Object {
+    $_.Name -notin @("WinDivert.dll", "Monkey64.sys")
+} | Remove-Item -Recurse -Force
+# Mirror bin/ on every run: bin/ changes when upstream pins move, and a
+# stale monkey/ engine would silently run the old version. The stock
+# driver pair is excluded (the renamed pair goes in below); lists/ is
+# excluded (shared from bin/); the target directory itself is excluded
+# so the copy cannot recurse.
+Get-ChildItem -Path $BinDir -Force | Where-Object {
+    $_.Name -notin @("WinDivert.dll", "WinDivert64.sys", "lists", "monkey")
+} | ForEach-Object {
+    Copy-Item -Path $_.FullName -Destination $MonkeyDir -Recurse -Force
+}
+
+# The .sys is the unmodified stock driver, renamed: verify the copy
+# matches the stock file byte for byte.
+$StockSys = Join-Path $BinDir "WinDivert64.sys"
+if (-not (Test-Path $StockSys)) {
+    throw "Monkey setup: stock WinDivert64.sys is missing from bin/ (step 2 must run first)."
+}
+Copy-Item -Path $StockSys -Destination $MonkeySys -Force
+$stockHash = (Get-FileHash -Path $StockSys -Algorithm SHA256).Hash
+$monkeyHash = (Get-FileHash -Path $MonkeySys -Algorithm SHA256).Hash
+if ($stockHash -ne $monkeyHash) {
+    throw "SECURITY: Monkey64.sys does not match the stock WinDivert64.sys after copy."
+}
+Write-Host "    [+] Monkey64.sys is the unmodified stock driver (SHA256 matches)" -ForegroundColor Green
+
+# Build the renamed DLL from WinDivert sources (LGPL compliance: the
+# modified DLL is built from published sources + our in-repo patch).
+if (-not (Test-Path $MonkeyPatch)) {
+    throw "Monkey setup: rename patch not found at $MonkeyPatch."
+}
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    throw "Monkey setup: git is not on PATH - install Git to build the renamed WinDivert.dll."
+}
+$WDSrc = Join-Path $env:TEMP "windivert-2.2.2-monkey"
+if (Test-Path $WDSrc) { Remove-Item -Path $WDSrc -Recurse -Force }
+git clone --quiet --depth 1 --branch $WinDivertTag "https://github.com/basil00/WinDivert.git" $WDSrc
+if ($LASTEXITCODE -ne 0) { throw "Monkey setup: failed to clone WinDivert $WinDivertTag." }
+$clonedCommit = (git -C $WDSrc rev-parse HEAD).Trim()
+if ($clonedCommit -ne $WinDivertCommit) {
+    throw ("SECURITY: WinDivert tag {0} points at {1}, expected {2}. Aborting build." -f $WinDivertTag, $clonedCommit, $WinDivertCommit)
+}
+git -C $WDSrc apply $MonkeyPatch
+if ($LASTEXITCODE -ne 0) { throw "Monkey setup: the rename patch does not apply to WinDivert $WinDivertTag." }
+
+# Locate MSBuild via vswhere (ships with every VS 2017+ install):
+# msbuild is not on PATH on GitHub runners or plain dev machines.
+$VsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+if (-not (Test-Path $VsWhere)) {
+    throw "Monkey setup: vswhere.exe not found - Visual Studio 2022 or later is required to build the renamed WinDivert.dll."
+}
+$MsBuild = & $VsWhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+if (-not $MsBuild -or -not (Test-Path $MsBuild)) {
+    throw "Monkey setup: MSBuild not found via vswhere - Visual Studio 2022 or later with MSBuild is required."
+}
+$BuildOut = Join-Path $WDSrc "install\MSVC\amd64\"
+& $MsBuild (Join-Path $WDSrc "dll\windivert.vcxproj") /p:Configuration=Release /p:platform=x64 /p:PlatformToolset=v143 /p:OutDir=$BuildOut /nologo /v:m
+if ($LASTEXITCODE -ne 0) { throw "Monkey setup: MSBuild failed for the renamed WinDivert.dll." }
+$BuiltDll = Join-Path $BuildOut "WinDivert.dll"
+if (-not (Test-Path $BuiltDll)) { throw "Monkey setup: the renamed WinDivert.dll was not produced by the build." }
+Copy-Item -Path $BuiltDll -Destination $MonkeyDll -Force
+
+# Sanity check: the built DLL must carry the renamed service name
+# (UTF-16LE "Monkey") - if the patch silently failed to change the
+# binary, the build must fail here, not ship a stock DLL as Monkey.
+$dllText = [System.Text.Encoding]::Unicode.GetString([System.IO.File]::ReadAllBytes($MonkeyDll))
+if ($dllText -notmatch 'Monkey') {
+    throw "Monkey setup: the built DLL does not contain the renamed service name - the patch did not take effect."
+}
+Write-Host "    [+] Renamed WinDivert.dll built from WinDivert v2.2.2 sources + in-repo patch" -ForegroundColor Green
+# The renamed DLL is unsigned (a local build): Test-Authenticode warns,
+# which is expected. The .sys is the signed stock driver.
+Test-Authenticode -Path $MonkeySys
+Test-Authenticode -Path $MonkeyDll
+
 # Verify files and distinct binaries
 $w1 = Join-Path $BinDir "winws.exe"
 $w2 = Join-Path $BinDir "winws2.exe"

@@ -604,6 +604,13 @@ export const en: Translations = {
     autoHostlistOff: "Disabled",
     autoHostlistBtnEnable: "Enable auto-add",
     autoHostlistBtnDisable: "Disable auto-add",
+    monkeyDriverTitle: "Hidden driver (Monkey)",
+    monkeyDriverDesc:
+      "Masks the bypass driver under a different name so game anti-cheats stop complaining about WinDivert. Only needed if a game refuses to start or kicks you with the bypass on.",
+    monkeyDriverOn: "Enabled",
+    monkeyDriverOff: "Disabled",
+    monkeyDriverBtnEnable: "Enable hidden driver",
+    monkeyDriverBtnDisable: "Disable hidden driver",
     accentTitle: "App color",
     accentDesc:
       "Recolors the whole app: backgrounds, glass and accents. The app stays dark.",

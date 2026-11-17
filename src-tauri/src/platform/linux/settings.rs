@@ -201,6 +201,11 @@ pub struct AppSettings {
     /// restores the pre-feature argument lists byte for byte.
     #[serde(default = "default_true")]
     pub auto_hostlist_enabled: bool,
+    /// Hidden driver (Monkey): Windows-only, unused on Linux. Present
+    /// so the shared `set_monkey_driver_enabled` command compiles on
+    /// both platforms (same mirroring as the other driver settings).
+    #[serde(default)]
+    pub monkey_driver: bool,
     /// UI accent color override as a hex string ("#RRGGBB"). None means the
     /// built-in violet accent from index.css. Only the accent family is
     /// overridden; the dark glass base theme is never changed.
@@ -272,6 +277,7 @@ impl Default for AppSettings {
             watchdog_enabled: true,
             watchdog_interval_minutes: 15,
             auto_hostlist_enabled: true,
+            monkey_driver: false,
             accent_color: None,
             classifier_session: None,
         }

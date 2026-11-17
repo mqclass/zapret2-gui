@@ -604,6 +604,13 @@ export const ru: Translations = {
     autoHostlistOff: "Выключено",
     autoHostlistBtnEnable: "Включить авто-добавление",
     autoHostlistBtnDisable: "Выключить авто-добавление",
+    monkeyDriverTitle: "Скрытый драйвер (Monkey)",
+    monkeyDriverDesc:
+      "Маскирует драйвер обхода под другим именем, чтобы античиты в играх не ругались на WinDivert. Нужен только если игра не запускается или выкидывает с включённым обходом.",
+    monkeyDriverOn: "Включено",
+    monkeyDriverOff: "Выключено",
+    monkeyDriverBtnEnable: "Включить скрытый драйвер",
+    monkeyDriverBtnDisable: "Выключить скрытый драйвер",
     accentTitle: "Цвет приложения",
     accentDesc:
       "Меняет цвет всего приложения: фоны, стекло и акценты. Приложение остаётся тёмным.",

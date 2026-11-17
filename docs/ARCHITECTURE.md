@@ -33,7 +33,8 @@ zapret2-gui/
 │   ├── WinDivert64.sys           # Драйвер ядра WinDivert x64
 │   ├── cygwin1.dll               # POSIX runtime для winws/winws2
 │   ├── *.bin                     # Дампы ClientHello / QUIC Initial / STUN
-│   └── tgproxy/                  # Telegram MTProto→WebSocket bridge (tg-ws-proxy)
+│   ├── tgproxy/                  # Telegram MTProto→WebSocket bridge (tg-ws-proxy)
+│   └── monkey/                   # Копия bin/ со скрытым драйвером (служба "Monkey", Monkey64.sys)
 │
 ├── lists/                        # Списки доменов, IP и исключений
 ├── strategies/                   # Lua-стратегии zapret2 (antidpi, auto, obfs)
@@ -265,3 +266,35 @@ timeout, затем срывалось в raw-TCP и платило ещё и е
   каждый desync-пакет и за минуты забивает буфер логов и stdout-пайп, поэтому
   quiet-режим намеренный; auto-hostlist держится domain-only.
 - Служба ищется рядом с GUI-бинарником или в `resources/` (`find_svc_exe`).
+
+## 🙈 Скрытый драйвер (Monkey)
+
+Некоторые античиты в играх банят процесс за само имя `WinDivert` (служба
+или файл). Для этого есть режим скрытого драйвера, переключатель
+«Настройки → Скрытый драйвер (Monkey)», по умолчанию выключен.
+
+- `bin/monkey/` — полная копия `bin/` с переименованной парой:
+  служба `Monkey`, файл `Monkey64.sys`, пропатченный `WinDivert.dll`.
+  Пара НЕ скачивается готовым блобом: WinDivert — LGPLv3, поэтому DLL
+  собирается из исходников (basil00/WinDivert, тег v2.2.2) с нашим
+  патчем `scripts/windivert-monkey.patch` в `setup_binaries.ps1`, а
+  `.sys` — немодифицированный стоковый драйвер, скопированный и
+  переименованный (подпись цела, сверяется по хешу). Лицензионное
+  уведомление — `docs/THIRD_PARTY_NOTICES.md`. Имя устройства
+  `\\.\WinDivert` НЕ изменено, поэтому режим обманывает только
+  проверки по имени службы и файла, а не по устройству.
+- `resolve_binaries` читает настройку `monkey_driver` и в режиме Monkey
+  резолвит ТОЛЬКО `bin/monkey/` — без fallback на стоковый каталог,
+  иначе молча запустился бы обычный драйвер. Списки при этом общие:
+  оба режима читают стоковый `bin/lists/` (`lists/` в `bin/monkey/`
+  не зеркалируется), иначе выученные домены и правки пользователя
+  форкались бы по режимам, а апдейтер сканирует только `bin/lists/`.
+- Оба драйвера делят одно имя устройства, поэтому перед запуском движка
+  супервизор останавливает службу другого режима
+  (`supervisor.rs`, шаг 1b); `cleanup_windivert_driver` останавливает
+  и `Monkey` тоже.
+- Проверка и ремонт драйвера (`platform/windows/windivert.rs`) смотрят
+  на службу и файл активного режима; диагностика и сообщения используют
+  его имя (`windivert_common::driver_service_name`).
+- Файлы Monkey — часть релиза (`build.yml` копирует `bin/` рекурсивно),
+  апдейтер их не затирает, в отличие от вручную подложенных файлов.

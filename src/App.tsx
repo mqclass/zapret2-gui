@@ -121,6 +121,8 @@ const AppContent: React.FC = () => {
   const [isTogglingWatchdog, setIsTogglingWatchdog] = useState<boolean>(false);
   const [autoHostlistOn, setAutoHostlistOn] = useState<boolean>(true);
   const [isTogglingAutoHostlist, setIsTogglingAutoHostlist] = useState<boolean>(false);
+  const [monkeyDriverOn, setMonkeyDriverOn] = useState<boolean>(false);
+  const [isTogglingMonkeyDriver, setIsTogglingMonkeyDriver] = useState<boolean>(false);
   const [watchdogInterval, setWatchdogInterval] = useState<number>(15);
   // Accent override ("#RRGGBB"); null means the built-in violet.
   const [accentColor, setAccentColor] = useState<string | null>(null);
@@ -574,6 +576,7 @@ const AppContent: React.FC = () => {
           setWatchdogOn(cfg.watchdog_enabled ?? true);
           setWatchdogInterval(cfg.watchdog_interval_minutes ?? 15);
           setAutoHostlistOn(cfg.auto_hostlist_enabled ?? true);
+          setMonkeyDriverOn(cfg.monkey_driver ?? false);
           const accent = cfg.accent_color ?? null;
           setAccentColor(accent);
           applyAccent(accent);
@@ -860,6 +863,34 @@ const AppContent: React.FC = () => {
       setIsTogglingAutoHostlist(false);
     }
   }, [autoHostlistOn, status.state, status.active_strategy, status.active_custom_args, handleStop, handleStartStrategy]);
+
+  // Same shape as the auto-hostlist toggle: the setting is consumed at
+  // engine start (it shapes binary resolution), so a running engine is
+  // restarted — except for a one-off custom-args run, where restarting
+  // would silently swap the custom config for the stand-in preset.
+  const handleToggleMonkeyDriver = useCallback(async () => {
+    setIsTogglingMonkeyDriver(true);
+    try {
+      const res = await invoke<boolean>("set_monkey_driver_enabled", {
+        enable: !monkeyDriverOn,
+      });
+      setMonkeyDriverOn(res);
+      if (
+        status.state === "running" &&
+        status.active_strategy &&
+        !status.active_custom_args
+      ) {
+        const restartTarget = status.active_strategy;
+        await handleStop();
+        await handleStartStrategy(restartTarget, { silent: true });
+      }
+    } catch (err: any) {
+      console.error("Failed to toggle hidden driver:", err);
+      setErrorAlert(formatErrorMessage(err));
+    } finally {
+      setIsTogglingMonkeyDriver(false);
+    }
+  }, [monkeyDriverOn, status.state, status.active_strategy, status.active_custom_args, handleStop, handleStartStrategy]);
 
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
 
@@ -1165,6 +1196,9 @@ const AppContent: React.FC = () => {
               autoHostlistOn={autoHostlistOn}
               onToggleAutoHostlist={handleToggleAutoHostlist}
               isTogglingAutoHostlist={isTogglingAutoHostlist}
+              monkeyDriverOn={monkeyDriverOn}
+              onToggleMonkeyDriver={handleToggleMonkeyDriver}
+              isTogglingMonkeyDriver={isTogglingMonkeyDriver}
               watchdogInterval={watchdogInterval}
               onWatchdogInterval={handleWatchdogInterval}
               accentColor={accentColor}

@@ -56,7 +56,7 @@ If some site still doesn't open after that, add its domain on the sites tab or r
 - `zapret2-svc.exe` is the background service. It keeps the bypass on while the window is closed and makes sure the network stays clean after shutdown.
 - `winws2.exe` / `winws.exe` are the bypass engine by bol-van. It is the one that processes the traffic.
 - Strategies and domain lists are the ready-made bypass recipes: Flowseal presets and zapret2 Lua presets, plus the lists of which sites to send through the bypass.
-- `WinDivert` is the traffic interception driver. That is why the program needs administrator rights.
+- `WinDivert` is the traffic interception driver. That is why the program needs administrator rights. The hidden-driver (Monkey) mode builds its renamed DLL from the WinDivert sources; see [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md).
 
 ## Building from source
 

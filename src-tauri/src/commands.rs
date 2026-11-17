@@ -759,6 +759,19 @@ pub async fn set_auto_hostlist_enabled(enable: bool) -> Result<bool, String> {
     Ok(enable)
 }
 
+/// Toggles the hidden driver (Monkey): the engine runs from
+/// bin/monkey/ with the renamed WinDivert pair (service "Monkey",
+/// Monkey64.sys) so game anti-cheats that flag "WinDivert" by name
+/// stop complaining. The setting is consumed at engine start (it
+/// shapes binary resolution), so the frontend restarts a running
+/// engine after flipping it.
+#[tauri::command]
+pub async fn set_monkey_driver_enabled(enable: bool) -> Result<bool, String> {
+    crate::platform::settings::update_settings(|s| s.monkey_driver = enable)
+        .map_err(|e| e.to_string())?;
+    Ok(enable)
+}
+
 /// Sets the watchdog check interval in minutes. The caller validates the
 /// range; the backend clamps to 5..=120 so a bad value cannot spin the
 /// probe loop or stall escalation for hours.

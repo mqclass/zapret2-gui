@@ -197,6 +197,14 @@ pub struct AppSettings {
     /// restores the pre-feature argument lists byte for byte.
     #[serde(default = "default_true")]
     pub auto_hostlist_enabled: bool,
+    /// Hidden driver (Monkey): run the engine from bin/monkey/ with the
+    /// renamed WinDivert pair (service "Monkey", Monkey64.sys) so game
+    /// anti-cheats that flag "WinDivert" by name stop complaining. The
+    /// driver binary itself is byte-identical to stock WinDivert 2.2.2;
+    /// only the service/file name differs (the device name is unchanged,
+    /// so this fools name checks, not device checks). Off by default.
+    #[serde(default)]
+    pub monkey_driver: bool,
     /// UI accent color override as a hex string ("#RRGGBB"). None means the
     /// built-in violet accent from index.css. Only the accent family is
     /// overridden; the dark glass base theme is never changed.
@@ -268,6 +276,7 @@ impl Default for AppSettings {
             watchdog_enabled: true,
             watchdog_interval_minutes: 15,
             auto_hostlist_enabled: true,
+            monkey_driver: false,
             accent_color: None,
             classifier_session: None,
         }

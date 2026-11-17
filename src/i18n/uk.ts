@@ -604,6 +604,13 @@ export const uk: Translations = {
     autoHostlistOff: "Вимкнено",
     autoHostlistBtnEnable: "Увімкнути авто-додавання",
     autoHostlistBtnDisable: "Вимкнути авто-додавання",
+    monkeyDriverTitle: "Прихований драйвер (Monkey)",
+    monkeyDriverDesc:
+      "Маскує драйвер обходу під іншим ім'ям, щоб античити в іграх не сварилися на WinDivert. Потрібен, лише якщо гра не запускається або викидає з увімкненим обходом.",
+    monkeyDriverOn: "Увімкнено",
+    monkeyDriverOff: "Вимкнено",
+    monkeyDriverBtnEnable: "Увімкнути прихований драйвер",
+    monkeyDriverBtnDisable: "Вимкнути прихований драйвер",
     accentTitle: "Колір застосунку",
     accentDesc:
       "Змінює колір усього застосунку: фони, скло та акценти. Застосунок лишається темним.",

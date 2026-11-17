@@ -144,6 +144,32 @@ pub fn driver_paths_equal(a: &str, b: &str) -> bool {
     normalize_driver_path(a) == normalize_driver_path(b)
 }
 
+/// Driver-mode names. The hidden driver (Monkey) is WinDivert 2.2.2
+/// under a different service/file name: the DLL is built from the
+/// WinDivert sources plus our rename patch
+/// (scripts/windivert-monkey.patch), the .sys is the unmodified stock
+/// driver; the device name is unchanged, so this only fools checks
+/// that match the service or file name.
+///
+/// SCM service name for the mode: "Monkey" vs "WinDivert".
+pub fn driver_service_name(monkey_mode: bool) -> &'static str {
+    if monkey_mode {
+        "Monkey"
+    } else {
+        "WinDivert"
+    }
+}
+
+/// Kernel-driver file name for the mode: "Monkey64.sys" vs
+/// "WinDivert64.sys".
+pub fn driver_sys_file_name(monkey_mode: bool) -> &'static str {
+    if monkey_mode {
+        "Monkey64.sys"
+    } else {
+        "WinDivert64.sys"
+    }
+}
+
 /// Facts the diagnosis needs. Pure inputs — no IO happens here.
 #[derive(Debug, Clone, Default)]
 pub struct DriverFacts {
@@ -157,6 +183,9 @@ pub struct DriverFacts {
     pub expected_path: Option<String>,
     /// Whether `WinDivert64.sys` exists at the expected path.
     pub expected_file_exists: bool,
+    /// Driver name for user-facing messages: "WinDivert" or "Monkey".
+    /// Defaults to "" (unknown) — callers always set it.
+    pub driver_label: &'static str,
 }
 
 /// The diagnosis decision table.
@@ -165,6 +194,14 @@ pub struct DriverFacts {
 /// service says, so it is reported first; a DISABLED service kills it no
 /// matter where the path points, so it comes before the path checks.
 pub fn diagnose_driver(facts: &DriverFacts) -> WindivertDriverStatus {
+    // Fallback label: every production caller sets driver_label, but a
+    // future forgetful one must not produce messages like
+    // "Служба драйвера  отключена" (empty label).
+    let label = if facts.driver_label.is_empty() {
+        "WinDivert"
+    } else {
+        facts.driver_label
+    };
     let expected_path = facts.expected_path.clone();
     let service_binary_path = facts
         .service_binary_path
@@ -203,7 +240,7 @@ pub fn diagnose_driver(facts: &DriverFacts) -> WindivertDriverStatus {
         return status(
             "driver_file_missing",
             format!(
-                "Файл драйвера WinDivert64.sys отсутствует в папке приложения ({expected}). \
+                "Файл драйвера отсутствует в папке приложения ({expected}). \
                  Скорее всего, его унёс в карантин антивирус — восстановите файл и добавьте папку в исключения."
             ),
         );
@@ -211,13 +248,19 @@ pub fn diagnose_driver(facts: &DriverFacts) -> WindivertDriverStatus {
     if !facts.service_exists {
         return status(
             "not_installed",
-            "Служба WinDivert не зарегистрирована. Она создастся сама при первом запуске обхода.".into(),
+            format!(
+                "Служба {} не зарегистрирована. Она создастся сама при первом запуске обхода.",
+                label
+            ),
         );
     }
     if facts.service_start_type == Some(SERVICE_DISABLED) {
         return status(
             "service_disabled",
-            "Служба драйвера WinDivert отключена, поэтому движок не может запуститься.".into(),
+            format!(
+                "Служба драйвера {} отключена, поэтому движок не может запуститься.",
+                label
+            ),
         );
     }
     if !facts.service_path_exists {
@@ -230,8 +273,9 @@ pub fn diagnose_driver(facts: &DriverFacts) -> WindivertDriverStatus {
         return status(
             "stale_path",
             format!(
-                "Служба драйвера WinDivert указывает на папку, которой больше нет ({path}). \
-                 Такое бывает после распаковки новой версии в новую папку."
+                "Служба драйвера {} указывает на папку, которой больше нет ({path}). \
+                 Такое бывает после распаковки новой версии в новую папку.",
+                label
             ),
         );
     }
@@ -250,12 +294,16 @@ pub fn diagnose_driver(facts: &DriverFacts) -> WindivertDriverStatus {
         status(
             "ok",
             format!(
-                "Драйвер WinDivert работает, но зарегистрирован из другой папки ({path}). \
-                 Если её удалить, обход сломается."
+                "Драйвер {} работает, но зарегистрирован из другой папки ({path}). \
+                 Если её удалить, обход сломается.",
+                label
             ),
         )
     } else {
-        status("ok", "Драйвер WinDivert в порядке.".into())
+        status(
+            "ok",
+            format!("Драйвер {} в порядке.", label),
+        )
     }
 }
 
@@ -271,7 +319,30 @@ mod tests {
             service_path_exists: true,
             expected_path: Some(r"C:\zapret2\WinDivert64.sys".into()),
             expected_file_exists: true,
+            driver_label: "WinDivert",
         }
+    }
+
+    #[test]
+    fn driver_names_for_both_modes() {
+        assert_eq!(driver_service_name(false), "WinDivert");
+        assert_eq!(driver_sys_file_name(false), "WinDivert64.sys");
+        assert_eq!(driver_service_name(true), "Monkey");
+        assert_eq!(driver_sys_file_name(true), "Monkey64.sys");
+    }
+
+    #[test]
+    fn diagnose_monkey_label_flows_into_messages() {
+        // The hidden driver is diagnosed under its own name, not
+        // "WinDivert" — otherwise the repair banner would name a
+        // service the user never enabled.
+        let mut facts = base_facts();
+        facts.driver_label = "Monkey";
+        facts.service_start_type = Some(SERVICE_DISABLED);
+        let status = diagnose_driver(&facts);
+        assert_eq!(status.state, "service_disabled");
+        assert!(status.message.contains("Monkey"));
+        assert!(!status.message.contains("WinDivert"));
     }
 
     #[test]

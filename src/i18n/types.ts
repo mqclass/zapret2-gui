@@ -609,6 +609,12 @@ export interface Translations {
     autoHostlistOff: string;
     autoHostlistBtnEnable: string;
     autoHostlistBtnDisable: string;
+    monkeyDriverTitle: string;
+    monkeyDriverDesc: string;
+    monkeyDriverOn: string;
+    monkeyDriverOff: string;
+    monkeyDriverBtnEnable: string;
+    monkeyDriverBtnDisable: string;
     accentTitle: string;
     accentDesc: string;
     accentCustom: string;

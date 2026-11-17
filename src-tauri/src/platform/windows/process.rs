@@ -91,6 +91,12 @@ pub struct ZapretBinaries {
     pub windivert_dll: PathBuf,
     pub windivert_sys: PathBuf,
     pub lists_dir: Option<PathBuf>,
+    /// True when the binaries came from bin/monkey/ (hidden driver mode).
+    /// The supervisor uses it to stop the other driver's service before
+    /// spawning: both drivers share the `\\.\WinDivert` device name, so
+    /// the idle one must not stay loaded.
+    #[serde(default)]
+    pub monkey_mode: bool,
 }
 
 /// Strategy or Preset metadata.
@@ -127,7 +133,21 @@ pub struct SupervisedProcess {
 /// privilege-escalation vector.
 /// The `ZAPRET2_BIN_DIR` override is honored only when the `--dev` flag is
 /// passed explicitly (developer workflows), never in production.
+///
+/// The driver mode comes from settings (`monkey_driver`): in Monkey mode
+/// the engine runs from `bin/monkey/` (a full copy of `bin/` with the
+/// renamed driver pair) and there is NO fallback to the stock directory —
+/// silently running the stock driver when the user asked for the hidden
+/// one would defeat the point and confuse the driver check.
 pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
+    let monkey_mode = crate::platform::settings::load_settings()
+        .monkey_driver;
+    resolve_binaries_with_mode(monkey_mode)
+}
+
+/// Mode-explicit form of [`resolve_binaries`]: `true` resolves the
+/// Monkey engine directory, `false` the stock one.
+pub fn resolve_binaries_with_mode(monkey_mode: bool) -> Result<ZapretBinaries, ProcessError> {
     let mut candidates = Vec::new();
     let mut searched = Vec::new();
 
@@ -146,18 +166,32 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
     }
 
     // Production candidates: strictly anchored at the executable location.
+    // Monkey mode has exactly one: bin/monkey/. Stock mode keeps the
+    // historical three (bin/, bin/windows-x86_64/, exe dir).
     if let Some(ref dir) = exe_dir {
-        candidates.push(dir.join("bin"));
-        candidates.push(dir.join("bin/windows-x86_64"));
-        candidates.push(dir.clone());
+        if monkey_mode {
+            candidates.push(dir.join("bin").join("monkey"));
+        } else {
+            candidates.push(dir.join("bin"));
+            candidates.push(dir.join("bin/windows-x86_64"));
+            candidates.push(dir.clone());
+        }
     }
 
     // Legacy repo-checkout layout, dev mode only (local development convenience).
     if dev_mode {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        candidates.push(cwd.join("bin"));
-        candidates.push(cwd.join("bin/windows-x86_64"));
+        if monkey_mode {
+            candidates.push(cwd.join("bin").join("monkey"));
+        } else {
+            candidates.push(cwd.join("bin"));
+            candidates.push(cwd.join("bin/windows-x86_64"));
+        }
     }
+
+    // The driver file name differs by mode; the DLL name does not (the
+    // patched DLL is still called WinDivert.dll).
+    let sys_file = crate::platform::windivert_common::driver_sys_file_name(monkey_mode);
 
     for candidate in candidates {
         let display_path = candidate.to_string_lossy().to_string();
@@ -166,7 +200,7 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
         let winws2 = candidate.join("winws2.exe");
         let winws1 = candidate.join("winws.exe");
         let windivert_dll = candidate.join("WinDivert.dll");
-        let windivert_sys = candidate.join("WinDivert64.sys");
+        let windivert_sys = candidate.join(sys_file);
 
         // All-or-nothing per candidate directory: the engine and the kernel
         // driver components must come from the SAME directory, so a partial
@@ -186,10 +220,29 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
             .then(|| candidate.join("winws2-split.exe"));
 
         // Resolve lists directory relative to the install location.
-        let lists_dir = [candidate.join("lists")]
-            .into_iter()
-            .chain(exe_dir.iter().map(|d| d.join("lists")))
-            .find(|p| p.is_dir());
+        // Both modes share the STOCK bin/lists/: in monkey mode the
+        // candidate is bin/monkey/, and resolving lists from it would
+        // fork learned domains and user edits into bin/monkey/lists/,
+        // which the updater never backs up (it only scans bin/lists/
+        // and the root lists/). The setup script does not mirror
+        // lists/ into bin/monkey/ for the same reason.
+        let mut list_candidates: Vec<PathBuf> = Vec::new();
+        if monkey_mode {
+            if let Some(ref dir) = exe_dir {
+                list_candidates.push(dir.join("bin").join("lists"));
+            }
+            if dev_mode {
+                let cwd =
+                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                list_candidates.push(cwd.join("bin").join("lists"));
+            }
+        } else {
+            list_candidates.push(candidate.join("lists"));
+        }
+        if let Some(ref dir) = exe_dir {
+            list_candidates.push(dir.join("lists"));
+        }
+        let lists_dir = list_candidates.into_iter().find(|p| p.is_dir());
 
         return Ok(ZapretBinaries {
             bin_dir: candidate,
@@ -199,6 +252,7 @@ pub fn resolve_binaries() -> Result<ZapretBinaries, ProcessError> {
             windivert_dll,
             windivert_sys,
             lists_dir,
+            monkey_mode,
         });
     }
 
@@ -501,7 +555,10 @@ pub async fn stop_winws2_gracefully(
 
 /// Purges stuck WinDivert driver services natively and quietly.
 pub async fn cleanup_windivert_driver() {
-    let service_names = ["WinDivert", "WinDivert14", "WinDivert64"];
+    // "Monkey" is the hidden driver's service name: a stale Monkey
+    // registration from a previous mode must be stopped the same way,
+    // or it keeps the device object and the stock driver cannot load.
+    let service_names = ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"];
 
     for name in &service_names {
         stop_service_native(name);

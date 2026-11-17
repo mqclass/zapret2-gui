@@ -839,6 +839,45 @@ impl Supervisor {
             }
         };
 
+        // 1b. The stock and hidden drivers share the `\\.\WinDivert`
+        // device name, so the idle one's service must not stay loaded —
+        // otherwise the second driver fails to create its device object
+        // (bol-van's windivert-hide README says the same: stop the
+        // original service first). Best-effort: a service that is not
+        // running simply reports false, and a stop failure is logged,
+        // not fatal. After the stop signal, poll until the service is
+        // actually gone (same 20x100ms pattern as the repair): spawning
+        // winws2 while the other driver is still unloading could fail
+        // with the exit-177 signature, or worse, open the device
+        // object still owned by the other driver.
+        #[cfg(target_os = "windows")]
+        {
+            let idle_service =
+                crate::platform::windivert_common::driver_service_name(!binaries.monkey_mode);
+            if crate::platform::conflicts::stop_service_native(idle_service) {
+                for _ in 0..20 {
+                    if !crate::platform::conflicts::is_service_running(idle_service) {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                if crate::platform::conflicts::is_service_running(idle_service) {
+                    self.log(
+                        "warn",
+                        &format!(
+                            "Idle {} driver service did not stop within 2s; engine start may fail",
+                            idle_service
+                        ),
+                    );
+                } else {
+                    self.log(
+                        "info",
+                        &format!("Stopped idle {} driver service", idle_service),
+                    );
+                }
+            }
+        }
+
         // Determine target strategy & engine
         let strategies = discover_strategies().unwrap_or_default();
         let target_strat = if let Some(ref id) = strategy_id {
@@ -2200,21 +2239,41 @@ impl Supervisor {
 
     /// Builds zapret2 Ultimate configuration for Russia on winws2 v2.
     /// Thin wrapper: reads the auto-hostlist setting and resolves
-    /// the absolute auto path from the user lists directory (the
-    /// parameter this builder historically ignored); the argument
-    /// list itself is built by the pure inner function so tests can
-    /// pin both states.
-    fn build_zapret2_ru_ultimate_args(_bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
+    /// the absolute auto path from the user lists directory; the
+    /// argument list itself is built by the pure inner function so
+    /// tests can pin both states. bin_dir is passed through for the
+    /// list-path resolver (relative "lists/..." when the files sit
+    /// next to the engine, absolute lists_dir otherwise).
+    fn build_zapret2_ru_ultimate_args(bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
         let settings = crate::platform::settings::load_settings();
         let auto = if settings.auto_hostlist_enabled {
             Some(auto_hostlist_path(lists_dir))
         } else {
             None
         };
-        Self::build_ultimate_args_with_auto(auto.as_deref())
+        Self::build_ultimate_args_with_auto(bin_dir, lists_dir, auto.as_deref())
     }
 
-    fn build_ultimate_args_with_auto(auto: Option<&str>) -> Vec<String> {
+    fn build_ultimate_args_with_auto(
+        bin_dir: &Path,
+        lists_dir: &Path,
+        auto: Option<&str>,
+    ) -> Vec<String> {
+        // Same resolver as the other builders: prefer the relative
+        // "lists/..." path when the file sits next to the engine
+        // (stock mode), otherwise the absolute lists_dir path. The
+        // relative form MUST NOT be assumed: in Monkey mode the engine
+        // spawns with cwd=bin/monkey/, where lists/ is deliberately
+        // not mirrored (both modes share the stock bin/lists/), and
+        // a missing hostlist file makes the engine silently run with
+        // an empty list — a quiet no-op, not an error.
+        let l = |file: &str| {
+            if bin_dir.join("lists").join(file).is_file() {
+                format!("lists/{}", file)
+            } else {
+                lists_dir.join(file).to_string_lossy().replace('\\', "/")
+            }
+        };
         let mut args = vec![
             "--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into(),
             "--wf-udp-out=443,19294-19344,50000-65535".into(),
@@ -2233,9 +2292,9 @@ impl Supervisor {
             // 1. YouTube QUIC Handshake Bypass (UDP 443)
             "--new=quic_youtube".into(),
             "--filter-udp=443".into(),
-            "--hostlist=lists/list-general.txt".into(),
-            "--hostlist=lists/list-general-user.txt".into(),
-            "--hostlist-exclude=lists/list-exclude.txt".into(),
+            format!("--hostlist={}", l("list-general.txt")),
+            format!("--hostlist={}", l("list-general-user.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude.txt")),
             "--payload=quic_initial".into(),
             "--lua-desync=fake:blob=quic_google:repeats=11".into(),
 
@@ -2258,7 +2317,7 @@ impl Supervisor {
             // 4. YouTube 4K Google TCP (443) - seqovl=681 + TLS Fake Google + out-range=n1-n4 for 60FPS
             "--new=youtube_4k".into(),
             "--filter-tcp=443".into(),
-            "--hostlist=lists/list-google.txt".into(),
+            format!("--hostlist={}", l("list-google.txt")),
             "--payload=tls_client_hello".into(),
             "--out-range=n1-n4".into(),
             "--lua-desync=fake:blob=tls_google:repeats=8:tcp_ts=1000:ip_id=zero".into(),
@@ -2267,9 +2326,9 @@ impl Supervisor {
             // 5. General Blocked Websites HTTPS (80,443) - seqovl=664 + TLS Fake max_ru
             "--new=general_https".into(),
             "--filter-tcp=80,443".into(),
-            "--hostlist=lists/list-general.txt".into(),
-            "--hostlist=lists/list-general-user.txt".into(),
-            "--hostlist-exclude=lists/list-exclude.txt".into(),
+            format!("--hostlist={}", l("list-general.txt")),
+            format!("--hostlist={}", l("list-general-user.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude.txt")),
             "--payload=tls_client_hello".into(),
             "--out-range=n1-n4".into(),
             "--lua-desync=fake:blob=tls_max_ru:repeats=8:tcp_ts=1000".into(),
@@ -2278,7 +2337,7 @@ impl Supervisor {
             // 6. General HTTP (80)
             "--new=general_http".into(),
             "--filter-tcp=80".into(),
-            "--hostlist=lists/list-general.txt".into(),
+            format!("--hostlist={}", l("list-general.txt")),
             "--payload=http_req".into(),
             "--lua-desync=fake:blob=tls_max_ru:tcp_ts=1000".into(),
             "--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max_ru:tcp_ts=1000".into(),
@@ -2286,8 +2345,8 @@ impl Supervisor {
             // 7. IPSet All Fallback
             "--new=ipset_fallback".into(),
             "--filter-tcp=80,443,8443".into(),
-            "--ipset=lists/ipset-all.txt".into(),
-            "--hostlist-exclude=lists/list-exclude.txt".into(),
+            format!("--ipset={}", l("ipset-all.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude.txt")),
             "--payload=tls_client_hello".into(),
             "--out-range=n1-n4".into(),
             "--lua-desync=fake:blob=tls_max_ru:repeats=8:tcp_ts=1000".into(),
@@ -2300,35 +2359,38 @@ impl Supervisor {
             // their own narrow sets and must not apply their
             // specialized handling to random learned domains, and
             // ipset_fallback is an IP filter, not a domain one. The
-            // auto path is the only absolute path in this builder
-            // (everything else is "lists/..." relative to the engine
-            // cwd): the engine WRITES to this file, so it must land
-            // in the user lists directory. At the same time — and
-            // only with the setting on — the general sections gain
-            // the exclude pairs they historically lacked, because
-            // the invariant "exclude always wins" must hold in every
+            // auto path is absolute (the engine WRITES to this file,
+            // so it must land in the user lists directory); every
+            // other list path goes through the same l() resolver as
+            // the vec above — including the insert anchors, which
+            // must match the resolved lines exactly, or the insert
+            // silently does nothing. At the same time — and only
+            // with the setting on — the general sections gain the
+            // exclude pairs they historically lacked, because the
+            // invariant "exclude always wins" must hold in every
             // section that carries auto: general_https gets the user
             // exclude next to its static one; general_http gets the
             // whole pair (its include side is NOT extended —
             // list-general-user stays out of this section, as
-            // before). With the setting off the argument list above
-            // is byte for byte the historical one.
+            // before). With the setting off and stock lists present
+            // the argument list above is byte for byte the
+            // historical one.
             Self::insert_after_in_section(
                 &mut args,
                 "general_https",
-                "--hostlist-exclude=lists/list-exclude.txt",
+                &format!("--hostlist-exclude={}", l("list-exclude.txt")),
                 &[
-                    "--hostlist-exclude=lists/list-exclude-user.txt".to_string(),
+                    format!("--hostlist-exclude={}", l("list-exclude-user.txt")),
                     format!("--hostlist-auto={}", auto_path),
                 ],
             );
             Self::insert_after_in_section(
                 &mut args,
                 "general_http",
-                "--hostlist=lists/list-general.txt",
+                &format!("--hostlist={}", l("list-general.txt")),
                 &[
-                    "--hostlist-exclude=lists/list-exclude.txt".to_string(),
-                    "--hostlist-exclude=lists/list-exclude-user.txt".to_string(),
+                    format!("--hostlist-exclude={}", l("list-exclude.txt")),
+                    format!("--hostlist-exclude={}", l("list-exclude-user.txt")),
                     format!("--hostlist-auto={}", auto_path),
                 ],
             );
@@ -3572,7 +3634,9 @@ mod tests {
     #[test]
     fn test_ultimate_without_auto_matches_historical_args() {
         // OFF pin: byte for byte the flagship list before the
-        // auto-hostlist feature.
+        // auto-hostlist feature. Stock layout: the bin dir carries
+        // lists/, so the resolver keeps the relative form.
+        let (bin_dir, lists_dir) = temp_stock_bin_dir("off-pin");
         let expected: Vec<String> = vec![
             "--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into(),
             "--wf-udp-out=443,19294-19344,50000-65535".into(),
@@ -3633,14 +3697,19 @@ mod tests {
             "--lua-desync=fake:blob=tls_max_ru:repeats=8:tcp_ts=1000".into(),
             "--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max_ru:tcp_ts=1000".into(),
         ];
-        assert_eq!(Supervisor::build_ultimate_args_with_auto(None), expected);
+        assert_eq!(
+            Supervisor::build_ultimate_args_with_auto(&bin_dir, &lists_dir, None),
+            expected
+        );
     }
 
     #[test]
     fn test_ultimate_with_auto_extends_only_general_sections() {
         const AUTO: &str = "/user/lists/list-auto.txt";
-        let base = Supervisor::build_ultimate_args_with_auto(None);
-        let with_auto = Supervisor::build_ultimate_args_with_auto(Some(AUTO));
+        let (bin_dir, lists_dir) = temp_stock_bin_dir("auto");
+        let base = Supervisor::build_ultimate_args_with_auto(&bin_dir, &lists_dir, None);
+        let with_auto =
+            Supervisor::build_ultimate_args_with_auto(&bin_dir, &lists_dir, Some(AUTO));
 
         // Reconstruct the expected list from the pinned base: the
         // ONLY differences are the two insertion points.
@@ -3692,6 +3761,77 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Temp bin dir with a populated `lists/` (stock layout) plus a
+    /// separate user lists dir. All six files the ultimate builder
+    /// resolves must exist, or l() falls back to the absolute form.
+    fn temp_stock_bin_dir(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "zapret2-ultimate-test-{}-{}",
+            tag,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let bin_lists = root.join("bin").join("lists");
+        std::fs::create_dir_all(&bin_lists).unwrap();
+        for f in [
+            "list-general.txt",
+            "list-general-user.txt",
+            "list-exclude.txt",
+            "list-exclude-user.txt",
+            "list-google.txt",
+            "ipset-all.txt",
+        ] {
+            std::fs::write(bin_lists.join(f), "").unwrap();
+        }
+        let user_lists = root.join("user-lists");
+        std::fs::create_dir_all(&user_lists).unwrap();
+        (root.join("bin"), user_lists)
+    }
+
+    #[test]
+    fn test_ultimate_without_bin_lists_resolves_absolute_and_keeps_auto() {
+        // Monkey-mode shape: the engine spawns with cwd=bin/monkey/,
+        // where lists/ is deliberately not mirrored. Every list path
+        // must resolve to the absolute shared lists_dir — a bare
+        // "lists/..." would make the engine silently run with empty
+        // hostlists (a quiet no-op, not an error).
+        const AUTO: &str = "/user/lists/list-auto.txt";
+        let root = std::env::temp_dir().join(format!(
+            "zapret2-ultimate-test-nobinlists-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let bin_dir = root.join("bin");
+        let lists_dir = root.join("user-lists");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::create_dir_all(&lists_dir).unwrap();
+        let args =
+            Supervisor::build_ultimate_args_with_auto(&bin_dir, &lists_dir, Some(AUTO));
+        assert!(
+            !args.iter().any(|a| a.contains("=lists/")),
+            "no bare lists/... path may survive: {:?}",
+            args.iter().filter(|a| a.contains("=lists/")).collect::<Vec<_>>()
+        );
+        let lists_prefix = lists_dir.to_string_lossy().replace('\\', "/");
+        for a in args.iter().filter(|a| {
+            a.starts_with("--hostlist=")
+                || a.starts_with("--hostlist-exclude=")
+                || a.starts_with("--ipset=")
+        }) {
+            assert!(
+                a.split('=').nth(1).unwrap().starts_with(&lists_prefix),
+                "list path must be absolute from lists_dir: {}",
+                a
+            );
+        }
+        // The auto inserts landed too (their anchors are resolved,
+        // not hardcoded relative paths).
+        assert_eq!(
+            args.iter().filter(|a| a.starts_with("--hostlist-auto=")).count(),
+            2
+        );
     }
 
     #[test]
