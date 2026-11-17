@@ -15,6 +15,7 @@ pub mod settings;
 pub mod smart_hosts;
 pub mod updater;
 pub mod webview_check;
+pub mod windivert;
 
 pub use autostart::{is_autostart_enabled, set_autostart};
 pub use conflicts::{resolve_all_conflicts, resolve_all_conflicts_excluding, scan_conflicts, scan_conflicts_excluding, ConflictItem};

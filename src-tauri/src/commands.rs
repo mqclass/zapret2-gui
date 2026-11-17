@@ -274,6 +274,34 @@ pub async fn resolve_conflicts(state: State<'_, AppState>) -> Result<usize, Stri
     platform_resolve_all_conflicts(pid)
 }
 
+/// Diagnoses the WinDivert driver service registration (GUI-local: the GUI
+/// runs elevated, so the SCM queries need no svc round-trip).
+#[tauri::command]
+pub async fn check_windivert_driver(
+) -> Result<crate::platform::windivert_common::WindivertDriverStatus, String> {
+    Ok(crate::platform::windivert::check_windivert_driver())
+}
+
+/// Repairs a broken WinDivert driver registration (GUI-local).
+/// Refuses unless the engine is fully stopped or in error — deleting the
+/// driver service from under a live winws would blackhole traffic, and
+/// deleting it while the engine is starting or stopping would kill the
+/// start in progress.
+#[tauri::command]
+pub async fn repair_windivert_driver(
+    state: State<'_, AppState>,
+) -> Result<crate::platform::windivert_common::WindivertRepairResult, String> {
+    let backend = state.backend.read().clone();
+    let status = backend.get_status().await;
+    if !matches!(
+        status.state,
+        SupervisorState::Stopped | SupervisorState::Error
+    ) {
+        return Err("Остановите обход перед починкой драйвера.".to_string());
+    }
+    Ok(crate::platform::windivert::repair_windivert_driver())
+}
+
 /// Saves or updates a custom user profile and returns the refreshed strategy list.
 #[tauri::command]
 pub async fn save_custom_profile(strategy: LuaStrategy) -> Result<Vec<LuaStrategy>, String> {

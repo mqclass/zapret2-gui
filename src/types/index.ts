@@ -152,6 +152,24 @@ export interface ConflictItem {
   description: string;
 }
 
+/** WinDivert driver registration health (see `platform::windivert`). */
+export interface WindivertDriverStatus {
+  /** "ok" | "not_installed" | "service_disabled" | "stale_path" | "driver_file_missing" | "check_failed" | "not_applicable" */
+  state: string;
+  service_start_type: string | null;
+  service_binary_path: string | null;
+  expected_path: string | null;
+  /** Human-readable Russian one-liner for the state. */
+  message: string;
+}
+
+export interface WindivertRepairResult {
+  /** "repaired" | "reboot_required" | "nothing_to_repair" | "failed" */
+  outcome: string;
+  /** Human-readable Russian one-liner for the outcome. */
+  message: string;
+}
+
 export interface SystemStatusResponse {
   is_elevated: boolean;
   supervisor: SupervisorStatus;

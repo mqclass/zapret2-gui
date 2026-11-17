@@ -2,7 +2,8 @@
 //!
 //! Automatically diagnoses and repairs common network stack, driver, and caching issues:
 //! 1. Cleans orphaned winws/winws2 background processes.
-//! 2. Resets and unhooks the WinDivert kernel driver service
+//! 2. Diagnoses the WinDivert kernel driver service (disabled? stale path?
+//!    missing driver file?) and repairs a broken registration
 //!    (skipped with a warning while the bypass engine is running).
 //! 3. Flushes Windows DNS client cache (`ipconfig /flushdns`).
 //! 4. Purges local ARP address cache (`netsh interface ip delete arpcache`).
@@ -17,7 +18,8 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
-use crate::platform::process::{cleanup_windivert_driver, kill_stray_winws2_processes};
+use crate::platform::process::kill_stray_winws2_processes;
+use crate::platform::windivert::{check_windivert_driver, repair_windivert_driver};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -42,6 +44,10 @@ pub struct DoctorReport {
 pub async fn run_auto_doctor(active_pid: Option<u32>, engine_running: bool) -> DoctorReport {
     let mut steps = Vec::new();
     let mut all_ok = true;
+    // Which part failed — the summary must blame the right one: a broken
+    // driver is not a connectivity delay.
+    let mut driver_failed = false;
+    let mut connectivity_failed = false;
 
     // 1. Terminate orphaned processes
     let strays = kill_stray_winws2_processes(active_pid);
@@ -59,27 +65,61 @@ pub async fn run_auto_doctor(active_pid: Option<u32>, engine_running: bool) -> D
         details: p_msg,
     });
 
-    // 2. Reset WinDivert driver registration — SKIPPED while the engine is running.
-    //    Tearing the driver service down from under an active winws would blackhole
-    //    traffic; the user should stop the bypass first and re-run the doctor.
+    // 2. WinDivert driver registration — diagnose first, repair only when
+    //    broken. (Previously this step blindly stopped the service and always
+    //    reported success, which lied about disabled services, stale paths
+    //    and missing driver files.) SKIPPED while the engine is running:
+    //    tearing the driver service down from under an active winws would
+    //    blackhole traffic; the user should stop the bypass first and
+    //    re-run the doctor.
     if engine_running {
-        let wd_msg = "Сброс драйвера пропущен: движок обхода запущен. Остановите обход и повторите диагностику для сброса WinDivert.".to_string();
+        let wd_msg = "Проверка драйвера пропущена: движок обхода запущен. Остановите обход и повторите диагностику для проверки WinDivert.".to_string();
         steps.push(DoctorStepResult {
             id: "windivert_reset".into(),
-            title: "Сброс драйвера ядра WinDivert".into(),
-            name: "Сброс драйвера ядра WinDivert".into(),
+            title: "Драйвер WinDivert".into(),
+            name: "Драйвер WinDivert".into(),
             status: "warn".into(),
             message: wd_msg.clone(),
             details: wd_msg,
         });
     } else {
-        cleanup_windivert_driver().await;
-        let wd_msg = "Служба WinDivert успешно сброшена и готова к работе".to_string();
+        let status = check_windivert_driver();
+        let (wd_status, wd_msg) = match status.state.as_str() {
+            "ok" | "not_installed" => ("ok", status.message),
+            "service_disabled" | "stale_path" => {
+                let repair = repair_windivert_driver();
+                match repair.outcome.as_str() {
+                    "repaired" => ("fixed", repair.message),
+                    "nothing_to_repair" => ("ok", repair.message),
+                    "reboot_required" => {
+                        all_ok = false;
+                        driver_failed = true;
+                        ("warn", repair.message)
+                    }
+                    _ => {
+                        all_ok = false;
+                        driver_failed = true;
+                        ("error", repair.message)
+                    }
+                }
+            }
+            "driver_file_missing" => {
+                all_ok = false;
+                driver_failed = true;
+                ("error", status.message)
+            }
+            _ => {
+                // "check_failed" (and any future state): honest warning.
+                all_ok = false;
+                driver_failed = true;
+                ("warn", status.message)
+            }
+        };
         steps.push(DoctorStepResult {
             id: "windivert_reset".into(),
-            title: "Сброс драйвера ядра WinDivert".into(),
-            name: "Сброс драйвера ядра WinDivert".into(),
-            status: "ok".into(),
+            title: "Драйвер WinDivert".into(),
+            name: "Драйвер WinDivert".into(),
+            status: wd_status.into(),
             message: wd_msg.clone(),
             details: wd_msg,
         });
@@ -162,6 +202,7 @@ pub async fn run_auto_doctor(active_pid: Option<u32>, engine_running: bool) -> D
         }
         _ => {
             all_ok = false;
+            connectivity_failed = true;
             let msg = "Задержка или отсутствие прямого TCP отклика от 1.1.1.1:53".to_string();
             steps.push(DoctorStepResult {
                 id: "connectivity_check".into(),
@@ -176,6 +217,10 @@ pub async fn run_auto_doctor(active_pid: Option<u32>, engine_running: bool) -> D
 
     let summary: String = if all_ok {
         "Все сетевые службы, драйвер ядра и сокеты успешно восстановлены!".into()
+    } else if driver_failed && connectivity_failed {
+        "Драйвер WinDivert требует внимания, и обнаружены задержки в сетевом подключении.".into()
+    } else if driver_failed {
+        "Драйвер WinDivert требует внимания — подробности в шаге «Драйвер WinDivert».".into()
     } else {
         "Базовые компоненты восстановлены, но обнаружены задержки в сетевом подключении.".into()
     };

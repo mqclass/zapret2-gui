@@ -1290,9 +1290,10 @@ impl Supervisor {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_stream).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
-                    // WinDivert open-filter failure: the driver is held by
-                    // another bypass tool or left in a stale state. The
-                    // monitor task pairs this with exit code 10.
+                    // WinDivert open-filter failure: the driver could not be
+                    // opened (held by another bypass tool, or its service
+                    // registration is broken). The monitor task pairs this
+                    // flag with the exit code to tell the two modes apart.
                     let lowered = line.to_lowercase();
                     if lowered.contains("windivert")
                         && lowered.contains("error opening filter")
@@ -1375,18 +1376,35 @@ impl Supervisor {
                 let (strategy_id, custom_args) =
                     supervisor_clone.last_start_params.read().clone();
 
-                // WinDivert open-filter failure (exit code 10 plus the stderr
-                // signature) means the driver is held by another bypass tool
-                // or left stale. The stderr reader drains the pipes
-                // asynchronously, so give it a short grace period before deciding.
-                let mut windivert_conflict = false;
-                if status.code() == Some(10) {
+                // WinDivert open-filter failure: the stderr signature plus the
+                // exit code tells the two failure modes apart.
+                // - Exit 10: the driver is held by another bypass tool (or
+                //   left stale); one recovery restart may shake it loose.
+                // - Any other code (177 today: the driver SERVICE cannot
+                //   start at all — disabled, or its binary path points at a
+                //   deleted folder): restarting changes nothing, the
+                //   registration has to be repaired (see platform::windivert).
+                //   The signature is specific enough that a future winws2
+                //   changing its exit code still lands on the repair banner;
+                //   the repair re-diagnoses first and returns
+                //   nothing_to_repair when the service is actually healthy.
+                // The stderr reader drains the pipes asynchronously, so give
+                // it a short grace period before deciding. The flag is
+                // usually already set by the time the monitor notices the
+                // exit, so check it once for free before polling — the poll
+                // itself only runs for the known codes (10/177).
+                let mut windivert_signature = supervisor_clone
+                    .windivert_open_error
+                    .load(Ordering::SeqCst);
+                if !windivert_signature
+                    && (status.code() == Some(10) || status.code() == Some(177))
+                {
                     for _ in 0..10 {
                         if supervisor_clone
                             .windivert_open_error
                             .load(Ordering::SeqCst)
                         {
-                            windivert_conflict = true;
+                            windivert_signature = true;
                             break;
                         }
                         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1395,7 +1413,25 @@ impl Supervisor {
                 let superseded =
                     *supervisor_clone.generation.read() != generation_before;
                 let mut recovery_requested = false;
-                if windivert_conflict && !superseded {
+                // Any code but 10 with the signature: no recovery restart —
+                // a broken service registration cannot heal by retrying.
+                // Surface the repair banner instead (the GUI offers a
+                // one-click fix).
+                if windivert_signature
+                    && status.code().is_some_and(|c| c != 10)
+                    && !superseded
+                {
+                    *supervisor_clone.last_engine_error.write() =
+                        Some("windivert_driver_broken".to_string());
+                    supervisor_clone.log(
+                        "error",
+                        &format!(
+                            "WinDivert filter open failed (exit code {}): the driver service is disabled or points at a missing file. Use the repair button on the dashboard or run the Auto-Doctor in Diagnostics.",
+                            status.code().unwrap_or(-1),
+                        ),
+                    );
+                }
+                if windivert_signature && status.code() == Some(10) && !superseded {
                     if !supervisor_clone
                         .windivert_recovery_done
                         .swap(true, Ordering::SeqCst)

@@ -730,6 +730,11 @@ export interface Translations {
     pleaseWait: string;
     windivertConflictTitle: string;
     windivertConflictBody: string;
+    windivertDriverTitle: string;
+    windivertDriverFixedTitle: string;
+    windivertDriverBody: string;
+    windivertDriverRepair: string;
+    windivertDriverRepairing: string;
     hubPresets: string;
     hubPresetsDesc: string;
     hubDns: string;

@@ -408,6 +408,8 @@ async fn main() {
             commands::kill_stray_processes,
             commands::scan_conflicts,
             commands::resolve_conflicts,
+            commands::check_windivert_driver,
+            commands::repair_windivert_driver,
             commands::save_custom_profile,
             commands::delete_custom_profile,
             commands::parse_args_string,

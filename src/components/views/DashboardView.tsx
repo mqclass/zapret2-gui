@@ -25,6 +25,7 @@ import {
   LuaStrategy,
   SplitTunnelMode,
   ProbeMetric,
+  WindivertRepairResult,
 } from "../../types";
 import { useI18n } from "../../i18n";
 import { HeroOrb, OrbState } from "../HeroOrb";
@@ -168,6 +169,33 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
     // The very same auto-tune cycle + modal the diagnostics tab hosts;
     // pre-check errors land in a small line under the strategy row.
     const [autoTuneError, setAutoTuneError] = React.useState<string | null>(null);
+
+    // WinDivert driver repair (exit 177 banner): one-click fix for a
+    // disabled or stale driver service registration.
+    const [repairingDriver, setRepairingDriver] = React.useState(false);
+    const [driverRepair, setDriverRepair] =
+      React.useState<WindivertRepairResult | null>(null);
+    const handleRepairDriver = React.useCallback(async () => {
+      setRepairingDriver(true);
+      try {
+        const result = await invoke<WindivertRepairResult>(
+          "repair_windivert_driver"
+        );
+        setDriverRepair(result);
+      } catch (e) {
+        setDriverRepair({
+          outcome: "failed",
+          message: String(e),
+        });
+      } finally {
+        setRepairingDriver(false);
+      }
+    }, []);
+    // A new engine error invalidates the previous repair result: without
+    // the reset, a stale "repaired" line would show under a fresh banner.
+    React.useEffect(() => {
+      setDriverRepair(null);
+    }, [status.last_engine_error]);
     const { isAutoTuning, startAutoTune, autoTuneModal } = useAutoTune({
       onSelectAndStartStrategy: onStartStrategy,
       onNavigateTab,
@@ -245,6 +273,55 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                   <div className="mt-0.5 leading-relaxed">
                     {t.dashboard.windivertConflictBody}
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+        {/* WinDivert driver broken: the engine died with exit code 177
+            because the driver service is disabled or points at a deleted
+            folder. One-click repair; the result line comes from the backend
+            (Russian), the title/body/button from i18n. Shown until the next
+            successful start clears it; hidden while running. */}
+        {status.last_engine_error === "windivert_driver_broken" &&
+          status.state !== "running" && (
+            <div className="rounded-panel border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200 backdrop-blur-md">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+                <div className="min-w-0 flex-1 text-xs">
+                  <div className="font-semibold text-amber-100">
+                    {driverRepair?.outcome === "repaired"
+                      ? t.dashboard.windivertDriverFixedTitle
+                      : t.dashboard.windivertDriverTitle}
+                  </div>
+                  <div className="mt-0.5 leading-relaxed">
+                    {t.dashboard.windivertDriverBody}
+                  </div>
+                  {driverRepair && (
+                    <div
+                      className={`mt-2 leading-relaxed ${
+                        driverRepair.outcome === "repaired"
+                          ? "text-emerald-300"
+                          : driverRepair.outcome === "failed"
+                          ? "text-red-300"
+                          : "text-amber-200"
+                      }`}
+                    >
+                      {driverRepair.message}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleRepairDriver}
+                    disabled={repairingDriver}
+                    className="mt-3 flex items-center justify-center gap-2 rounded-control bg-amber-500 px-4 py-2 text-xs font-semibold text-slate-950 transition-all hover:bg-amber-400 active:scale-[0.98] cursor-pointer disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <Wrench className="h-3.5 w-3.5" />
+                    <span>
+                      {repairingDriver
+                        ? t.dashboard.windivertDriverRepairing
+                        : t.dashboard.windivertDriverRepair}
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>
