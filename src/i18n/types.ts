@@ -506,7 +506,6 @@ export interface Translations {
     needSmartHosts: string;
     checkBtn: string;
     checking: string;
-    blockedNowLabel: string;
     checkedLabel: string;
     throttledLabel: string;
     unreachableLabel: string;

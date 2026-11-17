@@ -496,7 +496,6 @@ export const ru: Translations = {
     needSmartHosts: "Блокировки живут в умном hosts — включите его выше, иначе тумблер и проверка ничего не применят.",
     checkBtn: "Проверить видео",
     checking: "Проверяем серверы видео, это может занять пару минут…",
-    blockedNowLabel: "Сейчас заблокировано серверов:",
     checkedLabel: "Проверено серверов:",
     throttledLabel: "из них тормозит:",
     unreachableLabel: "из них не ответили:",

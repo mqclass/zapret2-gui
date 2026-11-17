@@ -791,10 +791,11 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
     );
   }
 
-  // items-start on the grid: the DNS card is far taller than the
-  // speedtest card, and the grid default (stretch) turned the short
-  // card into a giant empty void on the right. Each card takes its
-  // natural height.
+  // items-start on the grid: the cards have very different heights, and
+  // the grid default (stretch) turned the short ones into giant empty
+  // voids. Each card takes its natural height. The smart-hosts and
+  // YouTube-throttle panels are top-level grid items (not nested inside
+  // the DNS card) so the right column does not end up empty.
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4 items-start">
       {/* DNS Manager Section */}
@@ -1066,16 +1067,17 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
             <span>{t.dns.customAddBtn}</span>
           </button>
         </div>
+      </div>
 
-        {/* Smart hosts */}
-        <div className="rounded-panel border border-line bg-cardin p-4 space-y-3">
-          <div className="flex items-center justify-between">
+      {/* Smart hosts */}
+      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
+          <div className="flex items-center justify-between border-b border-line pb-3">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-accent-fill/5">
                 <FileText className="h-4 w-4 shrink-0" />
               </div>
               <div>
-                <h4 className="text-xs font-semibold text-ink">{t.smartHosts.title}</h4>
+                <h3 className="text-xs font-semibold text-ink">{t.smartHosts.title}</h3>
                 <p className="text-[11px] text-ink4">{t.smartHosts.subtitle}</p>
               </div>
             </div>
@@ -1193,21 +1195,21 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
           </div>
         </div>
 
-        {/* YouTube throttle */}
-        <div className="rounded-panel border border-line bg-cardin p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+      {/* YouTube throttle */}
+      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>
+          <div className="flex items-center justify-between gap-2 border-b border-line pb-3">
+            <div className="flex items-center gap-3 min-w-0">
               <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-red-500/20 to-red-600/5 border border-red-500/25 text-red-400 shadow-sm shadow-red-500/5">
                 <Gauge className="h-4 w-4 shrink-0" />
               </div>
-              <div>
-                <h4 className="text-xs font-semibold text-ink">{t.youtubeThrottle.title}</h4>
+              <div className="min-w-0">
+                <h3 className="text-xs font-semibold text-ink">{t.youtubeThrottle.title}</h3>
                 <p className="text-[11px] text-ink4">{t.youtubeThrottle.description}</p>
               </div>
             </div>
             {(hostsStatus?.youtube_blocked_count ?? 0) > 0 && (
               <span className="rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 bg-red-500/15 text-red-300 border-red-500/30">
-                {t.youtubeThrottle.blockedNowLabel} {hostsStatus?.youtube_blocked_count}
+                {t.dnsTab.blockedShort}: {hostsStatus?.youtube_blocked_count}
               </span>
             )}
           </div>
@@ -1332,7 +1334,6 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
 
           <p className="text-[10px] text-ink5 leading-relaxed">{t.youtubeThrottle.dohNote}</p>
         </div>
-      </div>
 
       {/* YouTube 4K Stream Speedtest Section */}
       <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 1 } as React.CSSProperties}>

@@ -496,7 +496,6 @@ export const en: Translations = {
     needSmartHosts: "The blocks live inside Smart hosts — enable it above, otherwise the toggle and the check apply nothing.",
     checkBtn: "Check video",
     checking: "Checking video servers, this can take a couple of minutes…",
-    blockedNowLabel: "Servers blocked right now:",
     checkedLabel: "Servers checked:",
     throttledLabel: "of them throttled:",
     unreachableLabel: "of them did not respond:",
