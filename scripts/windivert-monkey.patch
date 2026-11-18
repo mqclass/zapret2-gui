@@ -1,5 +1,5 @@
 diff --git a/dll/windivert.c b/dll/windivert.c
-index f0ec577..b6f52b6 100644
+index f0ec577..be4e670 100644
 --- a/dll/windivert.c
 +++ b/dll/windivert.c
 @@ -49,7 +49,17 @@
@@ -21,7 +21,43 @@ index f0ec577..b6f52b6 100644
  #define WINDIVERT_DRIVER32_SYS          L"\\" WINDIVERT_DRIVER_NAME L"32.sys"
  #define WINDIVERT_DRIVER64_SYS          L"\\" WINDIVERT_DRIVER_NAME L"64.sys"
  #define WINDIVERT_VERSION_MAJOR_MIN     2
-@@ -324,7 +334,7 @@ static BOOLEAN WinDivertDriverInstall(VOID)
+@@ -111,6 +121,35 @@ void *memset(void *dst, int c, size_t n)
+     return dst;
+ }
+ 
++#pragma intrinsic(memmove)
++#pragma function(memmove)
++void *memmove(void *dst, const void *src, size_t n)
++{
++    /*
++     * zapret2-gui (Monkey) addition: the DLL must not depend on the
++     * CRT's memmove. The 1.5.2 build pulled the Debug CRT's memmove
++     * in, and its internal memcpy call resolved back to memmove
++     * itself - infinite recursion and STATUS_STACK_OVERFLOW on engine
++     * start (issue #7). A local byte loop, mirroring the custom
++     * memcpy/memset above, keeps the DLL CRT-independent.
++     * Overlap-safe: copies backward when dst > src.
++     */
++    UINT8 *d = (UINT8 *)dst;
++    const UINT8 *s = (const UINT8 *)src;
++    size_t i;
++    if (d < s)
++    {
++        for (i = 0; i < n; i++)
++            d[i] = s[i];
++    }
++    else if (d > s)
++    {
++        for (i = n; i > 0; i--)
++            d[i - 1] = s[i - 1];
++    }
++    return dst;
++}
++
+ #define WINDIVERT_INLINE    __forceinline
+ 
+ #else       /* _MSC_VER */
+@@ -324,7 +363,7 @@ static BOOLEAN WinDivertDriverInstall(VOID)
      }
  
      // Check if the WinDivert service already exists; if so, start it.
@@ -30,7 +66,7 @@ index f0ec577..b6f52b6 100644
      if (service != NULL)
      {
          goto WinDivertDriverInstallExit;
-@@ -337,15 +347,15 @@ static BOOLEAN WinDivertDriverInstall(VOID)
+@@ -337,15 +376,15 @@ static BOOLEAN WinDivertDriverInstall(VOID)
      }
  
      // Create the service:

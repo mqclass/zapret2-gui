@@ -304,7 +304,14 @@ if (-not $MsBuild -or -not (Test-Path $MsBuild)) {
     throw "Monkey setup: MSBuild not found via vswhere - Visual Studio 2022 or later with MSBuild is required."
 }
 $BuildOut = Join-Path $WDSrc "install\MSVC\amd64\"
-& $MsBuild (Join-Path $WDSrc "dll\windivert.vcxproj") /p:Configuration=Release /p:platform=x64 /p:PlatformToolset=v143 /p:OutDir=$BuildOut /nologo /v:m
+# /p:UseDebugLibraries=false: the WinDivert project links the Debug CRT
+# even in its Release configuration (UseDebugLibraries=true in the
+# vcxproj). With the v143 toolset the Debug CRT's memmove resolved its
+# internal memcpy call back to memmove itself - infinite recursion and
+# STATUS_STACK_OVERFLOW on engine start (issue #7; 1.5.2 shipped this
+# broken DLL). A shipped DLL must link the Release CRT. The patch also
+# adds a local memmove so the DLL never depends on the CRT's.
+& $MsBuild (Join-Path $WDSrc "dll\windivert.vcxproj") /p:Configuration=Release /p:platform=x64 /p:PlatformToolset=v143 /p:UseDebugLibraries=false /p:OutDir=$BuildOut /nologo /v:m
 if ($LASTEXITCODE -ne 0) { throw "Monkey setup: MSBuild failed for the renamed WinDivert.dll." }
 $BuiltDll = Join-Path $BuildOut "WinDivert.dll"
 if (-not (Test-Path $BuiltDll)) { throw "Monkey setup: the renamed WinDivert.dll was not produced by the build." }
@@ -316,6 +323,33 @@ Copy-Item -Path $BuiltDll -Destination $MonkeyDll -Force
 $dllText = [System.Text.Encoding]::Unicode.GetString([System.IO.File]::ReadAllBytes($MonkeyDll))
 if ($dllText -notmatch 'Monkey') {
     throw "Monkey setup: the built DLL does not contain the renamed service name - the patch did not take effect."
+}
+# Tripwire (issue #7): a Debug-CRT build carries a Just-My-Code section
+# (.msvcjmc) - the 1.5.2 DLL had one, and its memmove recursed into
+# itself. A clean Release build has no such section; if it appears,
+# the Debug CRT leaked back in and the build must fail here.
+$dllAscii = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($MonkeyDll))
+if ($dllAscii.Contains('.msvcjmc')) {
+    throw "Monkey setup: the built DLL contains a .msvcjmc section - it was built against the Debug CRT (issue #7)."
+}
+# Smoke check (issue #7): the mirrored engines must at least start with
+# the renamed DLL. This proves the DLL loads and the process runs; it
+# does NOT prove WinDivertOpen works (a live start on a real machine is
+# the gate for that). Any NTSTATUS crash code (negative exit code)
+# fails the build.
+foreach ($exe in @((Join-Path $MonkeyDir "winws2.exe"), (Join-Path $MonkeyDir "winws.exe"))) {
+    if (Test-Path $exe) {
+        $p = Start-Process -FilePath $exe -ArgumentList '--help' -WorkingDirectory $MonkeyDir -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $env:TEMP 'monkey-help.out') -RedirectStandardError (Join-Path $env:TEMP 'monkey-help.err')
+        if (-not $p.WaitForExit(30000)) {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw ("Monkey setup: {0} --help did not exit within 30s - the renamed DLL may be broken (issue #7)." -f $exe)
+        }
+        if ($p.ExitCode -lt 0) {
+            throw ("Monkey setup: {0} --help crashed with exit code {1} - the renamed DLL may be broken (issue #7)." -f $exe, $p.ExitCode)
+        }
+    } else {
+        Write-Warning "Monkey setup: $exe not found in bin/monkey - smoke check skipped for it."
+    }
 }
 Write-Host "    [+] Renamed WinDivert.dll built from WinDivert v2.2.2 sources + in-repo patch" -ForegroundColor Green
 # The renamed DLL is unsigned (a local build): Test-Authenticode warns,
