@@ -339,16 +339,15 @@ if ($dllAscii.Contains('.msvcjmc')) {
 # fails the build.
 foreach ($exe in @((Join-Path $MonkeyDir "winws2.exe"), (Join-Path $MonkeyDir "winws.exe"))) {
     if (Test-Path $exe) {
-        $p = Start-Process -FilePath $exe -ArgumentList '--help' -WorkingDirectory $MonkeyDir -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $env:TEMP 'monkey-help.out') -RedirectStandardError (Join-Path $env:TEMP 'monkey-help.err')
-        if (-not $p.WaitForExit(30000)) {
-            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-            throw ("Monkey setup: {0} --help did not exit within 30s - the renamed DLL may be broken (issue #7)." -f $exe)
-        }
+        # NOTE: use -Wait, not a manual WaitForExit() + ExitCode read.
+        # Without -Wait, Start-Process -PassThru returns a Process whose
+        # ExitCode is $null, and `$null -lt 0` is $true in PowerShell -
+        # that false-positive failed CI run 44364382863 with an empty
+        # exit code in the message. -Wait populates ExitCode reliably.
+        $p = Start-Process -FilePath $exe -ArgumentList '--help' -WorkingDirectory $MonkeyDir -NoNewWindow -Wait -PassThru -RedirectStandardOutput (Join-Path $env:TEMP 'monkey-help.out') -RedirectStandardError (Join-Path $env:TEMP 'monkey-help.err')
         if ($p.ExitCode -lt 0) {
             throw ("Monkey setup: {0} --help crashed with exit code {1} - the renamed DLL may be broken (issue #7)." -f $exe, $p.ExitCode)
         }
-    } else {
-        Write-Warning "Monkey setup: $exe not found in bin/monkey - smoke check skipped for it."
     }
 }
 Write-Host "    [+] Renamed WinDivert.dll built from WinDivert v2.2.2 sources + in-repo patch" -ForegroundColor Green
