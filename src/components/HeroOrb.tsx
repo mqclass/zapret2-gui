@@ -14,13 +14,12 @@ interface HeroOrbProps {
 }
 
 /**
- * Glass power orb — the primary control, styled after the design mockup:
- * a dark translucent glass disc with a bright rim and top highlight,
- * not a flat colored circle.
+ * Sun disc — the primary control (theme/sun variant).
  *
- * - idle: faint blue halo, gentle breathing
- * - connecting: rotating conic ring
- * - connected: emerald halo
+ * The orb is a sun: off = night (dark disc, faint warm rim, quiet
+ * breathing), connecting = dawn (spinning gold ring), on = sunrise
+ * (radiant golden disc, warm glow). The icon sits dark on gold when
+ * the sun is up.
  *
  * Spring physics on press (stiffness 380, damping 28).
  */
@@ -45,19 +44,26 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
 
     const halo =
       state === "connected"
-        ? "bg-emerald-500/25"
+        ? "bg-amber-500/30"
         : state === "connecting"
         ? "bg-accent/25"
-        : "bg-accent/15";
+        : "bg-amber-500/10";
+
+    /* The disc itself: night glass at rest, a radiant golden sun
+       once the bypass is up. */
+    const disc =
+      state === "connected"
+        ? "border-amber-200/50 bg-[radial-gradient(circle_at_50%_38%,#fcd34d_0%,#f59e0b_55%,#d97706_100%)] shadow-[0_0_44px_rgba(245,158,11,0.45),0_0_90px_rgba(245,158,11,0.18),inset_0_1px_0_rgba(255,255,255,0.35)]"
+        : "border-amber-200/[0.14] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors duration-500 group-hover:border-amber-200/[0.25]";
 
     const iconClass = compact ? "h-9 w-9" : "h-11 w-11";
     const icon =
       state === "connecting" ? (
-        <Loader2 className={`${iconClass} animate-spin text-white/90`} strokeWidth={1.75} />
+        <Loader2 className={`${iconClass} animate-spin text-amber-100/90`} strokeWidth={1.75} />
       ) : state === "connected" ? (
-        <ShieldCheck className={`${iconClass} text-emerald-300`} strokeWidth={1.75} />
+        <ShieldCheck className={`${iconClass} text-amber-950`} strokeWidth={1.75} />
       ) : (
-        <Power className={`${iconClass} text-white/90`} strokeWidth={1.75} />
+        <Power className={`${iconClass} text-amber-100/90`} strokeWidth={1.75} />
       );
 
     return (
@@ -89,8 +95,8 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
           {state === "connecting" && <span className="orb-ring" />}
           {/* slow aurora ring while idle — quiet sign of life */}
           {state === "idle" && <span className="orb-ring-idle" />}
-          {/* glass disc */}
-          <span className="absolute inset-0 rounded-full border border-white/[0.14] bg-white/[0.05] backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)] transition-colors duration-500 group-hover:border-white/[0.22]">
+          {/* sun disc */}
+          <span className={`absolute inset-0 rounded-full border ${disc}`}>
             {/* icon — crossfades between states. Both the exiting and the
             entering icon are absolutely positioned over the same centered
             box: with popLayout the exiting icon was popped out of the flex

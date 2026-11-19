@@ -6,7 +6,7 @@ import "./index.css";
 import { applyAccent, readStoredAccent } from "./utils/accent";
 
 // Single theme: always "macos" (dark glass). No theme switching.
-document.documentElement.dataset.theme = "macos";
+document.documentElement.dataset.theme = "sun";
 
 // Apply the last saved accent synchronously, before the first render,
 // so non-violet users never see a violet frame while settings load
