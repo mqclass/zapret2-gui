@@ -44,26 +44,26 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
 
     const halo =
       state === "connected"
-        ? "bg-amber-500/30"
+        ? "bg-red-500/30"
         : state === "connecting"
         ? "bg-accent/25"
-        : "bg-amber-500/10";
+        : "bg-red-500/10";
 
     /* The disc itself: night glass at rest, a radiant golden sun
        once the bypass is up. */
     const disc =
       state === "connected"
-        ? "border-amber-200/50 bg-[radial-gradient(circle_at_50%_38%,#fcd34d_0%,#f59e0b_55%,#d97706_100%)] shadow-[0_0_44px_rgba(245,158,11,0.45),0_0_90px_rgba(245,158,11,0.18),inset_0_1px_0_rgba(255,255,255,0.35)]"
-        : "border-amber-200/[0.14] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors duration-500 group-hover:border-amber-200/[0.25]";
+        ? "border-red-200/50 bg-[radial-gradient(circle_at_50%_38%,#fca5a5_0%,#e2342a_55%,#b91c1c_100%)] shadow-[0_0_44px_rgba(226,52,42,0.45),0_0_90px_rgba(226,52,42,0.18),inset_0_1px_0_rgba(255,255,255,0.35)]"
+        : "border-red-200/[0.14] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors duration-500 group-hover:border-red-200/[0.25]";
 
     const iconClass = compact ? "h-9 w-9" : "h-11 w-11";
     const icon =
       state === "connecting" ? (
-        <Loader2 className={`${iconClass} animate-spin text-amber-100/90`} strokeWidth={1.75} />
+        <Loader2 className={`${iconClass} animate-spin text-red-100/90`} strokeWidth={1.75} />
       ) : state === "connected" ? (
-        <ShieldCheck className={`${iconClass} text-amber-950`} strokeWidth={1.75} />
+        <ShieldCheck className={`${iconClass} text-white`} strokeWidth={1.75} />
       ) : (
-        <Power className={`${iconClass} text-amber-100/90`} strokeWidth={1.75} />
+        <Power className={`${iconClass} text-red-100/90`} strokeWidth={1.75} />
       );
 
     return (
