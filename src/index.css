@@ -281,6 +281,24 @@
       radial-gradient(900px 520px at 50% -12%, rgba(249, 115, 22, 0.14), transparent 62%),
       radial-gradient(700px 480px at 100% 110%, rgba(226, 52, 42, 0.08), transparent 60%);
   }
+  /* Sunrise hero: the big running-state surfaces follow the sun, not
+     emerald. Small semantic dots (service "works", sidebar ON) stay
+     emerald on purpose — green means "works" everywhere. */
+  [data-theme="sun"] .hero-pill-running {
+    border-color: rgba(249, 115, 22, 0.35);
+    background-color: rgba(249, 115, 22, 0.12);
+    color: #fdba74;
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.25);
+  }
+  [data-theme="sun"] .hero-pill-dot-running {
+    background-color: #fb923c;
+  }
+  [data-theme="sun"] .hero-glow-running {
+    background-color: rgba(249, 115, 22, 0.14);
+  }
+  [data-theme="sun"] .hero-title-running {
+    background-image: linear-gradient(to right, #fde68a, #fbbf24 35%, #f97316 70%, #e2342a);
+  }
   /* Hyprland ambient: faint cyan/magenta haze in the corners */
 
   /* ══ Floating panels (the "gaps" look) ═════════════════ */

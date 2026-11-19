@@ -230,7 +230,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
       <span
         className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase ${
           isRunning
-            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.22)]"
+            ? "hero-pill-running border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.22)]"
             : isTransitioning
             ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
             : "border-linestrong bg-raise/60 text-ink4"
@@ -239,7 +239,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
         <span
           className={`h-2 w-2 rounded-full ${
             isRunning
-              ? "bg-emerald-400"
+              ? "hero-pill-dot-running bg-emerald-400"
               : isTransitioning
               ? "bg-amber-400 animate-pulse"
               : "bg-ink5"
@@ -407,7 +407,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             <span
               aria-hidden
               className={`pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full blur-3xl transition-colors duration-1000 ${
-                isRunning ? "bg-emerald-500/[0.13]" : "bg-accent/[0.09]"
+                isRunning ? "hero-glow-running bg-emerald-500/[0.13]" : "bg-accent/[0.09]"
               }`}
             />
             <span
@@ -420,7 +420,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                 <h1
                   className={`text-3xl font-extrabold tracking-tight leading-none ${
                     isRunning
-                      ? "bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent"
+                      ? "hero-title-running bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent"
                       : "text-ink"
                   }`}
                 >
@@ -628,7 +628,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           <span
             aria-hidden
             className={`pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full blur-3xl transition-colors duration-1000 ${
-              isRunning ? "bg-emerald-500/[0.13]" : "bg-accent/[0.09]"
+              isRunning ? "hero-glow-running bg-emerald-500/[0.13]" : "bg-accent/[0.09]"
             }`}
           />
           <span
@@ -643,7 +643,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               <h1
                 className={`text-3xl md:text-[2.6rem] font-extrabold tracking-tight leading-none ${
                   isRunning
-                    ? "bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent"
+                    ? "hero-title-running bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent"
                     : "text-ink"
                 }`}
               >
