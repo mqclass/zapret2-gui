@@ -2,6 +2,7 @@ import React from "react";
 import { Check, Globe2, MessageCircle, Settings2, Youtube } from "lucide-react";
 import { LuaStrategy } from "../types";
 import { useI18n } from "../i18n";
+import { handleSpotlightMove } from "./SpotlightCard";
 
 interface GoalPickerProps {
   strategies: LuaStrategy[];
@@ -99,7 +100,8 @@ export const GoalPicker: React.FC<GoalPickerProps> = React.memo(
                     onCustomGoal();
                   }
                 }}
-                className={`group flex flex-col ${
+                onMouseMove={handleSpotlightMove}
+                className={`spotlight-card group flex flex-col ${
                   compact ? "gap-1.5 p-3" : "gap-2 p-3.5"
                 } rounded-panel border text-left transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
                   isCurrent

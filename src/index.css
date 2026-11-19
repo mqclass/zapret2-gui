@@ -692,6 +692,73 @@
   .sparkline-area {
     fill: rgb(var(--c-accent) / 0.12);
   }
+
+  /* ══ Sun orbit rings (Gemini dawn port) ══════════════
+     Two dashed rings around the connected sun, rotating slowly in
+     opposite directions. Only when the sun is up; idle keeps the
+     quiet aurora ring. pointer-events none so the orb stays clickable. */
+  .sun-orbit {
+    position: absolute;
+    pointer-events: none;
+  }
+  .sun-orbit-cw {
+    inset: -10px;
+    animation: sun-orbit-cw 28s linear infinite;
+  }
+  .sun-orbit-ccw {
+    inset: -18px;
+    animation: sun-orbit-ccw 44s linear infinite;
+  }
+
+  /* ══ Cursor spotlight (Gemini dawn port) ═════════════
+     A gold glow that follows the cursor across the card: the border
+     lights up through a mask, the inside gets a faint warm wash.
+     --mx/--my are set by SpotlightCard on mousemove (direct DOM
+     writes, no React re-renders). */
+  .spotlight-card {
+    position: relative;
+    isolation: isolate;
+  }
+  .spotlight-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: radial-gradient(
+      260px circle at var(--mx, -400px) var(--my, -400px),
+      rgba(253, 224, 141, 0.45),
+      rgba(226, 52, 42, 0.28) 48%,
+      transparent 78%
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 260ms ease;
+    z-index: 2;
+  }
+  .spotlight-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+      340px circle at var(--mx, -400px) var(--my, -400px),
+      rgba(249, 115, 22, 0.08),
+      rgba(226, 52, 42, 0.04) 46%,
+      transparent 74%
+    );
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 280ms ease;
+    z-index: 0;
+  }
+  .spotlight-card:hover::before,
+  .spotlight-card:hover::after {
+    opacity: 1;
+  }
 }
 
 /* ═══════════════ orb & fx keyframes ═══════════════ */
@@ -717,6 +784,12 @@
 @keyframes orb-shockwave {
   0% { transform: scale(1); opacity: 0.9; }
   100% { transform: scale(1.9); opacity: 0; }
+}
+@keyframes sun-orbit-cw {
+  to { transform: rotate(360deg); }
+}
+@keyframes sun-orbit-ccw {
+  to { transform: rotate(-360deg); }
 }
 @keyframes stagger-in {
   from { opacity: 0; transform: translateY(8px); }
@@ -928,6 +1001,8 @@
   .orb-connecting .orb-ring,
   .orb-connecting .orb-ripple,
   .orb-connected .orb-aura,
+  .sun-orbit-cw,
+  .sun-orbit-ccw,
   .stagger-item {
     animation: none;
   }

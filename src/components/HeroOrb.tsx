@@ -91,6 +91,46 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
           {state === "connected" && shockKey > 0 && (
             <span key={shockKey} className="orb-shockwave" />
           )}
+          {/* orbit rings around the risen sun (Gemini dawn port):
+              two dashed rings counter-rotating, a small gold planet
+              riding the inner one. Connected only. */}
+          {state === "connected" && (
+            <>
+              <svg
+                className="sun-orbit sun-orbit-cw"
+                viewBox="0 0 100 100"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="48"
+                  fill="none"
+                  stroke="#fbbf24"
+                  strokeOpacity="0.5"
+                  strokeWidth="0.8"
+                  strokeDasharray="14 10"
+                />
+                <circle cx="50" cy="2" r="1.6" fill="#fde68a" />
+              </svg>
+              <svg
+                className="sun-orbit sun-orbit-ccw"
+                viewBox="0 0 100 100"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="48"
+                  fill="none"
+                  stroke="#f97316"
+                  strokeOpacity="0.35"
+                  strokeWidth="0.6"
+                  strokeDasharray="3 7"
+                />
+              </svg>
+            </>
+          )}
           {/* rotating ring while connecting */}
           {state === "connecting" && <span className="orb-ring" />}
           {/* slow aurora ring while idle — quiet sign of life */}

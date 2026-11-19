@@ -18,6 +18,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useI18n } from "../i18n";
+import { handleSpotlightMove } from "./SpotlightCard";
 import { CustomProfileModal } from "./CustomProfileModal";
 import { CustomConfigGateModal } from "./CustomConfigGateModal";
 import { ConfigGuideModal } from "./ConfigGuideModal";
@@ -198,7 +199,8 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
               onStartStrategy(strat.id);
             }
           }}
-          className={`flex items-center gap-2.5 rounded-panel border px-3 py-1 cursor-pointer transition-all ${
+          onMouseMove={handleSpotlightMove}
+          className={`spotlight-card flex items-center gap-2.5 rounded-panel border px-3 py-1 cursor-pointer transition-all ${
             isActive
               ? "active-strat-card border-emerald-500/60 bg-okwash shadow-sm"
               : isSelected
@@ -475,7 +477,8 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                       onStartStrategy(strat.id);
                     }
                   }}
-                  className={`relative flex flex-col justify-between rounded-card border p-4 text-left transition-all duration-200 cursor-pointer min-h-[175px] stagger-item hover-lift ${cardStyle} ${
+                  onMouseMove={handleSpotlightMove}
+                  className={`spotlight-card relative flex flex-col justify-between rounded-card border p-4 text-left transition-all duration-200 cursor-pointer min-h-[175px] stagger-item hover-lift ${cardStyle} ${
                     isTransitioning ? "opacity-75" : ""
                   }`}
                   style={{ "--stagger-i": Math.min(idx, 11) } as React.CSSProperties}
