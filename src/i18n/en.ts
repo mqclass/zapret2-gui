@@ -615,7 +615,7 @@ export const en: Translations = {
     accentDesc:
       "Recolors the whole app: backgrounds, glass and accents. The app stays dark.",
     accentCustom: "Custom color",
-    accentViolet: "Violet",
+    accentSunrise: "Sunrise",
     accentCyan: "Cyan",
     accentEmerald: "Emerald",
     accentAmber: "Amber",

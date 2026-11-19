@@ -615,7 +615,7 @@ export const uk: Translations = {
     accentDesc:
       "Змінює колір усього застосунку: фони, скло та акценти. Застосунок лишається темним.",
     accentCustom: "Свій колір",
-    accentViolet: "Фіолетовий",
+    accentSunrise: "Світанок",
     accentCyan: "Ціан",
     accentEmerald: "Смарагдовий",
     accentAmber: "Бурштиновий",

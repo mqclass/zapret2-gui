@@ -195,7 +195,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
       (preset: (typeof ACCENT_PRESETS)[number]) => {
         cancelCustomAccentSave();
         const res = onAccentChangeRef.current(
-          preset.id === "violet" ? null : preset.fill
+          preset.id === "sunrise" ? null : preset.fill
         );
         // A failed preset save is already surfaced by App
         // (error alert); swallowing here keeps the fire-and-
@@ -223,8 +223,8 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
       [flushCustomAccentSave]
     );
     const presetLabel = (preset: (typeof ACCENT_PRESETS)[number]) =>
-      preset.id === "violet"
-        ? t.settingsTab.accentViolet
+      preset.id === "sunrise"
+        ? t.settingsTab.accentSunrise
         : preset.id === "cyan"
           ? t.settingsTab.accentCyan
           : preset.id === "emerald"

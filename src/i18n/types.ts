@@ -618,7 +618,7 @@ export interface Translations {
     accentTitle: string;
     accentDesc: string;
     accentCustom: string;
-    accentViolet: string;
+    accentSunrise: string;
     accentCyan: string;
     accentEmerald: string;
     accentAmber: string;

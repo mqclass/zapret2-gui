@@ -615,7 +615,7 @@ export const ru: Translations = {
     accentDesc:
       "Меняет цвет всего приложения: фоны, стекло и акценты. Приложение остаётся тёмным.",
     accentCustom: "Свой цвет",
-    accentViolet: "Фиолетовый",
+    accentSunrise: "Рассвет",
     accentCyan: "Циан",
     accentEmerald: "Изумрудный",
     accentAmber: "Янтарный",
