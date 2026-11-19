@@ -571,6 +571,29 @@ export interface Translations {
     simpleView: string;
     expertView: string;
   };
+  palette: {
+    commands: string;
+    placeholder: string;
+    noResults: string;
+    hint: string;
+    groupActions: string;
+    groupNavigate: string;
+    groupStrategies: string;
+    startBypass: string;
+    startHint: string;
+    stopBypass: string;
+    stopHint: string;
+    autoTune: string;
+    autoTuneHint: string;
+    checkServices: string;
+    checkServicesHint: string;
+    clearStuck: string;
+    clearStuckHint: string;
+    expertOn: string;
+    expertOnHint: string;
+    expertOff: string;
+    expertOffHint: string;
+  };
   settingsTab: {
     systemSection: string;
     autostartDesc: string;
@@ -638,6 +661,14 @@ export interface Translations {
     elevatedNo: string;
     flowsealLink: string;
     showAllSettings: string;
+    driverTitle: string;
+    driverDesc: string;
+    driverCheck: string;
+    driverRepair: string;
+    driverChecking: string;
+    driverRepairing: string;
+    driverRebootNote: string;
+    driverStopFirst: string;
 
   };
   update: {

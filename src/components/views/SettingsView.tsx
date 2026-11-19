@@ -24,7 +24,12 @@ import { ZapretLogo } from "../ZapretLogo";
 import { useI18n } from "../../i18n";
 import { Language } from "../../i18n/types";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { UpdateInfo } from "../../types";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  UpdateInfo,
+  WindivertDriverStatus,
+  WindivertRepairResult,
+} from "../../types";
 import { AppSplitModal } from "../AppSplitModal";
 import {
   ACCENT_PRESETS,
@@ -50,6 +55,10 @@ interface SettingsViewProps {
   /** Switch the shell to expert mode (simple view's "show all settings"). */
   onExpertModeChange?: (expert: boolean) => void;
   isElevated: boolean;
+  /** Engine running or starting: the driver reset is disabled then —
+      repair stops the loaded driver, so resetting mid-run would kill
+      a working bypass. The check stays available. */
+  engineRunning?: boolean;
   onRelaunchElevated: () => void;
   isAutostart: boolean;
   onToggleAutostart: () => void;
@@ -89,6 +98,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     expertMode = false,
     onExpertModeChange,
     isElevated,
+    engineRunning = false,
     onRelaunchElevated,
     isAutostart,
     onToggleAutostart,
@@ -124,6 +134,94 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
   }) => {
     const { language, setLanguage, t } = useI18n();
     const [isAppSplitOpen, setIsAppSplitOpen] = React.useState(false);
+
+    // WinDivert driver check + reset (Solaris port): the same
+    // check/repair the dashboard's exit-177 banner uses, surfaced as
+    // a permanent card so a broken driver registration can be fixed
+    // without waiting for the engine to die first.
+    const [driverStatus, setDriverStatus] =
+      React.useState<WindivertDriverStatus | null>(null);
+    const [driverRepair, setDriverRepair] =
+      React.useState<WindivertRepairResult | null>(null);
+    const [checkingDriver, setCheckingDriver] = React.useState(false);
+    const [repairingDriver, setRepairingDriver] = React.useState(false);
+    const handleCheckDriver = React.useCallback(async () => {
+      setCheckingDriver(true);
+      try {
+        setDriverRepair(null);
+        setDriverStatus(
+          await invoke<WindivertDriverStatus>("check_windivert_driver")
+        );
+      } catch (e) {
+        setDriverStatus({
+          state: "check_failed",
+          service_start_type: null,
+          service_binary_path: null,
+          expected_path: null,
+          message: String(e),
+        });
+      } finally {
+        setCheckingDriver(false);
+      }
+    }, []);
+    const handleRepairDriver = React.useCallback(async () => {
+      setRepairingDriver(true);
+      try {
+        const result = await invoke<WindivertRepairResult>(
+          "repair_windivert_driver"
+        );
+        setDriverRepair(result);
+        // Re-check so the status line reflects the repaired state.
+        try {
+          setDriverStatus(
+            await invoke<WindivertDriverStatus>("check_windivert_driver")
+          );
+        } catch {
+          /* the repair result line stays */
+        }
+      } catch (e) {
+        setDriverRepair({ outcome: "failed", message: String(e) });
+      } finally {
+        setRepairingDriver(false);
+      }
+    }, []);
+    // The freshest result wins: a repair line supersedes the check
+    // line until the next check. Backend messages are Russian
+    // one-liners in every locale, same as the dashboard banner.
+    const driverLine = driverRepair
+      ? {
+          message: driverRepair.message,
+          tone:
+            driverRepair.outcome === "failed"
+              ? "rose"
+              : driverRepair.outcome === "reboot_required"
+              ? "amber"
+              : "emerald",
+        }
+      : driverStatus
+      ? {
+          message: driverStatus.message,
+          tone:
+            driverStatus.state === "check_failed"
+              ? "rose"
+              : driverStatus.state === "ok" ||
+                driverStatus.state === "not_applicable"
+              ? "emerald"
+              : "amber",
+        }
+      : null;
+    const driverDotClass =
+      driverLine?.tone === "rose"
+        ? "bg-rose-400"
+        : driverLine?.tone === "amber"
+        ? "bg-amber-400"
+        : "bg-emerald-400";
+    const driverTextClass =
+      driverLine?.tone === "rose"
+        ? "text-rose-300"
+        : driverLine?.tone === "amber"
+        ? "text-amber-300"
+        : "text-emerald-300";
 
     // Custom color picker: preview instantly, save debounced. The native
     // picker fires onChange on every drag step, and each save rewrites
@@ -649,6 +747,56 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 <AlertTriangle className={`h-3.5 w-3.5 ${isResolvingConflicts ? "animate-spin" : ""}`} />
                 <span>{t.settingsTab.conflictsBtn}</span>
               </button>
+            </div>
+
+            {/* WinDivert Driver Reset Card (Solaris port) */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-panel border border-rose-500/25 bg-cardin p-3.5">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-rose-400" />
+                  <span className="text-xs font-semibold text-ink">{t.settingsTab.driverTitle}</span>
+                </div>
+                <p className="text-[11px] text-ink4 max-w-lg leading-relaxed">
+                  {t.settingsTab.driverDesc}
+                </p>
+                {driverLine && (
+                  <p className="flex items-center gap-1.5 text-[11px] leading-relaxed">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${driverDotClass}`} />
+                    <span className={driverTextClass}>{driverLine.message}</span>
+                  </p>
+                )}
+                {driverRepair?.outcome === "reboot_required" && (
+                  <p className="text-[11px] text-amber-300">
+                    {t.settingsTab.driverRebootNote}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCheckDriver}
+                  disabled={checkingDriver || repairingDriver}
+                  className="flex items-center justify-center gap-2 rounded-control border border-line bg-raise hover:bg-hovert px-3.5 py-2 text-xs font-semibold text-ink3 hover:text-ink transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${checkingDriver ? "animate-spin" : ""}`} />
+                  <span>
+                    {checkingDriver ? t.settingsTab.driverChecking : t.settingsTab.driverCheck}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRepairDriver}
+                  disabled={checkingDriver || repairingDriver || engineRunning}
+                  title={engineRunning ? t.settingsTab.driverStopFirst : undefined}
+                  className="flex items-center justify-center gap-2 rounded-control border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 px-3.5 py-2 text-xs font-semibold text-rose-300 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <AlertTriangle className={`h-3.5 w-3.5 ${repairingDriver ? "animate-spin" : ""}`} />
+                  <span>
+                    {repairingDriver ? t.settingsTab.driverRepairing : t.settingsTab.driverRepair}
+                  </span>
+                </button>
+              </div>
             </div>
 
             {/* Windows Notifications Card */}

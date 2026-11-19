@@ -20,6 +20,8 @@ import {
 } from "./types";
 import { Sidebar, NavTab } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
+import { CommandPalette } from "./components/CommandPalette";
+import { useAutoTune } from "./components/AutoTuneModal";
 import { ConflictBanner } from "./components/ConflictBanner";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { UpdateDialog, UpdatePhase } from "./components/UpdateDialog";
@@ -70,6 +72,23 @@ const AppContent: React.FC = () => {
     } catch {
       /* storage unavailable — the mode just won't persist */
     }
+  }, []);
+
+  // Command palette (Ctrl/Cmd+K, Solaris port). Its auto-tune
+  // instance lives below, next to handleStartStrategy, which it
+  // depends on.
+  const [isPaletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // e.code, not e.key: on the Russian layout the K key reports
+      // "л", and the shortcut would silently die for the main audience.
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyK") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
   const [isElevated, setIsElevated] = useState<boolean>(true);
   const [status, setStatus] = useState<SupervisorStatus>({
@@ -799,6 +818,24 @@ const AppContent: React.FC = () => {
     }
   }, [handleRefreshProbes, strategies, t]);
 
+  // The palette's own auto-tune instance — the same cycle the
+  // dashboard and diagnostics buttons run, with pre-check errors
+  // landing in the global alert.
+  const paletteAutoTune = useAutoTune({
+    onSelectAndStartStrategy: handleStartStrategy,
+    onNavigateTab: setActiveTab,
+    onError: setErrorAlert,
+  });
+  // Stable palette callbacks (the palette is memoized; inline
+  // closures would re-render it and re-subscribe its Esc listener
+  // on every App render).
+  const handleClosePalette = useCallback(() => setPaletteOpen(false), []);
+  const handleStartFromPalette = useCallback(() => handleStart(), [handleStart]);
+  const handleToggleExpertFromPalette = useCallback(
+    () => handleExpertModeChange(!expertMode),
+    [handleExpertModeChange, expertMode]
+  );
+
   // Strategy watchdog: background light checks + auto-escalation on
   // confirmed degradation. Hook only, no UI of its own.
   useWatchdog({
@@ -1031,6 +1068,7 @@ const AppContent: React.FC = () => {
             onKillStray={handleKillStray}
             isStrayCleaning={isStrayCleaning}
             onNavigateTab={setActiveTab}
+            onOpenPalette={() => setPaletteOpen(true)}
           />
         </div>
 
@@ -1179,6 +1217,9 @@ const AppContent: React.FC = () => {
               expertMode={expertMode}
               onExpertModeChange={handleExpertModeChange}
               isElevated={isElevated}
+              engineRunning={
+                status.state === "running" || status.state === "starting"
+              }
               onRelaunchElevated={handleRelaunchElevated}
               isAutostart={isAutostart}
               onToggleAutostart={handleToggleAutostart}
@@ -1263,6 +1304,30 @@ const AppContent: React.FC = () => {
           onCancelDownload={handleCancelUpdateDownload}
         />
       )}
+
+      {/* Command palette (Ctrl/Cmd+K) + its auto-tune modal */}
+      <CommandPalette
+        open={isPaletteOpen}
+        onClose={handleClosePalette}
+        isRunning={status.state === "running"}
+        isTransitioning={
+          status.state === "starting" || status.state === "stopping"
+        }
+        isAutoTuning={paletteAutoTune.isAutoTuning}
+        isRefreshingProbes={isRefreshingProbes}
+        isStrayCleaning={isStrayCleaning}
+        expertMode={expertMode}
+        strategies={strategies}
+        onStart={handleStartFromPalette}
+        onStop={handleStop}
+        onAutoTune={paletteAutoTune.startAutoTune}
+        onRefreshProbes={handleRefreshProbes}
+        onKillStray={handleKillStray}
+        onToggleExpert={handleToggleExpertFromPalette}
+        onNavigateTab={setActiveTab}
+        onStartStrategy={handleStartStrategy}
+      />
+      {paletteAutoTune.autoTuneModal}
     </div>
   );
 };
