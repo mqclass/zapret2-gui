@@ -115,23 +115,23 @@
   --c-ink4: 139 131 115;
   --c-ink5: 97 91 79;
 
-  /* white sun (monochrome bone-white) */
-  --c-accent: 255 255 255;
-  --c-accent-soft: 255 255 255;
-  --c-accent-fill: 237 232 221;
-  --c-accent-fill-hover: 255 255 255;
-  --c-accent-contrast: 0 0 0;
-  --c-accent-wash: rgba(237, 232, 221, 0.14);
-  --c-accent-line: rgba(255, 255, 255, 0.30);
+  /* sunrise — orange accent, golden core, red rim */
+  --c-accent: 249 115 22;
+  --c-accent-soft: 253 186 116;
+  --c-accent-fill: 234 88 12;
+  --c-accent-fill-hover: 249 115 22;
+  --c-accent-contrast: 255 255 255;
+  --c-accent-wash: rgba(234, 88, 12, 0.16);
+  --c-accent-line: rgba(249, 115, 22, 0.38);
   /* Duotone partner for gradients (warm orange) */
-  --c-accent2: 214 208 195;
+  --c-accent2: 226 52 42;
 
   /* Sunrise glows: warm, low alpha — dawn light, not a wash */
-  --aurora-1: rgba(237, 232, 221, 0.08);
-  --aurora-2: rgba(255, 255, 255, 0.05);
-  --aurora-3: rgba(237, 232, 221, 0.03);
-  --aurora-4: rgba(255, 255, 255, 0.04);
-  --aurora-5: rgba(237, 232, 221, 0.05);
+  --aurora-1: rgba(249, 115, 22, 0.13);
+  --aurora-2: rgba(226, 52, 42, 0.09);
+  --aurora-3: rgba(249, 115, 22, 0.05);
+  --aurora-4: rgba(226, 52, 42, 0.07);
+  --aurora-5: rgba(249, 115, 22, 0.09);
 
   --c-danger-fill: 255 69 58;
   --c-danger-fill-hover: 255 110 100;
@@ -162,8 +162,8 @@
 
   --shadow-card: 0 18px 50px rgba(0, 0, 0, 0.5), var(--glass-inset-hi);
   --shadow-pop: 0 24px 70px rgba(0, 0, 0, 0.6), var(--glass-inset-hi);
-  --shadow-glow: 0 0 0 1px rgba(255, 255, 255, 0.12),
-    0 0 34px rgba(237, 232, 221, 0.15);
+  --shadow-glow: 0 0 0 1px rgba(249, 115, 22, 0.16),
+    0 0 34px rgba(234, 88, 12, 0.22);
 
   --line-alpha: 0.09;
   --line-strong-alpha: 0.16;
@@ -278,8 +278,8 @@
      instead of the emerald breath. */
   [data-theme="sun"] .app-bg::after {
     background-image:
-      radial-gradient(900px 520px at 50% -12%, rgba(237, 232, 221, 0.10), transparent 62%),
-      radial-gradient(700px 480px at 100% 110%, rgba(255, 255, 255, 0.05), transparent 60%);
+      radial-gradient(900px 520px at 50% -12%, rgba(249, 115, 22, 0.14), transparent 62%),
+      radial-gradient(700px 480px at 100% 110%, rgba(226, 52, 42, 0.08), transparent 60%);
   }
   /* Hyprland ambient: faint cyan/magenta haze in the corners */
 
