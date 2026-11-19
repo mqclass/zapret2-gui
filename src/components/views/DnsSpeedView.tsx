@@ -557,7 +557,7 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
             </div>
             <span className={`rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 ${
               hostsStatus?.enabled
-                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                ? "hosts-on-pill bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                 : "bg-hovert text-ink4 border-line"
             }`}>
               {hostsStatus?.enabled ? t.smartHosts.enabledBadge : t.smartHosts.disabledBadge}
@@ -876,7 +876,7 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
               onClick={() => handleScopeChange("split")}
               className={`flex flex-col text-left p-2.5 rounded-control border transition-all cursor-pointer ${
                 dnsScope === "split"
-                  ? "border-emerald-500/50 bg-emerald-500/15 text-ink ring-1 ring-emerald-500/30 shadow-sm"
+                  ? "border-accent-line bg-accent-wash text-ink ring-1 ring-accent-line shadow-sm"
                   : "border-line bg-card text-ink4 hover:text-ink2 hover:bg-hovert"
               }`}
             >
@@ -1083,7 +1083,7 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
             </div>
             <span className={`rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 ${
               hostsStatus?.enabled
-                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                ? "hosts-on-pill bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                 : "bg-hovert text-ink4 border-line"
             }`}>
               {hostsStatus?.enabled ? t.smartHosts.enabledBadge : t.smartHosts.disabledBadge}

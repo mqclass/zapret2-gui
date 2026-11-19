@@ -138,7 +138,7 @@
   --c-danger-wash: rgba(255, 69, 58, 0.12);
   --c-danger-line: rgba(255, 120, 110, 0.35);
 
-  --c-ok-wash: rgba(52, 211, 153, 0.1);
+  --c-ok-wash: rgba(249, 115, 22, 0.1);
 
   --c-warn-wash: rgba(255, 179, 64, 0.08);
   --c-warn-line: rgba(255, 179, 64, 0.3);
@@ -298,6 +298,38 @@
   }
   [data-theme="sun"] .hero-title-running {
     background-image: linear-gradient(to right, #fde68a, #fbbf24 35%, #f97316 70%, #e2342a);
+  }
+  /* Sunrise active/selected states: the active strategy card, its pills
+     and dots, the recommended badge, the smart-hosts ON pill and the
+     selected check follow the sun. The guide button is accent text. */
+  [data-theme="sun"] .active-strat-card {
+    border-color: rgba(249, 115, 22, 0.6);
+    --tw-ring-color: rgba(249, 115, 22, 0.3);
+  }
+  [data-theme="sun"] .active-strat-pill,
+  [data-theme="sun"] .rec-pill,
+  [data-theme="sun"] .hosts-on-pill {
+    background-color: rgba(249, 115, 22, 0.2);
+    border-color: rgba(249, 115, 22, 0.5);
+    color: #fdba74;
+  }
+  [data-theme="sun"] .active-strat-dot {
+    background-color: #fb923c;
+  }
+  [data-theme="sun"] .active-strat-tile,
+  [data-theme="sun"] .selected-strat-tile {
+    background-color: rgba(249, 115, 22, 0.15);
+    border-color: rgba(249, 115, 22, 0.3);
+    color: #fb923c;
+  }
+  [data-theme="sun"] .selected-strat-check {
+    background-color: #ea580c;
+  }
+  [data-theme="sun"] .guide-btn {
+    color: #fb923c;
+  }
+  [data-theme="sun"] .guide-btn:hover {
+    color: #fdba74;
   }
   /* Hyprland ambient: faint cyan/magenta haze in the corners */
 

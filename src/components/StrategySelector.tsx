@@ -200,7 +200,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
           }}
           className={`flex items-center gap-2.5 rounded-panel border px-3 py-1 cursor-pointer transition-all ${
             isActive
-              ? "border-emerald-500/60 bg-okwash shadow-sm"
+              ? "active-strat-card border-emerald-500/60 bg-okwash shadow-sm"
               : isSelected
               ? "border-accent-line bg-accent-wash shadow-sm"
               : "border-line bg-cardin hover:border-linestrong hover:bg-hovert"
@@ -209,7 +209,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
           <span
             className={`h-2 w-2 shrink-0 rounded-full ${
               isActive
-                ? "bg-emerald-400 animate-pulse"
+                ? "active-strat-dot bg-emerald-400 animate-pulse"
                 : isSelected
                 ? "bg-accent"
                 : "bg-ink5"
@@ -231,7 +231,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
               inside it, a very long custom-config name pushed the
               badge past the edge and clipped it. */}
           {isActive && (
-            <span className="shrink-0 whitespace-nowrap rounded-chip bg-emerald-500/20 border border-emerald-500/50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
+            <span className="active-strat-pill shrink-0 whitespace-nowrap rounded-chip bg-emerald-500/20 border border-emerald-500/50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
               {t.strategies.cardActive}
             </span>
           )}
@@ -331,7 +331,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
               <button
                 type="button"
                 onClick={() => setIsGuideOpen(true)}
-                className="flex items-center gap-1.5 rounded-control border border-linestrong bg-raise/80 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-linestrong hover:text-emerald-300 transition-colors cursor-pointer"
+                className="guide-btn flex items-center gap-1.5 rounded-control border border-linestrong bg-raise/80 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-linestrong hover:text-emerald-300 transition-colors cursor-pointer"
               >
                 <HelpCircle className="h-3.5 w-3.5" />
                 <span>{t.strategies.configGuideBtn}</span>
@@ -458,7 +458,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
 
               let cardStyle = "border-line bg-card text-ink3 hover:border-linestrong hover:bg-hovert";
               if (isActive) {
-                cardStyle = "border-emerald-500/60 bg-okwash text-ink shadow-sm ring-1 ring-emerald-500/30";
+                cardStyle = "active-strat-card border-emerald-500/60 bg-okwash text-ink shadow-sm ring-1 ring-emerald-500/30";
               } else if (isSelected) {
                 cardStyle = "border-accent-line bg-accent-wash text-ink shadow-sm ring-1 ring-accent-line";
               }
@@ -491,9 +491,9 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                         <div
                           className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-control border ${
                             isActive
-                              ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
+                              ? "active-strat-tile bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
                               : isSelected
-                              ? "bg-violet-500/15 border-violet-500/30 text-violet-400"
+                              ? "selected-strat-tile bg-violet-500/15 border-violet-500/30 text-violet-400"
                               : isCustom
                               ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
                               : "bg-raise border-line text-ink4"
@@ -513,7 +513,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                               </span>
                             )}
                             {isRecommended && (
-                              <span className="flex items-center gap-0.5 rounded-chip bg-emerald-500/20 border border-emerald-500/40 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300 shrink-0">
+                              <span className="rec-pill flex items-center gap-0.5 rounded-chip bg-emerald-500/20 border border-emerald-500/40 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300 shrink-0">
                                 <Sparkles className="h-2.5 w-2.5" />
                                 <span>{t.strategies.badgeRecommended}</span>
                               </span>
@@ -545,13 +545,13 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                       {/* Status indicator on top right */}
                       <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                         {isActive && (
-                          <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                          <span className="active-strat-pill flex items-center gap-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+                            <span className="active-strat-dot h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                             <span>{t.strategies.cardActive}</span>
                           </span>
                         )}
                         {!isActive && isSelected && (
-                          <div className="flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-ink">
+                          <div className="selected-strat-check flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-ink">
                             <Check className="h-2.5 w-2.5" />
                           </div>
                         )}
