@@ -210,7 +210,7 @@ export interface AppSettings {
   auto_hostlist_enabled?: boolean;
   /** Hidden driver (Monkey): the engine runs from bin/monkey/ with the renamed WinDivert pair. */
   monkey_driver?: boolean;
-  /** UI accent color override ("#RRGGBB"); null/undefined = built-in violet. */
+  /** UI accent color override ("#RRGGBB"); null/undefined = built-in sunrise. */
   accent_color?: string | null;
   /** Active camouflage transport id (`null`/`undefined` = direct launch). */
   active_transport_id?: string | null;}

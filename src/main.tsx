@@ -5,11 +5,11 @@ import App from "./App";
 import "./index.css";
 import { applyAccent, readStoredAccent } from "./utils/accent";
 
-// Single theme: always "macos" (dark glass). No theme switching.
+// Single theme: always "sun" (sunrise). No theme switching.
 document.documentElement.dataset.theme = "sun";
 
 // Apply the last saved accent synchronously, before the first render,
-// so non-violet users never see a violet frame while settings load
+// so non-sunrise users never see a sunrise frame while settings load
 // over IPC. The backend value confirms or overwrites this in App.
 applyAccent(readStoredAccent());
 

@@ -645,7 +645,7 @@ export const StrategySelector: React.FC<StrategySelectorProps> = React.memo(
                           disabled={isTransitioning}
                           className={`flex items-center gap-1.5 rounded-panel px-3 py-1.5 text-xs font-bold transition-all active:scale-95 cursor-pointer disabled:opacity-50 ${
                             isSelected
-                              ? "bg-accent-fill hover:bg-accent text-ink shadow-md shadow-violet-600/25"
+                              ? "bg-accent-fill hover:bg-accent text-ink shadow-md shadow-orange-600/25"
                               : "bg-raise hover:bg-hovert text-ink2 border border-line"
                           }`}
                           title={t.strategies.cardStart}

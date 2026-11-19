@@ -124,7 +124,7 @@ const AppContent: React.FC = () => {
   const [monkeyDriverOn, setMonkeyDriverOn] = useState<boolean>(false);
   const [isTogglingMonkeyDriver, setIsTogglingMonkeyDriver] = useState<boolean>(false);
   const [watchdogInterval, setWatchdogInterval] = useState<number>(15);
-  // Accent override ("#RRGGBB"); null means the built-in violet.
+  // Accent override ("#RRGGBB"); null means the built-in sunrise.
   const [accentColor, setAccentColor] = useState<string | null>(null);
   const [isExportingDiag, setIsExportingDiag] = useState<boolean>(false);
   const [splitTunnelMode, setSplitTunnelMode] = useState<SplitTunnelMode>("full");
