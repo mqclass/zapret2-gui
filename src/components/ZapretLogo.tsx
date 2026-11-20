@@ -38,9 +38,9 @@ export const ZapretLogo: React.FC<ZapretLogoProps> = ({
             y2="29"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0%" stopColor="#a78bfa" />
-            <stop offset="55%" stopColor="#8b5cf6" />
-            <stop offset="100%" stopColor="#d946ef" />
+            <stop offset="0%" stopColor="#fbbf24" />
+            <stop offset="55%" stopColor="#f97316" />
+            <stop offset="100%" stopColor="#e2342a" />
           </linearGradient>
           <linearGradient
             id="zapretZGrad"
@@ -50,8 +50,8 @@ export const ZapretLogo: React.FC<ZapretLogoProps> = ({
             y2="20.5"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0%" stopColor="#c4b5fd" />
-            <stop offset="100%" stopColor="#f0abfc" />
+            <stop offset="0%" stopColor="#fde68a" />
+            <stop offset="100%" stopColor="#fdba74" />
           </linearGradient>
         </defs>
 
@@ -75,10 +75,10 @@ export const ZapretLogo: React.FC<ZapretLogoProps> = ({
         />
 
         {/* Signal nodes on the Z corners */}
-        <circle cx="11" cy="11.5" r="1.4" fill="#a78bfa" />
-        <circle cx="21" cy="11.5" r="1.4" fill="#c4b5fd" />
-        <circle cx="11" cy="20.5" r="1.4" fill="#818cf8" />
-        <circle cx="21" cy="20.5" r="1.4" fill="#f0abfc" />
+        <circle cx="11" cy="11.5" r="1.4" fill="#fbbf24" />
+        <circle cx="21" cy="11.5" r="1.4" fill="#fde68a" />
+        <circle cx="11" cy="20.5" r="1.4" fill="#f97316" />
+        <circle cx="21" cy="20.5" r="1.4" fill="#e2342a" />
       </svg>
     </div>
   );
