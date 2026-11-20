@@ -3,9 +3,11 @@
  * and automatic escalation to a better one on confirmed degradation.
  *
  * Design constraints, all load-bearing:
- * - Light checks use `refresh_probes` only: plain HTTP through the already
- *   running engine. `probe_strategy` is NEVER used for checks: it restarts
- *   the engine per strategy and would drop connections on every tick.
+ * - Checks use `refresh_probes` only: plain HTTP through the already
+ *   running engine (YouTube runs a deep body probe there — still no
+ *   engine restart). `probe_strategy` is NEVER used for checks: it
+ *   restarts the engine per strategy and would drop connections on
+ *   every tick.
  * - Degradation counts only YouTube/Discord. The voice probe is an HTTPS
  *   regions endpoint that reads Degraded even when real UDP voice works,
  *   so it must not trigger escalation on its own.
