@@ -3,7 +3,7 @@
 -- КАК ЭТО РАБОТАЕТ (честно, без магии):
 -- GUI (supervisor.rs, ветка discovered-стратегий) запускает winws2 с тем
 -- же набором аргументов, что и соседние пресеты:
---   --lua-init=@zapret-lib.lua --lua-init=@zapret-ipfrag.lua
+--   --lua-init=@zapret-lib.lua --lua-init=@zapret-antidpi.lua --lua-init=@zapret-ipfrag.lua
 --   --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid
 --   --payload=http_req        --lua-desync=fake:blob=fake_default_http:tcp_md5
 --   --payload=tls_client_hello,http_req --lua-desync=multisplit:pos=2:seqovl=5:seqovl_pattern=0x1603030000

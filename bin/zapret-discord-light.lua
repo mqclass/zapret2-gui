@@ -2,7 +2,7 @@
 --
 -- КАК ЭТО РАБОТАЕТ (честно, без магии):
 -- GUI (supervisor.rs, ветка discovered-стратегий) запускает winws2 так:
---   --lua-init=@zapret-lib.lua --lua-init=@zapret-discord-light.lua
+--   --lua-init=@zapret-lib.lua --lua-init=@zapret-antidpi.lua --lua-init=@zapret-discord-light.lua
 --   --filter-tcp=80,443,2053,2083,2087,2096,8443
 --   --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid
 --   --payload=http_req        --lua-desync=fake:blob=fake_default_http:tcp_md5

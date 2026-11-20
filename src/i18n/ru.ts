@@ -611,6 +611,13 @@ export const ru: Translations = {
     monkeyDriverOff: "Выключено",
     monkeyDriverBtnEnable: "Включить скрытый драйвер",
     monkeyDriverBtnDisable: "Выключить скрытый драйвер",
+    quicTcpTitle: "Режим QUIC→TCP",
+    quicTcpDesc: "Отключает QUIC (UDP/443), пока обход включён: браузеры сразу работают через TCP и не виснут на сломанном QUIC провайдера. Голос Discord и игры не трогает — у них другие порты.",
+    quicTcpOn: "Включено",
+    quicTcpOff: "Выключено",
+    quicTcpBtnEnable: "Включить режим QUIC→TCP",
+    quicTcpBtnDisable: "Выключить режим QUIC→TCP",
+    quicTcpFlowsealNote: "Сейчас не действует: активна стратегия Flowseal, а отключение QUIC работает только для стратегий zapret2 (winws2). Настройка сохранится и применится при запуске такой стратегии.",
     accentTitle: "Цвет приложения",
     accentDesc:
       "Меняет цвет всего приложения: фоны, стекло и акценты. Приложение остаётся тёмным.",

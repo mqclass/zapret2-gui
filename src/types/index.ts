@@ -210,6 +210,8 @@ export interface AppSettings {
   auto_hostlist_enabled?: boolean;
   /** Hidden driver (Monkey): the engine runs from bin/monkey/ with the renamed WinDivert pair. */
   monkey_driver?: boolean;
+  /** QUIC→TCP mode: the engine drops UDP/443 (QUIC) so browsers fall back to TCP/TLS. winws2-only. */
+  quic_to_tcp?: boolean;
   /** UI accent color override ("#RRGGBB"); null/undefined = built-in violet. */
   accent_color?: string | null;
   /** Active camouflage transport id (`null`/`undefined` = direct launch). */

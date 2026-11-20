@@ -206,6 +206,10 @@ pub struct AppSettings {
     /// both platforms (same mirroring as the other driver settings).
     #[serde(default)]
     pub monkey_driver: bool,
+    /// QUIC→TCP mode (see the Windows settings for the full comment).
+    /// nfqws2 is Lua-only, so the drop desync applies here too.
+    #[serde(default)]
+    pub quic_to_tcp: bool,
     /// UI accent color override as a hex string ("#RRGGBB"). None means the
     /// built-in violet accent from index.css. Only the accent family is
     /// overridden; the dark glass base theme is never changed.
@@ -278,6 +282,7 @@ impl Default for AppSettings {
             watchdog_interval_minutes: 15,
             auto_hostlist_enabled: true,
             monkey_driver: false,
+            quic_to_tcp: false,
             accent_color: None,
             classifier_session: None,
         }

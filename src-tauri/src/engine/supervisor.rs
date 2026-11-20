@@ -231,6 +231,39 @@ pub enum SupervisorState {
     Error,
 }
 
+/// Outcome of the QUIC→TCP injection (`inject_quic_kill_switch`):
+/// the engine log names the real reason when the mode is enabled
+/// but the drop did not land. A wrong reason in the log is worse
+/// than none — it sends the user debugging the wrong thing.
+#[derive(Debug, PartialEq, Eq)]
+enum QuicKillSwitch {
+    /// The drop profile is now the first `--new` profile.
+    Injected,
+    /// No `--lua-init` loads zapret-antidpi.lua, so `drop` is
+    /// undefined (Flowseal/winws, or a custom profile that never
+    /// loads the library).
+    NoAntidpi,
+    /// Args already contain `--lua-desync=drop`.
+    AlreadyDropping,
+    /// No `--filter-` arg at all: no safe insertion point.
+    NoFilters,
+    /// No `--wf-udp`/`--wf-udp-out` flag: WinDivert diverts no UDP,
+    /// so the drop would never see a packet.
+    NoUdpCapture,
+}
+
+impl QuicKillSwitch {
+    fn reason(&self) -> &'static str {
+        match self {
+            QuicKillSwitch::Injected => "injected",
+            QuicKillSwitch::NoAntidpi => "the strategy does not load zapret-antidpi.lua",
+            QuicKillSwitch::AlreadyDropping => "the strategy already drops UDP",
+            QuicKillSwitch::NoFilters => "the strategy has no --filter- profile",
+            QuicKillSwitch::NoUdpCapture => "no --wf-udp flag diverts UDP traffic",
+        }
+    }
+}
+
 /// Structured single log event.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
@@ -1617,6 +1650,102 @@ impl Supervisor {
         crate::platform::sanitize_port_spec(raw)
     }
 
+    /// True when a winws `--wf-*` port spec (comma-separated ports and
+    /// `lo-hi` ranges) covers `port`. Malformed tokens are ignored, not
+    /// fatal: the caller only uses this to decide whether to append.
+    fn port_spec_covers(spec: &str, port: u16) -> bool {
+        spec.split(',').any(|token| {
+            let token = token.trim();
+            if token.is_empty() {
+                return false;
+            }
+            if let Some((lo, hi)) = token.split_once('-') {
+                let (Ok(lo), Ok(hi)) = (
+                    lo.trim().parse::<u16>(),
+                    hi.trim().parse::<u16>(),
+                ) else {
+                    return false;
+                };
+                lo <= port && port <= hi
+            } else {
+                token.parse::<u16>() == Ok(port)
+            }
+        })
+    }
+
+    /// QUIC→TCP mode (roadmap #2): inject a UDP/443 drop profile so
+    /// browsers fall back to TCP/TLS immediately instead of hanging on
+    /// provider-mangled QUIC (multi-second timeouts, stalled
+    /// handshakes). The drop is the FIRST `--new` profile — winws2
+    /// tries profiles in order and the first match wins (per
+    /// zapret2's documented profile order; the live smoke test must
+    /// confirm this discriminatingly), so it must precede any
+    /// `--filter-udp=443` fake block the strategy itself carries.
+    /// Pure and unit-tested; `build_arguments` is the only caller.
+    ///
+    /// Guards (all fail-closed, the strategy launches unchanged):
+    /// - no `--lua-init` loading zapret-antidpi.lua: the `drop` desync
+    ///   is defined there, so without it the flag would be undefined
+    ///   (Flowseal/winws, or a custom profile that never loads the
+    ///   library);
+    /// - args already contain `--lua-desync=drop`: a custom profile
+    ///   that drops already — no double injection;
+    /// - no `--filter-` arg at all: no safe insertion point;
+    /// - no `--wf-udp`/`--wf-udp-out` flag at all: WinDivert diverts
+    ///   no UDP, so the drop would be inert — better to skip it with
+    ///   an honest log than to claim a success that never fires.
+    ///
+    /// The WinDivert filter must also divert UDP/443 or the drop never
+    /// sees a packet: every `--wf-udp-out=` (winws2 builders) and
+    /// `--wf-udp=` (Flowseal spelling, kept for custom profiles) flag
+    /// that does not cover 443 gets `,443` appended.
+    ///
+    /// Known interaction: the drop is global (no `--hostlist`), so it
+    /// also drops UDP/443 the WARP sidecar's MASQUE transport would
+    /// use. WARP mode is unmerged and its registration is broken, so
+    /// this is a documented conflict, not a live one.
+    fn inject_quic_kill_switch(args: &mut Vec<String>) -> QuicKillSwitch {
+        // The exact vendored filename, not a substring: a custom
+        // `--lua-init=@my-antidpi-tweaks.lua` without `drop` would
+        // pass a loose "antidpi" check and kill the engine at start.
+        let loads_antidpi = args
+            .iter()
+            .any(|a| a.starts_with("--lua-init") && a.contains("zapret-antidpi.lua"));
+        if !loads_antidpi {
+            return QuicKillSwitch::NoAntidpi;
+        }
+        if args.iter().any(|a| a == "--lua-desync=drop") {
+            return QuicKillSwitch::AlreadyDropping;
+        }
+        let Some(insert_at) = args.iter().position(|a| a.starts_with("--filter-")) else {
+            return QuicKillSwitch::NoFilters;
+        };
+        let mut saw_wf_udp = false;
+        for arg in args.iter_mut() {
+            let spec = arg
+                .strip_prefix("--wf-udp-out=")
+                .or_else(|| arg.strip_prefix("--wf-udp="));
+            if let Some(spec) = spec {
+                saw_wf_udp = true;
+                if !Self::port_spec_covers(spec, 443) {
+                    arg.push_str(",443");
+                }
+            }
+        }
+        if !saw_wf_udp {
+            return QuicKillSwitch::NoUdpCapture;
+        }
+        args.splice(
+            insert_at..insert_at,
+            [
+                "--filter-udp=443".to_string(),
+                "--lua-desync=drop".to_string(),
+                "--new".to_string(),
+            ],
+        );
+        QuicKillSwitch::Injected
+    }
+
     fn build_flowseal_args(preset_id: &str, bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
         let settings = crate::platform::settings::load_settings();
         let auto = if settings.auto_hostlist_enabled {
@@ -2533,6 +2662,32 @@ impl Supervisor {
             final_args.insert(0, "--debug=0".to_string());
         }
 
+        // QUIC→TCP mode: drop UDP/443 at the engine so browsers fall
+        // back to TCP instead of hanging on broken QUIC. The injection
+        // is a no-op for Flowseal (winws has no Lua) and for custom
+        // profiles that never load zapret-antidpi.lua; see
+        // inject_quic_kill_switch. Logged either way so the engine log
+        // alone explains whether QUIC is dead.
+        if crate::platform::settings::load_settings().quic_to_tcp {
+            match Self::inject_quic_kill_switch(&mut final_args) {
+                QuicKillSwitch::Injected => {
+                    self.log(
+                        "info",
+                        "QUIC→TCP mode: UDP/443 drop profile injected (first profile)",
+                    );
+                }
+                outcome => {
+                    self.log(
+                        "info",
+                        &format!(
+                            "QUIC→TCP mode enabled but the drop was not injected ({}): QUIC is left alone",
+                            outcome.reason()
+                        ),
+                    );
+                }
+            }
+        }
+
         Ok(final_args)
     }
 
@@ -2676,6 +2831,27 @@ impl Supervisor {
                 None
             };
 
+        // Antidpi library init line: loaded between lib and preset so
+        // the stock desync functions (notably `drop`, used by the
+        // QUIC→TCP mode) are defined. The preset loads last, so its
+        // own fake()/multisplit() overrides still win; antidpi.lua
+        // has no top-level side effects (function definitions only),
+        // so for the shipped presets this changes nothing when the
+        // mode is off. Skipped when the preset IS antidpi (already
+        // loaded as the preset itself), when lib is missing
+        // (antidpi's functions need lib helpers to run), or when
+        // the bundled file is absent.
+        // The id covers both spellings of the file (zapret-antidpi.lua
+        // and a bare antidpi.lua dropped into strategies/).
+        let antidpi_init: Option<String> = if strat.id != "antidpi"
+            && lib_init.is_some()
+            && binaries.bin_dir.join("zapret-antidpi.lua").is_file()
+        {
+            Some("--lua-init=@zapret-antidpi.lua".into())
+        } else {
+            None
+        };
+
         // List resolution mirrors build_flowseal_args' l(): the bundled
         // copy under bin/lists wins over the user lists directory.
         let l = |file: &str| {
@@ -2711,6 +2887,7 @@ impl Supervisor {
             &game_tcp,
             &game_udp,
             lib_init.as_deref(),
+            antidpi_init.as_deref(),
             preset_init.as_deref(),
             &l("list-google.txt"),
             &l("ipset-all.txt"),
@@ -2765,6 +2942,7 @@ impl Supervisor {
         game_tcp: &str,
         game_udp: &str,
         lib_init: Option<&str>,
+        antidpi_init: Option<&str>,
         preset_init: Option<&str>,
         google_list: &str,
         ipset_all: &str,
@@ -2830,6 +3008,13 @@ impl Supervisor {
             if let Some(init) = lib_init {
                 args.push(init.into());
             }
+            // Antidpi between lib and preset: the preset loads last
+            // so its fake()/multisplit() overrides win (order is
+            // load-bearing — the flagship and the imported builders
+            // use the same lib → antidpi order).
+            if let Some(init) = antidpi_init {
+                args.push(init.into());
+            }
             if let Some(init) = preset_init {
                 args.push(init.into());
             }
@@ -2879,6 +3064,13 @@ impl Supervisor {
                 args.push(format!("--hostlist-auto={}", auto.auto_path));
             }
             if let Some(init) = lib_init {
+                args.push(init.into());
+            }
+            // Antidpi between lib and preset: the preset loads last
+            // so its fake()/multisplit() overrides win (order is
+            // load-bearing — the flagship and the imported builders
+            // use the same lib → antidpi order).
+            if let Some(init) = antidpi_init {
                 args.push(init.into());
             }
             if let Some(init) = preset_init {
@@ -3055,6 +3247,7 @@ mod tests {
             "1024-65535",
             "1024-65535",
             Some("--lua-init=@zapret-lib.lua"),
+            Some("--lua-init=@zapret-antidpi.lua"),
             Some("--lua-init=@zapret-yt4k.lua"),
             "lists/list-google.txt",
             "lists/ipset-all.txt",
@@ -3065,8 +3258,8 @@ mod tests {
 
     #[test]
     fn test_lua_full_mode_matches_historical_branch4_args() {
-        // FULL is the anchor: byte for byte the list branch 4 built
-        // before the tunnel mode existed.
+        // FULL is the anchor: byte for byte the list branch 4 builds
+        // today, including the antidpi init between lib and preset.
         let expected: Vec<String> = [
             "--wf-tcp-out=80,443,2053,2083,2087,2096,8443",
             "--wf-udp-out=443,19294-19344,50000-65535",
@@ -3074,6 +3267,7 @@ mod tests {
             "--blob=quic_google:@quic_initial_www_google_com.bin",
             "--filter-tcp=80,443,2053,2083,2087,2096,8443",
             "--lua-init=@zapret-lib.lua",
+            "--lua-init=@zapret-antidpi.lua",
             "--lua-init=@zapret-yt4k.lua",
             "--payload=tls_client_hello",
             "--lua-desync=fake:blob=fake_default_tls:tcp_md5:tls_mod=rnd,rndsni,dupsid",
@@ -3100,6 +3294,34 @@ mod tests {
     }
 
     #[test]
+    fn test_lua_antidpi_loads_between_lib_and_preset() {
+        // The load order is load-bearing: the preset must come last
+        // so its fake()/multisplit() overrides win over antidpi's.
+        // Both insertion points (FULL's in-section inits and
+        // STRICT's front-loaded inits) must keep it.
+        use crate::platform::settings::SplitTunnelMode;
+        for mode in [SplitTunnelMode::Full, SplitTunnelMode::Strict] {
+            let args = lua_test_args(mode);
+            let lib = args
+                .iter()
+                .position(|a| a == "--lua-init=@zapret-lib.lua")
+                .unwrap();
+            let antidpi = args
+                .iter()
+                .position(|a| a == "--lua-init=@zapret-antidpi.lua")
+                .unwrap();
+            let preset = args
+                .iter()
+                .position(|a| a == "--lua-init=@zapret-yt4k.lua")
+                .unwrap();
+            assert!(
+                lib < antidpi && antidpi < preset,
+                "lib={lib} antidpi={antidpi} preset={preset}"
+            );
+        }
+    }
+
+    #[test]
     fn test_lua_syndata_preset_adds_syn_instance_before_payloads() {
         use crate::platform::settings::SplitTunnelMode;
         const SYNDATA_SPEC: &str =
@@ -3110,6 +3332,7 @@ mod tests {
                 "1024-65535",
                 "1024-65535",
                 Some("--lua-init=@zapret-lib.lua"),
+                Some("--lua-init=@zapret-antidpi.lua"),
                 Some("--lua-init=@zapret-syndata.lua"),
                 "lists/list-google.txt",
                 "lists/ipset-all.txt",
@@ -3175,6 +3398,7 @@ mod tests {
                 "1024-65535",
                 "1024-65535",
                 Some("--lua-init=@zapret-lib.lua"),
+                Some("--lua-init=@zapret-antidpi.lua"),
                 Some("--lua-init=@zapret-syndata.lua"),
                 "lists/list-google.txt",
                 "lists/ipset-all.txt",
@@ -3390,6 +3614,7 @@ mod tests {
             "1024-65535",
             "1024-65535",
             Some("--lua-init=@zapret-lib.lua"),
+            Some("--lua-init=@zapret-antidpi.lua"),
             Some("--lua-init=@zapret-yt4k.lua"),
             "lists/list-google.txt",
             "lists/ipset-all.txt",
@@ -4192,6 +4417,177 @@ mod tests {
         // Setting off: no auto line anywhere.
         let without = imported_test_args("kinlay0-double-fake", None);
         assert!(!without.iter().any(|a| a.starts_with("--hostlist-auto=")));
+    }
+
+    #[test]
+    fn test_port_spec_covers() {
+        assert!(Supervisor::port_spec_covers("443", 443));
+        assert!(Supervisor::port_spec_covers("80,443,8080", 443));
+        assert!(Supervisor::port_spec_covers("443,19294-19344,50000-65535", 443));
+        assert!(Supervisor::port_spec_covers("400-500", 443));
+        assert!(Supervisor::port_spec_covers("1-65535", 443));
+        assert!(!Supervisor::port_spec_covers("80,8080", 443));
+        assert!(!Supervisor::port_spec_covers("19294-19344,50000-65535", 443));
+        // "443" as a substring of another port must not match.
+        assert!(!Supervisor::port_spec_covers("4433,14430", 443));
+        assert!(!Supervisor::port_spec_covers("", 443));
+        assert!(!Supervisor::port_spec_covers("abc,443x", 443));
+    }
+
+    fn quic_lua_args() -> Vec<String> {
+        vec![
+            "--debug=0".to_string(),
+            "--wf-tcp-out=80,443".to_string(),
+            "--wf-udp-out=443,19294-19344,50000-65535".to_string(),
+            "--lua-init=@lua/zapret-lib.lua".to_string(),
+            "--lua-init=@lua/zapret-antidpi.lua".to_string(),
+            "--filter-tcp=443".to_string(),
+            "--filter-l7=tls".to_string(),
+            "--lua-desync=fake".to_string(),
+            "--new".to_string(),
+            "--filter-udp=443".to_string(),
+            "--lua-desync=fake".to_string(),
+        ]
+    }
+
+    #[test]
+    fn test_quic_kill_switch_injects_first() {
+        let mut args = quic_lua_args();
+        assert_eq!(
+            Supervisor::inject_quic_kill_switch(&mut args),
+            QuicKillSwitch::Injected
+        );
+        // Drop is the first profile: before the first --filter- of the
+        // strategy, ahead of the strategy's own UDP fake block.
+        assert_eq!(args[5], "--filter-udp=443");
+        assert_eq!(args[6], "--lua-desync=drop");
+        assert_eq!(args[7], "--new");
+        assert_eq!(args[8], "--filter-tcp=443");
+        // The strategy's own UDP fake block survives, after the drop.
+        let udp_fake = args
+            .iter()
+            .position(|a| a == "--filter-udp=443")
+            .unwrap();
+        assert_eq!(udp_fake, 5, "drop must be the first UDP/443 profile");
+        // --wf-udp-out already covered 443: untouched.
+        assert_eq!(args[2], "--wf-udp-out=443,19294-19344,50000-65535");
+    }
+
+    #[test]
+    fn test_quic_kill_switch_appends_wf_udp_out_443() {
+        // The flag every winws2 builder actually emits.
+        let mut args = quic_lua_args();
+        args[2] = "--wf-udp-out=19294-19344,50000-65535".to_string();
+        assert_eq!(
+            Supervisor::inject_quic_kill_switch(&mut args),
+            QuicKillSwitch::Injected
+        );
+        assert_eq!(args[2], "--wf-udp-out=19294-19344,50000-65535,443");
+    }
+
+    #[test]
+    fn test_quic_kill_switch_appends_legacy_wf_udp_443() {
+        // The Flowseal spelling, kept for custom profiles.
+        let mut args = quic_lua_args();
+        args[2] = "--wf-udp=19294-19344,50000-65535".to_string();
+        assert_eq!(
+            Supervisor::inject_quic_kill_switch(&mut args),
+            QuicKillSwitch::Injected
+        );
+        assert_eq!(args[2], "--wf-udp=19294-19344,50000-65535,443");
+    }
+
+    #[test]
+    fn test_quic_kill_switch_patches_every_wf_flag() {
+        // An exotic custom profile with both spellings: both get 443,
+        // not just the first one found.
+        let mut args = quic_lua_args();
+        args[2] = "--wf-udp-out=19294-19344".to_string();
+        args.insert(3, "--wf-udp=50000-65535".to_string());
+        assert_eq!(
+            Supervisor::inject_quic_kill_switch(&mut args),
+            QuicKillSwitch::Injected
+        );
+        assert_eq!(args[2], "--wf-udp-out=19294-19344,443");
+        assert_eq!(args[3], "--wf-udp=50000-65535,443");
+    }
+
+    #[test]
+    fn test_quic_kill_switch_skips_flowseal() {
+        // winws (Flowseal) args: --dpi-desync-*, no --lua-init at all.
+        let mut args = vec![
+            "--wf-tcp=80,443".to_string(),
+            "--wf-udp=443,50000-65535".to_string(),
+            "--filter-udp=443".to_string(),
+            "--dpi-desync=fake".to_string(),
+        ];
+        assert_eq!(
+            Supervisor::inject_quic_kill_switch(&mut args),
+            QuicKillSwitch::NoAntidpi
+        );
+        assert_eq!(args.len(), 4, "Flowseal args must be untouched");
+    }
+
+    #[test]
+    fn test_quic_kill_switch_skips_when_already_dropping() {
+        let mut args = quic_lua_args();
+        args.push("--lua-desync=drop".to_string());
+        assert_eq!(
+            Supervisor::inject_quic_kill_switch(&mut args),
+            QuicKillSwitch::AlreadyDropping
+        );
+        assert_eq!(
+            args.iter().filter(|a| a.as_str() == "--lua-desync=drop").count(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_quic_kill_switch_rejects_antidpi_lookalike_init() {
+        // A custom init whose NAME contains "antidpi" but is not the
+        // vendored library: `drop` is undefined there, so the guard
+        // must fail closed instead of killing the engine at start.
+        let mut args = vec![
+            "--lua-init=@lua/my-antidpi-tweaks.lua".to_string(),
+            "--wf-udp-out=443".to_string(),
+            "--filter-tcp=443".to_string(),
+            "--lua-desync=fake".to_string(),
+        ];
+        assert_eq!(
+            Supervisor::inject_quic_kill_switch(&mut args),
+            QuicKillSwitch::NoAntidpi
+        );
+    }
+
+    #[test]
+    fn test_quic_kill_switch_skips_without_filters() {
+        let mut args = vec![
+            "--lua-init=@lua/zapret-antidpi.lua".to_string(),
+            "--wf-udp-out=443".to_string(),
+        ];
+        assert_eq!(
+            Supervisor::inject_quic_kill_switch(&mut args),
+            QuicKillSwitch::NoFilters
+        );
+    }
+
+    #[test]
+    fn test_quic_kill_switch_skips_without_udp_capture() {
+        // Antidpi loads and filters exist, but no --wf-udp flag
+        // diverts UDP at all: the drop would be inert, so the
+        // injection fails closed and the args are untouched.
+        let mut args = vec![
+            "--lua-init=@lua/zapret-lib.lua".to_string(),
+            "--lua-init=@lua/zapret-antidpi.lua".to_string(),
+            "--filter-tcp=443".to_string(),
+            "--lua-desync=fake".to_string(),
+        ];
+        let before = args.clone();
+        assert_eq!(
+            Supervisor::inject_quic_kill_switch(&mut args),
+            QuicKillSwitch::NoUdpCapture
+        );
+        assert_eq!(args, before);
     }
 
     /// Manual validation hook: dumps the built argument lists (one
