@@ -615,6 +615,13 @@ export interface Translations {
     monkeyDriverOff: string;
     monkeyDriverBtnEnable: string;
     monkeyDriverBtnDisable: string;
+    quicTcpTitle: string;
+    quicTcpDesc: string;
+    quicTcpOn: string;
+    quicTcpOff: string;
+    quicTcpBtnEnable: string;
+    quicTcpBtnDisable: string;
+    quicTcpFlowsealNote: string;
     accentTitle: string;
     accentDesc: string;
     accentCustom: string;

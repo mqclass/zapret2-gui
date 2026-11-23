@@ -123,6 +123,8 @@ const AppContent: React.FC = () => {
   const [isTogglingAutoHostlist, setIsTogglingAutoHostlist] = useState<boolean>(false);
   const [monkeyDriverOn, setMonkeyDriverOn] = useState<boolean>(false);
   const [isTogglingMonkeyDriver, setIsTogglingMonkeyDriver] = useState<boolean>(false);
+  const [quicToTcpOn, setQuicToTcpOn] = useState<boolean>(false);
+  const [isTogglingQuicToTcp, setIsTogglingQuicToTcp] = useState<boolean>(false);
   const [watchdogInterval, setWatchdogInterval] = useState<number>(15);
   // Accent override ("#RRGGBB"); null means the built-in violet.
   const [accentColor, setAccentColor] = useState<string | null>(null);
@@ -577,6 +579,7 @@ const AppContent: React.FC = () => {
           setWatchdogInterval(cfg.watchdog_interval_minutes ?? 15);
           setAutoHostlistOn(cfg.auto_hostlist_enabled ?? true);
           setMonkeyDriverOn(cfg.monkey_driver ?? false);
+          setQuicToTcpOn(cfg.quic_to_tcp ?? false);
           const accent = cfg.accent_color ?? null;
           setAccentColor(accent);
           applyAccent(accent);
@@ -892,6 +895,39 @@ const AppContent: React.FC = () => {
     }
   }, [monkeyDriverOn, status.state, status.active_strategy, status.active_custom_args, handleStop, handleStartStrategy]);
 
+  // Same shape as the monkey toggle, with one difference: on a
+  // Flowseal (winws) strategy the setting changes nothing — the drop
+  // desync is Lua-only — so a running Flowseal engine is NOT
+  // restarted (it would be downtime for nothing). The setting is
+  // still saved and applies at the next start on a winws2 strategy.
+  const handleToggleQuicToTcp = useCallback(async () => {
+    setIsTogglingQuicToTcp(true);
+    try {
+      const res = await invoke<boolean>("set_quic_to_tcp_enabled", {
+        enable: !quicToTcpOn,
+      });
+      setQuicToTcpOn(res);
+      const activeEngine = strategies.find(
+        (s) => s.id === status.active_strategy
+      )?.engine;
+      if (
+        status.state === "running" &&
+        status.active_strategy &&
+        !status.active_custom_args &&
+        activeEngine !== "winws"
+      ) {
+        const restartTarget = status.active_strategy;
+        await handleStop();
+        await handleStartStrategy(restartTarget, { silent: true });
+      }
+    } catch (err: any) {
+      console.error("Failed to toggle QUIC→TCP mode:", err);
+      setErrorAlert(formatErrorMessage(err));
+    } finally {
+      setIsTogglingQuicToTcp(false);
+    }
+  }, [quicToTcpOn, strategies, status.state, status.active_strategy, status.active_custom_args, handleStop, handleStartStrategy]);
+
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
 
   // Manual log refresh (user-initiated): the live `log-batch` event stream is the
@@ -1199,6 +1235,12 @@ const AppContent: React.FC = () => {
               monkeyDriverOn={monkeyDriverOn}
               onToggleMonkeyDriver={handleToggleMonkeyDriver}
               isTogglingMonkeyDriver={isTogglingMonkeyDriver}
+              quicToTcpOn={quicToTcpOn}
+              onToggleQuicToTcp={handleToggleQuicToTcp}
+              isTogglingQuicToTcp={isTogglingQuicToTcp}
+              isFlowsealActive={
+                strategies.find((s) => s.id === status.active_strategy)?.engine === "winws"
+              }
               watchdogInterval={watchdogInterval}
               onWatchdogInterval={handleWatchdogInterval}
               accentColor={accentColor}

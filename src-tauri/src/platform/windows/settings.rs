@@ -205,6 +205,13 @@ pub struct AppSettings {
     /// so this fools name checks, not device checks). Off by default.
     #[serde(default)]
     pub monkey_driver: bool,
+    /// QUIC→TCP mode: the engine drops UDP/443 (QUIC) so browsers fall
+    /// back to TCP/TLS immediately instead of hanging on
+    /// provider-mangled QUIC. winws2-only (the drop desync lives in
+    /// zapret-antidpi.lua); Flowseal strategies ignore it. Off by
+    /// default: QUIC works fine on most providers.
+    #[serde(default)]
+    pub quic_to_tcp: bool,
     /// UI accent color override as a hex string ("#RRGGBB"). None means the
     /// built-in violet accent from index.css. Only the accent family is
     /// overridden; the dark glass base theme is never changed.
@@ -277,6 +284,7 @@ impl Default for AppSettings {
             watchdog_interval_minutes: 15,
             auto_hostlist_enabled: true,
             monkey_driver: false,
+            quic_to_tcp: false,
             accent_color: None,
             classifier_session: None,
         }

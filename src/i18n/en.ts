@@ -611,6 +611,13 @@ export const en: Translations = {
     monkeyDriverOff: "Disabled",
     monkeyDriverBtnEnable: "Enable hidden driver",
     monkeyDriverBtnDisable: "Disable hidden driver",
+    quicTcpTitle: "QUIC→TCP mode",
+    quicTcpDesc: "Disables QUIC (UDP/443) while the bypass runs: browsers go straight to TCP instead of hanging on provider-broken QUIC. Discord voice and games are untouched — they use other ports.",
+    quicTcpOn: "Enabled",
+    quicTcpOff: "Disabled",
+    quicTcpBtnEnable: "Enable QUIC→TCP mode",
+    quicTcpBtnDisable: "Disable QUIC→TCP mode",
+    quicTcpFlowsealNote: "Not in effect right now: a Flowseal strategy is active, and QUIC blocking only works for zapret2 (winws2) strategies. The setting is saved and will apply when such a strategy starts.",
     accentTitle: "App color",
     accentDesc:
       "Recolors the whole app: backgrounds, glass and accents. The app stays dark.",

@@ -772,6 +772,19 @@ pub async fn set_monkey_driver_enabled(enable: bool) -> Result<bool, String> {
     Ok(enable)
 }
 
+/// Toggles QUIC→TCP mode: the engine drops UDP/443 (QUIC) so browsers
+/// fall back to TCP/TLS immediately instead of hanging on
+/// provider-mangled QUIC. The setting is consumed at engine start (it
+/// shapes the argument list), so the frontend restarts a running
+/// engine after flipping it. winws2-only: Flowseal (winws.exe) has no
+/// Lua desyncs and ignores the setting.
+#[tauri::command]
+pub async fn set_quic_to_tcp_enabled(enable: bool) -> Result<bool, String> {
+    crate::platform::settings::update_settings(|s| s.quic_to_tcp = enable)
+        .map_err(|e| e.to_string())?;
+    Ok(enable)
+}
+
 /// Sets the watchdog check interval in minutes. The caller validates the
 /// range; the backend clamps to 5..=120 so a bad value cannot spin the
 /// probe loop or stall escalation for hours.
