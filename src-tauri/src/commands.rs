@@ -375,6 +375,15 @@ pub async fn graceful_exit(app: &tauri::AppHandle) {
     tokio::time::sleep(Duration::from_millis(300)).await;
     crate::platform::process::cleanup_windivert_driver().await;
 
+    // Final defense-in-depth sweep at app exit: whatever the earlier exit
+    // paths did, no winws / svc engine may outlive this process while still
+    // holding the WinDivert driver — the user asked for a full quit.
+    let _ = tokio::task::spawn_blocking(|| {
+        crate::platform::process::kill_stray_winws2_processes(None);
+        crate::platform::process::kill_stray_svc_processes(None);
+    })
+    .await;
+
     app.exit(0);
 }
 
