@@ -3,7 +3,7 @@ import { Translations } from "./types";
 export const ru: Translations = {
   header: {
     title: "zapret2",
-    version: "v1.5.1",
+    version: "v1.5.2",
     subtitle: "Служба обхода блокировок WFP & WinDivert",
     adminReady: "Администратор (WFP готов)",
     adminRequired: "Требуются права админа (Нажмите)",
@@ -604,6 +604,13 @@ export const ru: Translations = {
     autoHostlistOff: "Выключено",
     autoHostlistBtnEnable: "Включить авто-добавление",
     autoHostlistBtnDisable: "Выключить авто-добавление",
+    engineDebugTitle: "Отладочный журнал движка",
+    engineDebugDesc:
+      "Подробный режим: движок пишет в журнал каждый обработанный пакет. Только для диагностики — при большой нагрузке журнал растёт очень быстро. Выключите после проверки.",
+    engineDebugOn: "Включён",
+    engineDebugOff: "Выключен",
+    engineDebugBtnEnable: "Включить отладку",
+    engineDebugBtnDisable: "Выключить отладку",
     monkeyDriverTitle: "Скрытый драйвер (Monkey)",
     monkeyDriverDesc:
       "Маскирует драйвер обхода под другим именем, чтобы античиты в играх не ругались на WinDivert. Нужен только если игра не запускается или выкидывает с включённым обходом.",

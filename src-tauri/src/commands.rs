@@ -406,6 +406,15 @@ pub async fn graceful_exit(app: &tauri::AppHandle) {
     tokio::time::sleep(Duration::from_millis(300)).await;
     crate::platform::process::cleanup_windivert_driver().await;
 
+    // Final defense-in-depth sweep at app exit: whatever the earlier exit
+    // paths did, no winws / svc engine may outlive this process while still
+    // holding the WinDivert driver — the user asked for a full quit.
+    let _ = tokio::task::spawn_blocking(|| {
+        crate::platform::process::kill_stray_winws2_processes(None);
+        crate::platform::process::kill_stray_svc_processes(None);
+    })
+    .await;
+
     app.exit(0);
 }
 
@@ -762,6 +771,16 @@ pub async fn set_watchdog_enabled(enable: bool) -> Result<bool, String> {
 #[tauri::command]
 pub async fn set_auto_hostlist_enabled(enable: bool) -> Result<bool, String> {
     crate::platform::settings::update_settings(|s| s.auto_hostlist_enabled = enable)
+        .map_err(|e| e.to_string())?;
+    Ok(enable)
+}
+
+/// Toggles engine debug logging (`--debug=1` vs `--debug=0`). The setting
+/// is consumed at engine start (it shapes the argument list), so the
+/// frontend restarts a running engine after flipping it. Diagnostics only.
+#[tauri::command]
+pub async fn set_engine_debug(enable: bool) -> Result<bool, String> {
+    crate::platform::settings::update_settings(|s| s.engine_debug = enable)
         .map_err(|e| e.to_string())?;
     Ok(enable)
 }

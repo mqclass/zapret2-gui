@@ -56,6 +56,12 @@ err.txt
 update_zapret2.bat
 push_to_github.bat
 
+# Assembled portable app layout (scripts/make_portable.ps1)
+portable/
+
+# Dev junction so cargo test (cwd=src-tauri) resolves the repo lists dir
+src-tauri/lists
+
 # Editor & OS Metadata
 .vscode/
 .idea/

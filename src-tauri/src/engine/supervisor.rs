@@ -2657,10 +2657,29 @@ impl Supervisor {
         // desynced packet, which floods the log buffer and can saturate the
         // stdout pipe under load; fatal errors (e.g. WinDivert open failures)
         // still reach stderr at 0, so status/error detection is unaffected.
-        // A user-supplied --debug=N in custom args is respected as-is.
+        // The engine_debug setting flips the default to --debug=1 for
+        // diagnostics; a user-supplied --debug=N in custom args is respected
+        // as-is and wins over the setting.
         if !final_args.iter().any(|a| a.starts_with("--debug")) {
-            final_args.insert(0, "--debug=0".to_string());
+            let debug_flag = if crate::platform::settings::load_settings().engine_debug {
+                "--debug=1"
+            } else {
+                "--debug=0"
+            };
+            final_args.insert(0, debug_flag.to_string());
         }
+
+        // Normalize DPI fake-blob file references before the launch: custom
+        // args / custom profiles (incl. ones pasted from Flowseal-style .bat
+        // configs and the bundled CONFIG_GUIDE templates) may carry a redundant
+        // `bin/<file>` prefix (`--dpi-desync=fake-quic=bin/quic_initial_www_google_com.bin`).
+        // The engine resolves these values relative to its working directory
+        // (the install `bin` dir), where the bare file name is already correct
+        // and `bin/<file>` points one level too deep — the engine then aborts
+        // with "could not read <file>" and the bypass start fails. Idempotent
+        // for already-correct argument lists (bare file names, `--dpi-desync=fake`,
+        // `--dpi-desync=fake,multisplit`, `--dpi-desync-cutoff=...` pass through).
+        let mut final_args = Self::normalize_desync_blob_args(&final_args, &binaries.bin_dir);
 
         // QUIC→TCP mode: drop UDP/443 at the engine so browsers fall
         // back to TCP instead of hanging on broken QUIC. The injection
@@ -2689,6 +2708,94 @@ impl Supervisor {
         }
 
         Ok(final_args)
+    }
+
+    /// Normalizes `--dpi-desync*` fake-blob file references in an engine
+    /// argument list. Only tokens whose key starts with `--dpi-desync` are
+    /// touched; sub-options of the form `name=file` are resolved against the
+    /// engine binary directory (stripping a redundant `bin/` prefix) when the
+    /// referenced file actually exists there. Everything else is passed
+    /// through byte-for-byte.
+    fn normalize_desync_blob_args(args: &[String], bin_dir: &Path) -> Vec<String> {
+        let mut out: Vec<String> = Vec::with_capacity(args.len());
+        for arg in args {
+            let mut tok = arg.clone();
+            if let Some(eq) = tok.find('=') {
+                let key = tok[..eq].to_string();
+                if key.starts_with("--dpi-desync") {
+                    let value = tok[eq + 1..].to_string();
+                    // Comma only: the list is rejoined with ',' below, so a
+                    // colon split would corrupt sub-options that legitimately
+                    // carry colons (host:port style values) whenever any
+                    // other sub-option in this argument changes.
+                    let subs: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.to_string())
+                        .collect();
+                    let mut rebuilt: Vec<String> = Vec::with_capacity(subs.len());
+                    let mut changed = false;
+                    for sub in subs {
+                        let sub_str: &str = &sub;
+                        if let Some((name, file)) = sub_str.split_once('=') {
+                            let file_trimmed = file.trim();
+                            if !name.contains("fake") || file_trimmed.is_empty() {
+                                rebuilt.push(sub_str.to_string());
+                                continue;
+                            }
+                            let resolved = Self::resolve_engine_blob(file_trimmed, bin_dir);
+                            if resolved != file_trimmed {
+                                changed = true;
+                                rebuilt.push(format!("{}={}", name, resolved));
+                            } else {
+                                rebuilt.push(sub_str.to_string());
+                            }
+                        } else if sub_str.contains('/') {
+                            let resolved = Self::resolve_engine_blob(sub_str, bin_dir);
+                            if resolved != sub_str {
+                                changed = true;
+                                rebuilt.push(resolved);
+                            } else {
+                                rebuilt.push(sub_str.to_string());
+                            }
+                        } else {
+                            rebuilt.push(sub_str.to_string());
+                        }
+                    }
+                    if changed {
+                        tok = format!("{}={}", key, rebuilt.join(","));
+                    }
+                }
+            }
+            out.push(tok);
+        }
+        out
+    }
+
+    /// Resolves a DPI fake-blob file reference against the engine binary
+    /// directory, stripping redundant path prefixes (e.g. a leading `bin/`)
+    /// that the engine's working-directory-relative resolution cannot honor.
+    /// Absolute paths and values that already resolve inside the bin dir are
+    /// returned unchanged. The CWD is never consulted: the supervisor runs
+    /// with the install root as its working directory, where `bin/<file>`
+    /// exists and would mask the very prefix that has to be stripped.
+    fn resolve_engine_blob(val: &str, bin_dir: &Path) -> String {
+        let trimmed = val.trim();
+        if trimmed.is_empty() {
+            return val.to_string();
+        }
+        let path = Path::new(trimmed);
+        if path.is_absolute() || bin_dir.join(trimmed).is_file() {
+            return trimmed.to_string();
+        }
+        let s = trimmed.replace('\\', "/");
+        let parts: Vec<&str> = s.split('/').filter(|p| !p.is_empty()).collect();
+        for i in 1..parts.len() {
+            let candidate = parts[i..].join("/");
+            if bin_dir.join(&candidate).is_file() {
+                return candidate;
+            }
+        }
+        trimmed.to_string()
     }
 
     /// Resolves preset or custom strategy command-line arguments.
@@ -4194,6 +4301,86 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&bundle);
         let _ = std::fs::remove_dir_all(&empty);
+    }
+
+    #[test]
+    fn test_normalize_desync_blob_args_strips_bin_prefix() {
+        let dir = std::env::temp_dir().join(format!("zapret2-norm-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("quic_initial_www_google_com.bin"), "x").unwrap();
+        std::fs::write(dir.join("tls_clienthello_www_google_com.bin"), "x").unwrap();
+        std::fs::write(dir.join("ACTIVE_DISCORD_UDP.bin"), "x").unwrap();
+
+        let args = vec![
+            "--debug=0".to_string(),
+            "--dpi-desync=fake-quic=bin/quic_initial_www_google_com.bin".to_string(),
+            "--dpi-desync=fake-discord=bin/ACTIVE_DISCORD_UDP.bin".to_string(),
+            "--dpi-desync=fake,multisplit".to_string(),
+            "--dpi-desync=fake".to_string(),
+            "--dpi-desync=any-protocol=1".to_string(),
+        ];
+        let out = Supervisor::normalize_desync_blob_args(&args, &dir);
+        assert_eq!(
+            out[1],
+            "--dpi-desync=fake-quic=quic_initial_www_google_com.bin",
+            "bin/ prefix must be stripped from fake-quic blob refs"
+        );
+        assert_eq!(
+            out[2],
+            "--dpi-desync=fake-discord=ACTIVE_DISCORD_UDP.bin",
+            "bin/ prefix must be stripped from fake-discord blob refs"
+        );
+        assert_eq!(out[3], "--dpi-desync=fake,multisplit");
+        assert_eq!(out[4], "--dpi-desync=fake");
+        assert_eq!(out[5], "--dpi-desync=any-protocol=1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_normalize_desync_blob_args_passthrough_without_bin_prefix() {
+        let dir = std::env::temp_dir().join(format!("zapret2-norm2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("tls_clienthello_www_google_com.bin"), "x").unwrap();
+
+        let args = vec![
+            "--debug=0".to_string(),
+            "--dpi-desync=fake".to_string(),
+            "--dpi-desync=fake,multisplit".to_string(),
+            "--dpi-desync=fake-tls=tls_clienthello_www_google_com.bin".to_string(),
+            "--dpi-desync-cutoff=n4".to_string(),
+        ];
+        let out = Supervisor::normalize_desync_blob_args(&args, &dir);
+        assert_eq!(out[1], "--dpi-desync=fake");
+        assert_eq!(out[2], "--dpi-desync=fake,multisplit");
+        assert_eq!(out[3], "--dpi-desync=fake-tls=tls_clienthello_www_google_com.bin");
+        assert_eq!(out[4], "--dpi-desync-cutoff=n4");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_normalize_desync_blob_args_preserves_colons() {
+        let dir = std::env::temp_dir().join(format!("zapret2-norm3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("quic_initial_www_google_com.bin"), "x").unwrap();
+
+        // A colon-bearing sub-option must survive the comma round-trip even
+        // when another sub-option in the same argument gets rewritten (the
+        // old colon split rejoined with commas and silently corrupted it).
+        let args = vec![
+            "--debug=0".to_string(),
+            "--dpi-desync=any-protocol=127.0.0.1:443,fake-quic=bin/quic_initial_www_google_com.bin"
+                .to_string(),
+        ];
+        let out = Supervisor::normalize_desync_blob_args(&args, &dir);
+        assert_eq!(
+            out[1],
+            "--dpi-desync=any-protocol=127.0.0.1:443,fake-quic=quic_initial_www_google_com.bin",
+            "colon-bearing sub-options must survive the comma round-trip"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Builds imported-strategy args the way branch 2b of

@@ -208,6 +208,8 @@ export interface AppSettings {
   watchdog_interval_minutes?: number;
   /** Auto-hostlist: the engine learns newly blocked domains itself. */
   auto_hostlist_enabled?: boolean;
+  /** Engine debug logging (`--debug=1`); diagnostics only, off by default. */
+  engine_debug?: boolean;
   /** Hidden driver (Monkey): the engine runs from bin/monkey/ with the renamed WinDivert pair. */
   monkey_driver?: boolean;
   /** QUIC→TCP mode: the engine drops UDP/443 (QUIC) so browsers fall back to TCP/TLS. winws2-only. */

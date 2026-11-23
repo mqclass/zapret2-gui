@@ -609,6 +609,12 @@ export interface Translations {
     autoHostlistOff: string;
     autoHostlistBtnEnable: string;
     autoHostlistBtnDisable: string;
+    engineDebugTitle: string;
+    engineDebugDesc: string;
+    engineDebugOn: string;
+    engineDebugOff: string;
+    engineDebugBtnEnable: string;
+    engineDebugBtnDisable: string;
     monkeyDriverTitle: string;
     monkeyDriverDesc: string;
     monkeyDriverOn: string;

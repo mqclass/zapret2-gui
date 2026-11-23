@@ -3,7 +3,7 @@ import { Translations } from "./types";
 export const en: Translations = {
   header: {
     title: "zapret2",
-    version: "v1.5.1",
+    version: "v1.5.2",
     subtitle: "Windows WFP & WinDivert Bypass Service",
     adminReady: "Administrator (WFP Ready)",
     adminRequired: "Admin Rights Needed (Click)",
@@ -604,6 +604,13 @@ export const en: Translations = {
     autoHostlistOff: "Disabled",
     autoHostlistBtnEnable: "Enable auto-add",
     autoHostlistBtnDisable: "Disable auto-add",
+    engineDebugTitle: "Engine debug log",
+    engineDebugDesc:
+      "Verbose mode: the engine writes every processed packet to the log. Diagnostics only — under heavy load the log grows very fast. Turn it off after checking.",
+    engineDebugOn: "On",
+    engineDebugOff: "Off",
+    engineDebugBtnEnable: "Enable debug",
+    engineDebugBtnDisable: "Disable debug",
     monkeyDriverTitle: "Hidden driver (Monkey)",
     monkeyDriverDesc:
       "Masks the bypass driver under a different name so game anti-cheats stop complaining about WinDivert. Only needed if a game refuses to start or kicks you with the bypass on.",

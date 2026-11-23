@@ -197,6 +197,13 @@ pub struct AppSettings {
     /// restores the pre-feature argument lists byte for byte.
     #[serde(default = "default_true")]
     pub auto_hostlist_enabled: bool,
+    /// Engine debug logging: when true, winws is launched with `--debug=1`
+    /// instead of the default quiet `--debug=0`, so every desynced packet is
+    /// written to the log. Diagnostics only — the flood can saturate the
+    /// stdout pipe under load (see supervisor::build_arguments). Off by
+    /// default; a `--debug=N` in one-off custom args always wins regardless.
+    #[serde(default)]
+    pub engine_debug: bool,
     /// Hidden driver (Monkey): run the engine from bin/monkey/ with the
     /// renamed WinDivert pair (service "Monkey", Monkey64.sys) so game
     /// anti-cheats that flag "WinDivert" by name stop complaining. The
@@ -283,6 +290,7 @@ impl Default for AppSettings {
             watchdog_enabled: true,
             watchdog_interval_minutes: 15,
             auto_hostlist_enabled: true,
+            engine_debug: false,
             monkey_driver: false,
             quic_to_tcp: false,
             accent_color: None,

@@ -201,6 +201,13 @@ pub struct AppSettings {
     /// restores the pre-feature argument lists byte for byte.
     #[serde(default = "default_true")]
     pub auto_hostlist_enabled: bool,
+    /// Engine debug logging: when true, the engine is launched with
+    /// `--debug=1` instead of the default quiet `--debug=0`, so every
+    /// desynced packet is written to the log. Diagnostics only — the flood
+    /// can saturate the stdout pipe under load. Off by default; a
+    /// `--debug=N` in one-off custom args always wins regardless.
+    #[serde(default)]
+    pub engine_debug: bool,
     /// Hidden driver (Monkey): Windows-only, unused on Linux. Present
     /// so the shared `set_monkey_driver_enabled` command compiles on
     /// both platforms (same mirroring as the other driver settings).
@@ -281,6 +288,7 @@ impl Default for AppSettings {
             watchdog_enabled: true,
             watchdog_interval_minutes: 15,
             auto_hostlist_enabled: true,
+            engine_debug: false,
             monkey_driver: false,
             quic_to_tcp: false,
             accent_color: None,

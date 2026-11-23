@@ -438,6 +438,7 @@ async fn main() {
             commands::set_notifications_enabled,
             commands::set_watchdog_enabled,
             commands::set_auto_hostlist_enabled,
+            commands::set_engine_debug,
             commands::set_monkey_driver_enabled,
             commands::set_quic_to_tcp_enabled,
             commands::set_watchdog_interval,

@@ -554,6 +554,13 @@ pub async fn stop_winws2_gracefully(
 }
 
 /// Purges stuck WinDivert driver services natively and quietly.
+///
+/// Verifies the teardown actually took: after the Service Control Manager
+/// stop we re-query the service state and, if it is still reported as
+/// running/pending, retry once through `net stop` / `sc stop` before giving
+/// up. A one-shot best-effort stop that silently failed is exactly the
+/// "engine says stopped, but WFP driver still holds the filter" state that
+/// outlives reboots and makes a disabled bypass keep intercepting traffic.
 pub async fn cleanup_windivert_driver() {
     // "Monkey" is the hidden driver's service name: a stale Monkey
     // registration from a previous mode must be stopped the same way,
@@ -567,6 +574,23 @@ pub async fn cleanup_windivert_driver() {
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .await;
+        // Retry once: the first attempt can race a START_PENDING transition.
+        if crate::platform::conflicts::is_service_running(name) {
+            let _ = Command::new(crate::platform::system32("net.exe"))
+                .args(["stop", name, "/y"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .await;
+            let _ = Command::new(crate::platform::system32("sc.exe"))
+                .args(["stop", name])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .await;
+            // Bounded wait so the SCM stop request can take effect before we
+            // move on; a service still running after this point is given up
+            // on, as documented above.
+            let _ = tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
     }
 }
 
