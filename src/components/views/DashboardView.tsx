@@ -30,6 +30,7 @@ import {
 import { useI18n } from "../../i18n";
 import { HeroOrb, OrbState } from "../HeroOrb";
 import { Sparkline } from "../Sparkline";
+import { SpotlightCard } from "../SpotlightCard";
 import { TransportsSection } from "../TransportsSection";
 import { GoalPicker } from "../GoalPicker";
 import { useAutoTune } from "../AutoTuneModal";
@@ -105,6 +106,8 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
       for (const [key, v] of [
         ["yt", diagnostics.youtube.latency_ms],
         ["dc", diagnostics.discord.latency_ms],
+        ["voice", diagnostics.discord_voice?.latency_ms ?? null],
+        ["tg", diagnostics.telegram?.latency_ms ?? null],
       ] as const) {
         const h = pingHist.current.data[key] ?? [];
         h.push(v);
@@ -114,6 +117,8 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
     }
     const ytHist = pingHist.current.data["yt"] ?? [];
     const dcHist = pingHist.current.data["dc"] ?? [];
+    const voiceHist = pingHist.current.data["voice"] ?? [];
+    const tgHist = pingHist.current.data["tg"] ?? [];
 
     const isRunning = status.state === "running";
     const isStarting = status.state === "starting";
@@ -230,7 +235,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
       <span
         className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase ${
           isRunning
-            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.22)]"
+            ? "hero-pill-running border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.22)]"
             : isTransitioning
             ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
             : "border-linestrong bg-raise/60 text-ink4"
@@ -239,7 +244,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
         <span
           className={`h-2 w-2 rounded-full ${
             isRunning
-              ? "bg-emerald-400"
+              ? "hero-pill-dot-running bg-emerald-400"
               : isTransitioning
               ? "bg-amber-400 animate-pulse"
               : "bg-ink5"
@@ -341,7 +346,8 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
         name: string,
         metric: ProbeMetric | undefined,
         icon: React.ReactNode,
-        tileClass: string
+        tileClass: string,
+        history: (number | null)[]
       ) => {
         const st = metric?.status ?? "checking";
         const word =
@@ -360,26 +366,54 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             : st === "blocked"
             ? "bg-rose-400"
             : "bg-amber-400 animate-pulse";
+        // Current latency against a 400 ms scale, coloured like the
+        // status dot. Null latency (blocked/checking) hides the bar —
+        // the dot already says that.
+        const latencyPct =
+          metric?.latency_ms != null
+            ? Math.min(100, Math.max(4, (metric.latency_ms / 400) * 100))
+            : 0;
+        const barColor =
+          st === "operational"
+            ? "bg-emerald-400"
+            : st === "degraded"
+            ? "bg-amber-400"
+            : st === "blocked"
+            ? "bg-rose-400"
+            : "bg-amber-400";
         return (
-          <div className="t-card p-2.5 flex items-center gap-3">
-            <div
-              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-panel border ${tileClass}`}
-            >
-              {icon}
-            </div>
-            <div className="min-w-0">
-              {/* Name on its own line: «Голосовой чат» no longer loses
-                  its tail to the status dot beside it. */}
-              <div className="text-xs font-semibold text-ink truncate">{name}</div>
-              <div className="text-[11px] text-ink4 mt-0.5 flex items-center gap-1.5">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
-                <span className="truncate">
-                  {word}
-                  {metric?.latency_ms != null ? ` ${metric.latency_ms} ms` : ""}
-                </span>
+          <SpotlightCard className="t-card p-2.5 relative overflow-hidden">
+            <div className="flex items-center gap-3">
+              <div
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-panel border ${tileClass}`}
+              >
+                {icon}
+              </div>
+              <div className="min-w-0">
+                {/* Name on its own line: «Голосовой чат» no longer loses
+                    its tail to the status dot beside it. */}
+                <div className="text-xs font-semibold text-ink truncate">{name}</div>
+                <div className="text-[11px] text-ink4 mt-0.5 flex items-center gap-1.5">
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
+                  <span className="truncate">
+                    {word}
+                    {metric?.latency_ms != null ? ` ${metric.latency_ms} ms` : ""}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+            {/* Latency history (real probe data, same 40-sample buffer
+                as the expert view) + the current-latency bar below. */}
+            <div className="mt-2">
+              <Sparkline values={history} width={200} height={24} className="w-full h-auto" />
+            </div>
+            {latencyPct > 0 && (
+              <span
+                className={`absolute bottom-0 left-0 h-[3px] rounded-full ${barColor}`}
+                style={{ width: `${latencyPct}%` }}
+              />
+            )}
+          </SpotlightCard>
         );
       };
 
@@ -407,7 +441,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
             <span
               aria-hidden
               className={`pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full blur-3xl transition-colors duration-1000 ${
-                isRunning ? "bg-emerald-500/[0.13]" : "bg-accent/[0.09]"
+                isRunning ? "hero-glow-running bg-emerald-500/[0.13]" : "bg-accent/[0.09]"
               }`}
             />
             <span
@@ -420,7 +454,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                 <h1
                   className={`text-3xl font-extrabold tracking-tight leading-none ${
                     isRunning
-                      ? "bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent"
+                      ? "hero-title-running bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent"
                       : "text-ink"
                   }`}
                 >
@@ -486,25 +520,29 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                 "YouTube",
                 diagnostics.youtube,
                 <Tv className="h-4 w-4" />,
-                "bg-red-500/10 border-red-500/20 text-red-400"
+                "bg-red-500/10 border-red-500/20 text-red-400",
+                ytHist
               )}
               {renderServiceCard(
                 "Discord",
                 diagnostics.discord,
                 <MessageCircle className="h-4 w-4" />,
-                "bg-indigo-500/10 border-indigo-500/20 text-indigo-300"
+                "bg-indigo-500/10 border-indigo-500/20 text-indigo-300",
+                dcHist
               )}
               {renderServiceCard(
                 t.dashboard.svcVoice,
                 diagnostics.discord_voice,
                 <Volume2 className="h-4 w-4" />,
-                "bg-violet-500/10 border-violet-500/20 text-violet-300"
+                "bg-violet-500/10 border-violet-500/20 text-violet-300",
+                voiceHist
               )}
               {renderServiceCard(
                 "Telegram",
                 diagnostics.telegram,
                 <Send className="h-4 w-4" />,
-                "bg-sky-500/10 border-sky-500/20 text-sky-300"
+                "bg-sky-500/10 border-sky-500/20 text-sky-300",
+                tgHist
               )}
             </div>
           </motion.div>
@@ -523,16 +561,19 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
                   {displayStratName}
                 </div>
               </div>
+              {/* The one gradient CTA in the app (Gemini dawn port):
+                  autopick is the primary action for a plain user, so
+                  it gets the sunrise gradient. Dark text on gold. */}
               <button
                 type="button"
                 onClick={startAutoTune}
                 disabled={isAutoTuning || isTransitioning}
-                className="flex items-center gap-1.5 rounded-control border border-accent-line bg-accent-wash px-3 py-1 text-xs font-semibold text-accent-soft hover:bg-accent-fill/20 hover:text-ink transition-all cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-control bg-[linear-gradient(135deg,#fde68a_0%,#fbbf24_30%,#f97316_70%,#e2342a_100%)] px-4 py-1.5 text-xs font-semibold text-amber-950 shadow-[0_4px_18px_rgba(249,115,22,0.35)] hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
               >
                 {isAutoTuning ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Sparkles className="h-3.5 w-3.5 text-accent" />
+                  <Sparkles className="h-3.5 w-3.5" />
                 )}
                 <span>
                   {isAutoTuning ? t.diagnostics.autoTuneRunning : t.dashboard.autoTuneBtn}
@@ -628,7 +669,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
           <span
             aria-hidden
             className={`pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full blur-3xl transition-colors duration-1000 ${
-              isRunning ? "bg-emerald-500/[0.13]" : "bg-accent/[0.09]"
+              isRunning ? "hero-glow-running bg-emerald-500/[0.13]" : "bg-accent/[0.09]"
             }`}
           />
           <span
@@ -643,7 +684,7 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               <h1
                 className={`text-3xl md:text-[2.6rem] font-extrabold tracking-tight leading-none ${
                   isRunning
-                    ? "bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent"
+                    ? "hero-title-running bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent"
                     : "text-ink"
                 }`}
               >

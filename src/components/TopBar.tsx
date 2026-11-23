@@ -8,6 +8,7 @@ import {
   RefreshCw,
   ChevronDown,
   Check,
+  Search,
   Minus,
   Square,
   X,
@@ -29,6 +30,7 @@ interface TopBarProps {
   onKillStray: () => void;
   isStrayCleaning: boolean;
   onNavigateTab?: (tab: NavTab) => void;
+  onOpenPalette?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = React.memo(
@@ -41,6 +43,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
     isTogglingAutostart,
     onKillStray,
     isStrayCleaning,
+    onOpenPalette,
   }) => {
     const { language, setLanguage, t } = useI18n();
     const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
@@ -184,6 +187,20 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
             )}
             <span className="hidden sm:inline">{t.header.cleanProcesses}</span>
           </button>
+          {onOpenPalette && (
+            /* Icon-only: the labelled button (~110px) squeezed the
+               tab title down to a single letter at 1050px. The
+               shortcut lives in the tooltip and the palette footer. */
+            <button
+              type="button"
+              onClick={onOpenPalette}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control border border-line bg-raise text-ink4 hover:text-ink hover:bg-hovert transition-all cursor-pointer"
+              title={`${t.palette.placeholder} (Ctrl+K)`}
+              aria-label={t.palette.commands}
+            >
+              <Search className="h-3.5 w-3.5 text-accent" />
+            </button>
+          )}
           <div className="relative z-[60]" ref={langDropdownRef}>
             <button
               type="button"

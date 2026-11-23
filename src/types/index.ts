@@ -214,7 +214,7 @@ export interface AppSettings {
   monkey_driver?: boolean;
   /** QUIC→TCP mode: the engine drops UDP/443 (QUIC) so browsers fall back to TCP/TLS. winws2-only. */
   quic_to_tcp?: boolean;
-  /** UI accent color override ("#RRGGBB"); null/undefined = built-in violet. */
+  /** UI accent color override ("#RRGGBB"); null/undefined = built-in sunrise. */
   accent_color?: string | null;
   /** Active camouflage transport id (`null`/`undefined` = direct launch). */
   active_transport_id?: string | null;}
