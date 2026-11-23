@@ -70,11 +70,3 @@ src-tauri/lists
 .DS_Store
 Thumbs.db
 Desktop.ini
-
-
-/wotblitz
-/vibes
-/android
-/.tests
-/.docs
-/artifacts
