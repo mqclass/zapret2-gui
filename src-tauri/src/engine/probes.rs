@@ -30,6 +30,100 @@ pub enum ProbeStatus {
     Checking,
 }
 
+/// Deep body probe: how far past the handshake a probe must read to
+/// prove the flow survives the ~16 KB TCP freeze. The engine's own
+/// failure detector watches only the first 32 KB (maxseq=32768), so
+/// a probe that stops at headers is blind exactly where the freeze
+/// lives — it calls a frozen path Operational while the browser
+/// stalls. Target 48 KB, pass at 32 KB.
+pub const DEEP_PROBE_TARGET_BYTES: u64 = 48 * 1024;
+pub const DEEP_PROBE_PASS_BYTES: u64 = 32 * 1024;
+/// No chunk for this long mid-body means the flow stalled (matches
+/// the youtube_probe node prober's stall window).
+pub const DEEP_PROBE_CHUNK_TIMEOUT: Duration = Duration::from_secs(5);
+/// HTTP phase of a deep probe (headers + body) must finish inside
+/// this. The budget starts AFTER the DNS phase (up to 2 s), so the
+/// worst wall time of a deep probe is ~12 s, not 10.
+pub const DEEP_PROBE_DEADLINE: Duration = Duration::from_secs(10);
+
+/// Outcome of one body download past the freeze zone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyVerdict {
+    /// At least `pass_bytes` arrived: the flow survives the freeze zone.
+    Passed,
+    /// The server closed the body cleanly below `pass_bytes`: a short
+    /// body, not a stall — the check cannot judge this URL.
+    ShortBody,
+    /// No data (stall, error, or deadline) before `pass_bytes`.
+    Stalled,
+}
+
+/// One measured body download: the bytes that actually arrived plus
+/// the verdict. The caller decides what the sample means.
+#[derive(Debug, Clone)]
+pub struct BodySample {
+    pub bytes_downloaded: u64,
+    pub verdict: BodyVerdict,
+}
+
+/// Optional body phase for [`DiagnosticsService::measure_endpoint_with`]:
+/// after headers arrive, download the start of the body past the
+/// freeze zone before calling the endpoint healthy.
+#[derive(Debug, Clone, Copy)]
+pub struct BodyCheck {
+    pub target_bytes: u64,
+    pub pass_bytes: u64,
+    /// No chunk for this long mid-body means the flow stalled.
+    pub chunk_timeout: Duration,
+}
+
+/// Reads the start of `resp`'s body until `target_bytes`, the overall
+/// `deadline`, a clean EOF, or a stall (no chunk for `chunk_timeout`).
+/// Pure measurement: the caller decides what the sample means. The
+/// response is dropped afterwards — a half-read body is not returned
+/// to the pool, which is fine for a probe. Chunk loop mirrors the
+/// youtube_probe node prober (`probe_host`).
+pub(crate) async fn download_body_sample(
+    mut resp: reqwest::Response,
+    target_bytes: u64,
+    pass_bytes: u64,
+    chunk_timeout: Duration,
+    deadline: Instant,
+) -> BodySample {
+    // The verdict logic below assumes target > pass: with
+    // target <= pass, Passed would be unreachable and every sample
+    // would read Stalled (fail-closed, but surprising).
+    debug_assert!(target_bytes > pass_bytes);
+    let mut bytes: u64 = 0;
+    let mut eof = false;
+    while bytes < target_bytes && Instant::now() < deadline {
+        match timeout(chunk_timeout, resp.chunk()).await {
+            Ok(Ok(Some(chunk))) => bytes += chunk.len() as u64,
+            Ok(Ok(None)) => {
+                eof = true;
+                break;
+            }
+            // Read error, or no chunk within the window: stalled.
+            _ => break,
+        }
+    }
+    // The loop exits only via: target reached (bytes >= pass, since
+    // target > pass), clean EOF, stall/error, or deadline. A partial
+    // sample with no EOF is a stall by construction — it must fail
+    // closed, never read as a pass.
+    let verdict = if bytes >= pass_bytes {
+        BodyVerdict::Passed
+    } else if eof {
+        BodyVerdict::ShortBody
+    } else {
+        BodyVerdict::Stalled
+    };
+    BodySample {
+        bytes_downloaded: bytes,
+        verdict,
+    }
+}
+
 /// Detailed latency and connection metrics for a service endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProbeMetric {
@@ -249,7 +343,7 @@ impl DiagnosticsService {
         port: u16,
         url: &str,
     ) -> ProbeMetric {
-        self.measure_endpoint_with(&self.client, name, host, port, url)
+        self.measure_endpoint_with(&self.client, name, host, port, url, None)
             .await
     }
 
@@ -264,12 +358,15 @@ impl DiagnosticsService {
         port: u16,
         url: &str,
     ) -> ProbeMetric {
-        self.measure_endpoint_with(&self.untrusted_client, name, host, port, url)
+        self.measure_endpoint_with(&self.untrusted_client, name, host, port, url, None)
             .await
     }
 
     /// Same as [`Self::measure_endpoint`], but with an explicitly supplied HTTP
     /// client (used for untrusted targets with a redirect-limited client, M-6).
+    /// When `body` is `Some`, a successful header response is followed by
+    /// a body download past the freeze zone before the endpoint is
+    /// called healthy (see [`BodyCheck`]).
     async fn measure_endpoint_with(
         &self,
         client: &reqwest::Client,
@@ -277,6 +374,7 @@ impl DiagnosticsService {
         host: &str,
         port: u16,
         url: &str,
+        body: Option<BodyCheck>,
     ) -> ProbeMetric {
         let now_epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -320,7 +418,13 @@ impl DiagnosticsService {
         //    NOTE: the previous explicit raw TcpStream::connect phase was removed — it
         //    doubled every probe connection for marginal diagnostic value.
         let http_start = Instant::now();
-        let http_res = client.get(url).send().await;
+        // The client's 3.5 s total timeout would cut a body phase
+        // short, so a deep probe gets its own per-request budget.
+        let mut req = client.get(url);
+        if body.is_some() {
+            req = req.timeout(DEEP_PROBE_DEADLINE);
+        }
+        let http_res = req.send().await;
         let http_time_ms = http_start.elapsed().as_millis() as u64;
 
         match http_res {
@@ -329,7 +433,48 @@ impl DiagnosticsService {
                 let is_ok = resp.status().is_success() || status_code == 204 || status_code == 301 || status_code == 302;
                 let total_rtt = http_time_ms;
 
-                let (status, msg) = if is_ok {
+                // Deep phase: headers alone cannot see the ~16 KB TCP
+                // freeze, so read the body past 32 KB before calling
+                // the endpoint healthy. A short body (clean EOF below
+                // 32 KB) cannot judge the path and leaves the header
+                // verdict standing. The response is consumed here;
+                // nothing below uses it (status was copied out first).
+                let mut body_sample: Option<BodySample> = None;
+                if is_ok {
+                    if let Some(check) = body {
+                        body_sample = Some(
+                            download_body_sample(
+                                resp,
+                                check.target_bytes,
+                                check.pass_bytes,
+                                check.chunk_timeout,
+                                http_start + DEEP_PROBE_DEADLINE,
+                            )
+                            .await,
+                        );
+                    }
+                }
+                let stalled = matches!(
+                    body_sample.as_ref().map(|s| s.verdict),
+                    Some(BodyVerdict::Stalled)
+                );
+
+                let (status, msg) = if stalled {
+                    let kb = body_sample
+                        .as_ref()
+                        .map(|s| s.bytes_downloaded / 1024)
+                        .unwrap_or(0);
+                    let msg = if kb == 0 {
+                        "Соединение устанавливается, но загрузка не начинается — похоже на заморозку потока"
+                            .to_string()
+                    } else {
+                        format!(
+                            "Соединение устанавливается, но загрузка виснет после {} КБ — похоже на заморозку потока",
+                            kb
+                        )
+                    };
+                    (ProbeStatus::Degraded, msg)
+                } else if is_ok {
                     if total_rtt > 450 {
                         (ProbeStatus::Degraded, format!("Работает с задержкой (RTT: {}мс, HTTP {})", total_rtt, status_code))
                     } else {
@@ -346,7 +491,13 @@ impl DiagnosticsService {
                     dns_ms: dns_time_ms,
                     tcp_ms: None,
                     http_status: Some(status_code),
-                    packet_loss_pct: if is_ok { 0.0 } else { 20.0 },
+                    packet_loss_pct: if stalled {
+                        50.0
+                    } else if is_ok {
+                        0.0
+                    } else {
+                        20.0
+                    },
                     last_checked_epoch: now_epoch,
                     ip_address: Some(ip_str),
                     message: msg,
@@ -376,6 +527,31 @@ impl DiagnosticsService {
             443,
             "https://www.youtube.com/generate_204",
         ).await
+    }
+
+    /// YouTube probe with a body phase: the plain probe stops at
+    /// headers (generate_204 has no body at all), so it cannot see
+    /// the ~16 KB TCP freeze. The deep probe fetches the homepage
+    /// and reads past 32 KB; a stall below that marks the endpoint
+    /// Degraded, which the watchdog treats as degradation. Used by
+    /// refresh_probes (watchdog ticks, manual refresh) and by the
+    /// auto-tune finals — NOT by the 30 s polling loop, which keeps
+    /// the light probe (a 48 KB homepage fetch every 30 s would be
+    /// ~140 MB/day and risks tripping YouTube's bot defenses).
+    pub async fn probe_youtube_deep(&self) -> ProbeMetric {
+        self.measure_endpoint_with(
+            &self.client,
+            "YouTube / GoogleVideo",
+            "www.youtube.com",
+            443,
+            "https://www.youtube.com/",
+            Some(BodyCheck {
+                target_bytes: DEEP_PROBE_TARGET_BYTES,
+                pass_bytes: DEEP_PROBE_PASS_BYTES,
+                chunk_timeout: DEEP_PROBE_CHUNK_TIMEOUT,
+            }),
+        )
+        .await
     }
 
     /// Probes Discord Gateway.
@@ -514,14 +690,35 @@ impl DiagnosticsService {
             }
         }
 
-        self.measure_endpoint_with(&self.untrusted_client, &host, &host, port, &url_str)
+        self.measure_endpoint_with(&self.untrusted_client, &host, &host, port, &url_str, None)
             .await
     }
 
     /// Runs all diagnostic probes concurrently and updates current report.
+    /// Light probes only: the 30 s polling loop uses this.
     pub async fn run_probes_now(&self) -> DiagnosticsReport {
+        self.run_probes_inner(false).await
+    }
+
+    /// Same, but YouTube runs the deep body probe: the watchdog and
+    /// manual refreshes see the ~16 KB TCP freeze the light probe
+    /// cannot. Costs one homepage fetch (≈48 KB + one chunk, ≤12 s
+    /// wall: 2 s DNS + 10 s HTTP) per run.
+    pub async fn run_probes_now_deep(&self) -> DiagnosticsReport {
+        self.run_probes_inner(true).await
+    }
+
+    async fn run_probes_inner(&self, deep_youtube: bool) -> DiagnosticsReport {
+        // One async block so both probe variants share a future type.
+        let yt = async {
+            if deep_youtube {
+                self.probe_youtube_deep().await
+            } else {
+                self.probe_youtube().await
+            }
+        };
         let (yt, disc, disc_v, tg, tw, cf) = tokio::join!(
-            self.probe_youtube(),
+            yt,
             self.probe_discord(),
             self.probe_discord_voice(),
             self.probe_telegram(),
@@ -679,9 +876,174 @@ fn parse_host_port(input: &str) -> (String, u16) {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::{
-        is_public_ip, parse_host_port, select_finalists, ProbeStatus, StrategyScreenResult,
+        download_body_sample, is_public_ip, parse_host_port, select_finalists, BodyCheck,
+        BodyVerdict, DiagnosticsService, ProbeStatus, StrategyScreenResult,
     };
+
+    /// Behaviors for the local test HTTP server (one connection).
+    enum TestBody {
+        /// Send `n` bytes at once, then close (Content-Length: n).
+        Full(usize),
+        /// Send `n` bytes, then hold the connection open without
+        /// closing (Content-Length claims 1 MiB): the probe must
+        /// notice the stall itself, not a close.
+        StallAfter(usize),
+    }
+
+    async fn spawn_test_server(body: TestBody) -> std::net::SocketAddr {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                // Read the request (until end of headers).
+                let mut buf = [0u8; 4096];
+                let mut req = Vec::new();
+                loop {
+                    match socket.read(&mut buf).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => {
+                            req.extend_from_slice(&buf[..n]);
+                            if req.windows(4).any(|w| w == b"\r\n\r\n") {
+                                break;
+                            }
+                        }
+                    }
+                }
+                match body {
+                    TestBody::Full(n) => {
+                        let payload = vec![b'x'; n];
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            n
+                        );
+                        let _ = socket.write_all(head.as_bytes()).await;
+                        let _ = socket.write_all(&payload).await;
+                    }
+                    TestBody::StallAfter(n) => {
+                        let payload = vec![b'x'; n];
+                        let head = "HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\r\n";
+                        let _ = socket.write_all(head.as_bytes()).await;
+                        let _ = socket.write_all(&payload).await;
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                    }
+                }
+            }
+        });
+        addr
+    }
+
+    async fn sample_from(addr: std::net::SocketAddr) -> super::BodySample {
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("http://{addr}/"))
+            .send()
+            .await
+            .unwrap();
+        download_body_sample(
+            resp,
+            48 * 1024,
+            32 * 1024,
+            Duration::from_millis(200),
+            Instant::now() + Duration::from_secs(5),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_body_sample_passes_fast_body() {
+        let addr = spawn_test_server(TestBody::Full(64 * 1024)).await;
+        let sample = sample_from(addr).await;
+        assert_eq!(sample.verdict, BodyVerdict::Passed);
+        assert!(sample.bytes_downloaded >= 32 * 1024);
+    }
+
+    #[tokio::test]
+    async fn test_body_sample_stalls_on_drip() {
+        // The freeze shape: 16 KB arrive, then nothing — no close,
+        // no error. The sample must say Stalled with exactly the
+        // bytes that arrived, not hang and not pass.
+        let addr = spawn_test_server(TestBody::StallAfter(16 * 1024)).await;
+        let sample = sample_from(addr).await;
+        assert_eq!(sample.verdict, BodyVerdict::Stalled);
+        assert_eq!(sample.bytes_downloaded, 16 * 1024);
+    }
+
+    #[tokio::test]
+    async fn test_body_sample_short_body_is_inconclusive() {
+        let addr = spawn_test_server(TestBody::Full(4 * 1024)).await;
+        let sample = sample_from(addr).await;
+        assert_eq!(sample.verdict, BodyVerdict::ShortBody);
+        assert_eq!(sample.bytes_downloaded, 4 * 1024);
+    }
+
+    fn test_body_check() -> BodyCheck {
+        BodyCheck {
+            target_bytes: 48 * 1024,
+            pass_bytes: 32 * 1024,
+            chunk_timeout: Duration::from_millis(200),
+        }
+    }
+
+    async fn deep_metric_from(addr: std::net::SocketAddr) -> super::ProbeMetric {
+        let diag = DiagnosticsService::new();
+        diag.measure_endpoint_with(
+            &diag.client,
+            "test",
+            "127.0.0.1",
+            addr.port(),
+            &format!("http://{addr}/"),
+            Some(test_body_check()),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_deep_probe_marks_freeze_degraded() {
+        // Headers arrive fine (200) but the body freezes at 16 KB:
+        // the header-only verdict would be Operational — the deep
+        // probe must say Degraded so the watchdog escalates.
+        let addr = spawn_test_server(TestBody::StallAfter(16 * 1024)).await;
+        let metric = deep_metric_from(addr).await;
+        assert_eq!(metric.status, ProbeStatus::Degraded);
+        assert!(metric.message.contains("виснет"), "{}", metric.message);
+        assert_eq!(metric.http_status, Some(200));
+    }
+
+    #[tokio::test]
+    async fn test_deep_probe_zero_bytes_message() {
+        // Headers arrive, the body never starts: the message must
+        // not read "stalls after 0 KB".
+        let addr = spawn_test_server(TestBody::StallAfter(0)).await;
+        let metric = deep_metric_from(addr).await;
+        assert_eq!(metric.status, ProbeStatus::Degraded);
+        assert!(
+            metric.message.contains("не начинается"),
+            "{}",
+            metric.message
+        );
+    }
+
+    #[tokio::test]
+    async fn test_deep_probe_passes_healthy_body() {
+        let addr = spawn_test_server(TestBody::Full(64 * 1024)).await;
+        let metric = deep_metric_from(addr).await;
+        assert_eq!(metric.status, ProbeStatus::Operational);
+    }
+
+    #[tokio::test]
+    async fn test_deep_probe_short_body_keeps_header_verdict() {
+        // A 4 KB body that ends cleanly cannot judge the path: the
+        // header verdict stands, no false Degraded.
+        let addr = spawn_test_server(TestBody::Full(4 * 1024)).await;
+        let metric = deep_metric_from(addr).await;
+        assert_eq!(metric.status, ProbeStatus::Operational);
+    }
 
     fn screen(id: &str, status: ProbeStatus, ms: Option<u64>) -> StrategyScreenResult {
         StrategyScreenResult {

@@ -221,10 +221,13 @@ pub async fn get_probe_metrics(state: State<'_, AppState>) -> Result<Diagnostics
     }
 }
 
-/// Forces an immediate network probe diagnostics run.
+/// Forces an immediate network probe diagnostics run, with the deep
+/// YouTube body probe: the watchdog and manual refreshes must see the
+/// ~16 KB TCP freeze the light probe cannot. The 30 s polling loop
+/// keeps the light run (see `run_probes_now`).
 #[tauri::command]
 pub async fn refresh_probes(state: State<'_, AppState>) -> Result<DiagnosticsReport, String> {
-    Ok(state.diagnostics.run_probes_now().await)
+    Ok(state.diagnostics.run_probes_now_deep().await)
 }
 
 /// Retrieves all buffered logs currently in the Ring Buffer.
@@ -521,8 +524,12 @@ pub async fn probe_strategy(
     };
 
     let diag = state.diagnostics.clone();
+    // Finals only (a handful of strategies): YouTube runs the deep
+    // body probe so a strategy that passes the handshake but freezes
+    // at ~16 KB scores Degraded instead of winning the auto-pick.
+    // The screen phase keeps the light probe (38 candidates).
     let (yt, disc, voice) = tokio::join!(
-        diag.probe_youtube(),
+        diag.probe_youtube_deep(),
         diag.probe_discord(),
         diag.probe_discord_voice()
     );

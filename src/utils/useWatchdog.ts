@@ -120,7 +120,8 @@ export function useWatchdog(options: UseWatchdogOptions): void {
     if (isAutoTuneModalOpen() || isClassifierModalOpen() || isProbeCycleRunning()) return;
     let report: DiagnosticsReport;
     try {
-      // Light check: plain HTTP through the running engine, no restart.
+      // Plain HTTP through the running engine, no restart (YouTube runs
+      // a deep body probe here — up to ~12 s worst case, still no restart).
       report = await invoke<DiagnosticsReport>("refresh_probes");
     } catch (err) {
       console.error("Watchdog probe error:", err);
