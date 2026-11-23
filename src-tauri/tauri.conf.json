@@ -18,7 +18,8 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
-        "decorations": false
+        "decorations": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disable-gpu --disable-gpu-vsync"
       }
     ],
     "security": {
