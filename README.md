@@ -56,7 +56,7 @@
 - `zapret2-svc.exe` — фоновая служба. Держит обход включённым, когда окно закрыто, и следит, чтобы после выключения сеть осталась чистой.
 - `winws2.exe` / `winws.exe` — движок обхода от bol-van. Это он обрабатывает трафик.
 - Стратегии и списки доменов — готовые рецепты обхода: пресеты Flowseal и Lua-пресеты zapret2, плюс списки, какие сайты пускать через обход.
-- `WinDivert` — драйвер перехвата трафика. Поэтому программе нужны права администратора.
+- `WinDivert` — драйвер перехвата трафика. Поэтому программе нужны права администратора. Режим скрытого драйвера (Monkey) собирает переименованную DLL из исходников WinDivert, подробности — в [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md).
 
 ## Сборка из исходников
 
@@ -90,6 +90,7 @@ Linux-версия уже написана и живёт в ветке dev: то
 
 - [bol-van](https://github.com/bol-van/zapret2) — движок zapret2 и сам метод обхода DPI.
 - [Flowseal](https://github.com/Flowseal/zapret-discord-youtube) — стратегии и списки доменов.
+- [kinlay0](https://github.com/kinlay0/zapret2-discord-youtube-strats) — сборник стратегий сообщества: 26 стратегий автоподбора (двойной и одиночный фейк, хост-фейк с TS, клон ClientHello, EXP и продолжения семейств ALT, SIMPLE FAKE, FAKE TLS AUTO, LEGACY, оркестратор CIRCULAR) взяты из него.
 - [medvedeff-true](https://github.com/medvedeff-true/Zapret-Gui) — идеи интерфейса.
 
 ## Лицензия

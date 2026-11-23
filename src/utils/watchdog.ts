@@ -116,7 +116,11 @@ export function pickWinner(
   results: StrategyProbeResult[]
 ): StrategyProbeResult | null {
   const usable = results.filter(
-    (r) => r.engine_running && probeYtDiscScore(r) > 0
+    (r) =>
+      r != null &&
+      typeof r === "object" &&
+      r.engine_running &&
+      probeYtDiscScore(r) > 0
   );
   const sorted = [...usable].sort(
     (a, b) =>
@@ -201,6 +205,12 @@ export async function runHeadlessAutoTune(
           const res = await invoke<StrategyProbeResult>("probe_strategy", {
             strategyId: id,
           });
+          if (res == null || typeof res !== "object") {
+            // Same latent hole as the manual modal: a null probe result
+            // must never reach the results array (it crashes the
+            // winner sort downstream). Treat it like a failed probe.
+            throw new Error("Проверка не вернула результат");
+          }
           results.push(res);
           if (res.error && res.error.includes("ADMIN_REQUIRED")) break;
         } catch (err) {

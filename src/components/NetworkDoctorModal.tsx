@@ -20,12 +20,15 @@ interface NetworkDoctorModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccessRefresh?: () => void;
+  /** Opened from the simple view: plain-words subtitle and steps. */
+  simple?: boolean;
 }
 
 export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
   isOpen,
   onClose,
   onSuccessRefresh,
+  simple = false,
 }) => {
   const { t } = useI18n();
   const [isRunning, setIsRunning] = useState<boolean>(false);
@@ -67,7 +70,9 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-ink">{t.doctor.title}</h2>
-              <p className="text-xs text-ink4 mt-0.5">{t.doctor.subtitle}</p>
+              <p className="text-xs text-ink4 mt-0.5">
+                {simple ? t.doctor.bannerDescSimple : t.doctor.subtitle}
+              </p>
             </div>
           </div>
           <button
@@ -96,14 +101,23 @@ export const NetworkDoctorModal: React.FC<NetworkDoctorModalProps> = ({
               <Activity className="h-4 w-4 text-amber-400" />
               <span>{t.doctor.introTitle}</span>
             </div>
-            <ul className="list-disc list-inside space-y-1 text-ink4 pl-1">
-              <li>{t.doctor.introItem1a} <code className="text-amber-300">winws2.exe</code> {t.doctor.introItem1b} <code className="text-amber-300">winws.exe</code></li>
-              <li>{t.doctor.introItem2} <code className="text-accent-soft">WinDivert</code></li>
-              <li>{t.doctor.introItem3} (<code className="text-indigo-300">ipconfig /flushdns</code>)</li>
-              <li>{t.doctor.introItem4}</li>
-              <li>{t.doctor.introItem5} (<code className="text-emerald-300">netsh int tcp set global timestamps=enabled</code>)</li>
-              <li>{t.doctor.introItem6}</li>
-            </ul>
+            {simple ? (
+              <ul className="list-disc list-inside space-y-1 text-ink4 pl-1">
+                <li>{t.doctor.simpleStep1}</li>
+                <li>{t.doctor.simpleStep2}</li>
+                <li>{t.doctor.simpleStep3}</li>
+                <li>{t.doctor.simpleStep4}</li>
+              </ul>
+            ) : (
+              <ul className="list-disc list-inside space-y-1 text-ink4 pl-1">
+                <li>{t.doctor.introItem1a} <code className="text-amber-300">winws2.exe</code> {t.doctor.introItem1b} <code className="text-amber-300">winws.exe</code></li>
+                <li>{t.doctor.introItem2} <code className="text-accent-soft">WinDivert</code></li>
+                <li>{t.doctor.introItem3} (<code className="text-indigo-300">ipconfig /flushdns</code>)</li>
+                <li>{t.doctor.introItem4}</li>
+                <li>{t.doctor.introItem5} (<code className="text-emerald-300">netsh int tcp set global timestamps=enabled</code>)</li>
+                <li>{t.doctor.introItem6}</li>
+              </ul>
+            )}
           </div>
 
           {/* Action Button */}

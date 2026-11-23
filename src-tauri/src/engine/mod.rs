@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 pub mod events;
+pub mod imported_strategies;
 pub mod logger;
 pub mod managed;
 pub mod probes;
@@ -11,6 +12,7 @@ pub mod probes;
 pub mod block_classifier;
 pub mod speedtest;
 pub mod supervisor;
+pub mod youtube_probe;
 pub mod tgproxy;
 pub mod transport;
 pub use events::{EventSink, NullSink, SinkSlot, TauriSink};

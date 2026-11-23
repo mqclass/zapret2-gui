@@ -33,7 +33,8 @@ zapret2-gui/
 │   ├── WinDivert64.sys           # Драйвер ядра WinDivert x64
 │   ├── cygwin1.dll               # POSIX runtime для winws/winws2
 │   ├── *.bin                     # Дампы ClientHello / QUIC Initial / STUN
-│   └── tgproxy/                  # Telegram MTProto→WebSocket bridge (tg-ws-proxy)
+│   ├── tgproxy/                  # Telegram MTProto→WebSocket bridge (tg-ws-proxy)
+│   └── monkey/                   # Копия bin/ со скрытым драйвером (служба "Monkey", Monkey64.sys)
 │
 ├── lists/                        # Списки доменов, IP и исключений
 ├── strategies/                   # Lua-стратегии zapret2 (antidpi, auto, obfs)
@@ -100,16 +101,34 @@ Backend в GUI (`SupervisorBackend`) бывает двух видов:
 
 Переходы:
 
-1. **Обычный запуск** — GUI стартует в LOCAL и подключается к службе, только если
-   она **уже** работает (сам службу не spawn-ит).
+1. **Обычный запуск** — GUI стартует в LOCAL; при нажатии Start, если найден
+   `zapret2-svc.exe`, вызывает `ensure_svc_attached` (spawn службы при
+   необходимости + ожидание pipe до 10 с) и переключается в REMOTE. Только
+   если бинаря службы нет или attach не удался, движок остаётся in-process.
 2. **Автозапуск** (`--minimized` / `--autostart`) — после короткой задержки GUI
-   проверяет `backend_needs_attach` (LOCAL + найден `zapret2-svc.exe`), вызывает
+   проверяет `backend_needs_attach` (LOCAL + найден `zapret2-svc.exe`, либо
+   REMOTE с мёртвым пайпом или устаревшей службой), вызывает
    `ensure_svc_attached` (spawn службы + ожидание pipe до 10 с), переключается в
    REMOTE и стартует обход. Bridge мигрирует в службу вместе с движком.
 3. **Выход (Quit)** — гарантированно останавливает и службу, и движок, и драйвер
    (см. «Поведение выхода»).
 
 `find_svc_exe` ищет `zapret2-svc.exe` рядом с `current_exe` или в `resources/`.
+
+**Проверка версии службы при attach.** GUI не доверяет версии бинаря
+запущенной службы: при attach сравнивается `app_version` из `Welcome` с
+версией GUI (`svc_is_stale` в `svc_client.rs`). Устаревшая служба —
+старше GUI, либо без версии (1.4.0 и старше не шлют её вообще) — один
+раз перезапускается: graceful `shutdown`, ожидание исчезновения pipe до
+10 с, spawn свежей службы из каталога GUI, повторный `Hello`. Если
+движок был запущен под старой службой, он перезапускается с той же
+стратегией; custom-args запуск не восстанавливается (id стратегии там
+плейсхолдер). Если свежая служба тоже сообщает устаревшую версию —
+ошибка, цикла нет. Протокол при этом остаётся v2: бамп версии протокола
+уронил бы `Hello` к старой службе, а она держит mutex и pipe, и spawn +
+poll ушёл бы в таймаут. Стартовый re-attach при запуске GUI
+(`attach_to_running_svc`) проверяет версию так же, но никогда не
+спавнит службу, если её нет.
 
 ---
 
@@ -134,8 +153,9 @@ Backend в GUI (`SupervisorBackend`) бывает двух видов:
 `tgproxy-regenerate-secret`, `tgproxy-set-mode`, `tgproxy-test-connection`,
 `tgproxy-set-lan`.
 
-Ответы/события службы (`ServerMessage`): `welcome` (версия + снапшот статуса),
-`response` (`ok`/`error`/снапшоты), `event`. События (`SvcEvent`) зеркалят
+Ответы/события службы (`ServerMessage`): `welcome` (версия протокола +
+версия приложения службы `app_version` + снапшот статуса), `response`
+(`ok`/`error`/снапшоты), `event`. События (`SvcEvent`) зеркалят
 `EventSink` один-к-одному: `log-batch`, `state-changed`, `probe-update`,
 `logs-cleared`, `tgproxy-state`.
 
@@ -208,8 +228,10 @@ Fallback идемпотентен: если служба уже чисто за�
 
 ## 🌉 Telegram-bridge (tgproxy) и cooldown circuit-breaker
 
-Bridge (MTProto → WebSocket) живёт **в службе** (`engine/tgproxy.rs` — обёртка;
-сам прокси — вендорный `src-tauri/vendor/tg-ws-proxy/`). Режимы соединения:
+Bridge (MTProto → WebSocket) живёт **в службе** в REMOTE (`engine/tgproxy.rs` —
+обёртка; сам прокси — вендорный `src-tauri/vendor/tg-ws-proxy/`), а в LOCAL —
+in-process в GUI. При переходе в REMOTE in-process bridge останавливается,
+служба поднимает свой из сохранённого флага. Режимы соединения:
 `auto`, `cfproxy`, `direct`. В `auto`/`cfproxy` используется tier Cloudflare-реле
 (community CF domain list), затем raw-TCP last-resort к DC IP.
 
@@ -244,3 +266,35 @@ timeout, затем срывалось в raw-TCP и платило ещё и е
   каждый desync-пакет и за минуты забивает буфер логов и stdout-пайп, поэтому
   quiet-режим намеренный; auto-hostlist держится domain-only.
 - Служба ищется рядом с GUI-бинарником или в `resources/` (`find_svc_exe`).
+
+## 🙈 Скрытый драйвер (Monkey)
+
+Некоторые античиты в играх банят процесс за само имя `WinDivert` (служба
+или файл). Для этого есть режим скрытого драйвера, переключатель
+«Настройки → Скрытый драйвер (Monkey)», по умолчанию выключен.
+
+- `bin/monkey/` — полная копия `bin/` с переименованной парой:
+  служба `Monkey`, файл `Monkey64.sys`, пропатченный `WinDivert.dll`.
+  Пара НЕ скачивается готовым блобом: WinDivert — LGPLv3, поэтому DLL
+  собирается из исходников (basil00/WinDivert, тег v2.2.2) с нашим
+  патчем `scripts/windivert-monkey.patch` в `setup_binaries.ps1`, а
+  `.sys` — немодифицированный стоковый драйвер, скопированный и
+  переименованный (подпись цела, сверяется по хешу). Лицензионное
+  уведомление — `docs/THIRD_PARTY_NOTICES.md`. Имя устройства
+  `\\.\WinDivert` НЕ изменено, поэтому режим обманывает только
+  проверки по имени службы и файла, а не по устройству.
+- `resolve_binaries` читает настройку `monkey_driver` и в режиме Monkey
+  резолвит ТОЛЬКО `bin/monkey/` — без fallback на стоковый каталог,
+  иначе молча запустился бы обычный драйвер. Списки при этом общие:
+  оба режима читают стоковый `bin/lists/` (`lists/` в `bin/monkey/`
+  не зеркалируется), иначе выученные домены и правки пользователя
+  форкались бы по режимам, а апдейтер сканирует только `bin/lists/`.
+- Оба драйвера делят одно имя устройства, поэтому перед запуском движка
+  супервизор останавливает службу другого режима
+  (`supervisor.rs`, шаг 1b); `cleanup_windivert_driver` останавливает
+  и `Monkey` тоже.
+- Проверка и ремонт драйвера (`platform/windows/windivert.rs`) смотрят
+  на службу и файл активного режима; диагностика и сообщения используют
+  его имя (`windivert_common::driver_service_name`).
+- Файлы Monkey — часть релиза (`build.yml` копирует `bin/` рекурсивно),
+  апдейтер их не затирает, в отличие от вручную подложенных файлов.

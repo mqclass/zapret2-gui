@@ -21,15 +21,13 @@ import {
 import { Sidebar, NavTab } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { ConflictBanner } from "./components/ConflictBanner";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { UpdateDialog, UpdatePhase } from "./components/UpdateDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DashboardView } from "./components/views/DashboardView";
-import { StrategiesView } from "./components/views/StrategiesView";
-import { DiagnosticsView } from "./components/views/DiagnosticsView";
-import { DnsSpeedView } from "./components/views/DnsSpeedView";
-import { ListsView } from "./components/views/ListsView";
-import { LogsView } from "./components/views/LogsView";
-import { TelegramView } from "./components/views/TelegramView";
+import { PresetsView } from "./components/views/PresetsView";
+import { DnsView } from "./components/views/DnsView";
+import { DiagnosticsLogsView } from "./components/views/DiagnosticsLogsView";
 import { SettingsView } from "./components/views/SettingsView";
 import { AlertCircle, CheckCircle2, ShieldAlert, X } from "lucide-react";
 import { I18nProvider, useI18n } from "./i18n";
@@ -46,10 +44,33 @@ import {
 import { useWatchdog } from "./utils/useWatchdog";
 import { save } from "@tauri-apps/plugin-dialog";
 
+const EXPERT_MODE_STORAGE_KEY = "zapret2.expert_mode";
+
 const AppContent: React.FC = () => {
   const { t } = useI18n();
 
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
+  // Shell view mode (Простой вид / Эксперт). Stage 1 of the redesign:
+  // the flag only lives in the shell and is handed to the views; what it
+  // shows/hides inside each view lands in later stages. Persisted in
+  // localStorage next to the other frontend UI preferences (the accent
+  // mirror, the selected host list) — a backend setting would need an
+  // IPC/settings change, which the redesign stages deliberately avoid.
+  const [expertMode, setExpertMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(EXPERT_MODE_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const handleExpertModeChange = useCallback((expert: boolean) => {
+    setExpertMode(expert);
+    try {
+      localStorage.setItem(EXPERT_MODE_STORAGE_KEY, expert ? "1" : "0");
+    } catch {
+      /* storage unavailable — the mode just won't persist */
+    }
+  }, []);
   const [isElevated, setIsElevated] = useState<boolean>(true);
   const [status, setStatus] = useState<SupervisorStatus>({
     state: "stopped",
@@ -100,9 +121,11 @@ const AppContent: React.FC = () => {
   const [isTogglingWatchdog, setIsTogglingWatchdog] = useState<boolean>(false);
   const [autoHostlistOn, setAutoHostlistOn] = useState<boolean>(true);
   const [isTogglingAutoHostlist, setIsTogglingAutoHostlist] = useState<boolean>(false);
-  // Engine debug logging (--debug=1). Diagnostics only; off by default.
+// Engine debug logging (--debug=1). Diagnostics only; off by default.
   const [engineDebug, setEngineDebug] = useState<boolean>(false);
   const [isTogglingEngineDebug, setIsTogglingEngineDebug] = useState<boolean>(false);
+  const [monkeyDriverOn, setMonkeyDriverOn] = useState<boolean>(false);
+  const [isTogglingMonkeyDriver, setIsTogglingMonkeyDriver] = useState<boolean>(false);
   const [watchdogInterval, setWatchdogInterval] = useState<number>(15);
   // Accent override ("#RRGGBB"); null means the built-in violet.
   const [accentColor, setAccentColor] = useState<string | null>(null);
@@ -556,7 +579,8 @@ const AppContent: React.FC = () => {
           setWatchdogOn(cfg.watchdog_enabled ?? true);
           setWatchdogInterval(cfg.watchdog_interval_minutes ?? 15);
           setAutoHostlistOn(cfg.auto_hostlist_enabled ?? true);
-          setEngineDebug(cfg.engine_debug ?? false);
+setEngineDebug(cfg.engine_debug ?? false);
+          setMonkeyDriverOn(cfg.monkey_driver ?? false);
           const accent = cfg.accent_color ?? null;
           setAccentColor(accent);
           applyAccent(accent);
@@ -844,7 +868,7 @@ const AppContent: React.FC = () => {
     }
   }, [autoHostlistOn, status.state, status.active_strategy, status.active_custom_args, handleStop, handleStartStrategy]);
 
-  // Engine debug toggle: the setting shapes the engine's argument list
+// Engine debug toggle: the setting shapes the engine's argument list
   // (--debug=1 vs --debug=0), so it only takes effect at engine start.
   // When the engine is running, restart it on the active strategy right
   // away; otherwise the switch would look dead until the next manual start.
@@ -875,6 +899,34 @@ const AppContent: React.FC = () => {
       setIsTogglingEngineDebug(false);
     }
   }, [engineDebug, status.state, status.active_strategy, status.active_custom_args, handleStop, handleStartStrategy]);
+
+  // Same shape as the auto-hostlist toggle: the setting is consumed at
+  // engine start (it shapes binary resolution), so a running engine is
+  // restarted — except for a one-off custom-args run, where restarting
+  // would silently swap the custom config for the stand-in preset.
+  const handleToggleMonkeyDriver = useCallback(async () => {
+    setIsTogglingMonkeyDriver(true);
+    try {
+      const res = await invoke<boolean>("set_monkey_driver_enabled", {
+        enable: !monkeyDriverOn,
+      });
+      setMonkeyDriverOn(res);
+      if (
+        status.state === "running" &&
+        status.active_strategy &&
+        !status.active_custom_args
+      ) {
+        const restartTarget = status.active_strategy;
+        await handleStop();
+        await handleStartStrategy(restartTarget, { silent: true });
+      }
+    } catch (err: any) {
+      console.error("Failed to toggle hidden driver:", err);
+      setErrorAlert(formatErrorMessage(err));
+    } finally {
+      setIsTogglingMonkeyDriver(false);
+    }
+  }, [monkeyDriverOn, status.state, status.active_strategy, status.active_custom_args, handleStop, handleStartStrategy]);
 
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
 
@@ -997,6 +1049,8 @@ const AppContent: React.FC = () => {
         state={status.state}
         splitTunnelMode={splitTunnelMode}
         isElevated={isElevated}
+        expertMode={expertMode}
+        onExpertModeChange={handleExpertModeChange}
       />
 
       {/* Main Content Area — floating panel */}
@@ -1034,6 +1088,21 @@ const AppContent: React.FC = () => {
             isResolving={isResolvingConflicts}
           />
 
+          {/* Update availability banner (announces only — no silent
+              downloads). Global, above every tab, like the conflict
+              banner — it used to live in DashboardView only. */}
+          {updateInfo?.update_available &&
+            !(
+              dismissedUpdateVersion &&
+              updateInfo.latest_version === dismissedUpdateVersion
+            ) && (
+              <UpdateBanner
+                info={updateInfo}
+                onOpenDialog={handleOpenUpdateDialog}
+                onDismiss={handleDismissUpdate}
+              />
+            )}
+
           {/* Error Alert Banner */}
           {errorAlert && (
             <div className="flex items-start justify-between rounded-panel border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300 backdrop-blur-md">
@@ -1069,15 +1138,16 @@ const AppContent: React.FC = () => {
             </div>
           )}
 
-          {/* Active View Router */}
+          {/* Active View Router — redesign stage 1: five shell tabs, the
+              legacy screens stacked inside the composite ones. */}
           {activeTab === "dashboard" && (
             <DashboardView
+              expertMode={expertMode}
               status={status}
               diagnostics={diagnostics}
               strategies={strategies}
               selectedStrategyId={selectedStrategyId}
               splitTunnelMode={splitTunnelMode}
-              onModeChange={handleModeChange}
               onStart={handleStart}
               onStop={handleStop}
               onSelectStrategy={setSelectedStrategyId}
@@ -1085,18 +1155,15 @@ const AppContent: React.FC = () => {
               onRefreshProbes={handleRefreshProbes}
               isRefreshingProbes={isRefreshingProbes}
               onNavigateTab={setActiveTab}
-              updateInfo={
-                dismissedUpdateVersion && updateInfo?.latest_version === dismissedUpdateVersion
-                  ? null
-                  : updateInfo
-              }
-              onOpenUpdateDialog={handleOpenUpdateDialog}
-              onDismissUpdate={handleDismissUpdate}
+              watchdogOn={watchdogOn}
+              watchdogIntervalMinutes={watchdogInterval}
+              onExpertModeChange={handleExpertModeChange}
             />
           )}
 
-          {activeTab === "strategies" && (
-            <StrategiesView
+          {activeTab === "presets" && (
+            <PresetsView
+              expertMode={expertMode}
               strategies={strategies}
               selectedStrategyId={selectedStrategyId}
               activeStrategyId={status.active_strategy}
@@ -1108,36 +1175,45 @@ const AppContent: React.FC = () => {
               onSaveCustomProfile={handleSaveCustomProfile}
               onDeleteCustomProfile={handleDeleteCustomProfile}
               disabled={status.state === "starting" || status.state === "stopping"}
+              splitTunnelMode={splitTunnelMode}
+              appliedMode={(status.split_tunnel_applied_mode ?? null) as SplitTunnelMode | null}
+              activeCustomArgs={status.active_custom_args ?? false}
+              onModeChange={handleModeChange}
+              autoHostlistOn={autoHostlistOn}
+              onToggleAutoHostlist={handleToggleAutoHostlist}
+              onExpertModeChange={handleExpertModeChange}
             />
           )}
 
           {activeTab === "diagnostics" && (
-            <DiagnosticsView
+            <DiagnosticsLogsView
+              expertMode={expertMode}
               diagnostics={diagnostics}
               onRefreshProbes={handleRefreshProbes}
               isRefreshingProbes={isRefreshingProbes}
               onSelectAndStartStrategy={handleStartStrategy}
               onNavigateTab={setActiveTab}
-            />
-          )}
-
-          {activeTab === "dns" && <DnsSpeedView />}
-
-          {activeTab === "lists" && <ListsView />}
-
-          {activeTab === "logs" && (
-            <LogsView
               logs={logs}
               onClearLogs={handleClearLogs}
               onRefreshLogs={handleRefreshLogs}
-              isRefreshing={isRefreshingLogs}
+              isRefreshingLogs={isRefreshingLogs}
+              strategies={strategies}
+              onExpertModeChange={handleExpertModeChange}
             />
           )}
 
-          {activeTab === "telegram" && <TelegramView logs={logs} />}
+          {activeTab === "dns" && (
+            <DnsView
+              expertMode={expertMode}
+              logs={logs}
+              onExpertModeChange={handleExpertModeChange}
+            />
+          )}
 
           {activeTab === "settings" && (
             <SettingsView
+              expertMode={expertMode}
+              onExpertModeChange={handleExpertModeChange}
               isElevated={isElevated}
               onRelaunchElevated={handleRelaunchElevated}
               isAutostart={isAutostart}
@@ -1156,9 +1232,12 @@ const AppContent: React.FC = () => {
               autoHostlistOn={autoHostlistOn}
               onToggleAutoHostlist={handleToggleAutoHostlist}
               isTogglingAutoHostlist={isTogglingAutoHostlist}
-              engineDebug={engineDebug}
+engineDebug={engineDebug}
               onToggleEngineDebug={handleToggleEngineDebug}
               isTogglingEngineDebug={isTogglingEngineDebug}
+              monkeyDriverOn={monkeyDriverOn}
+              onToggleMonkeyDriver={handleToggleMonkeyDriver}
+              isTogglingMonkeyDriver={isTogglingMonkeyDriver}
               watchdogInterval={watchdogInterval}
               onWatchdogInterval={handleWatchdogInterval}
               accentColor={accentColor}

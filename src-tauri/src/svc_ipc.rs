@@ -55,6 +55,13 @@ pub const SVC_SINGLE_INSTANCE_MUTEX: &str = "Global\\zapret2-svc-single-instance
 /// engine does.
 pub const PROTOCOL_VERSION: u32 = 2;
 
+/// This application's own version (the crate version; the GUI and the
+/// svc are binaries of one crate, so it is the single source of truth).
+/// The svc reports it in [`ServerMessage::Welcome`]; the GUI compares it
+/// against its own copy to detect a stale svc left over from a manual
+/// zip upgrade (see `svc_is_stale` in `svc_client`).
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// A command sent by a GUI client to the service.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
@@ -106,8 +113,18 @@ pub enum ClientMessage {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ServerMessage {
     /// Answer to the Hello handshake: protocol version + atomic snapshot.
+    /// `app_version` is the svc binary's own application version. It
+    /// defaults to "" for pre-1.5.0 peers that do not send it, and the
+    /// GUI treats such a peer as stale (see `svc_is_stale` in
+    /// `svc_client`) — that is exactly the 1.4.0 -> 1.5.0 upgrade path,
+    /// where the old svc must be restarted, not rejected: the protocol
+    /// version stays 2 on purpose, so Hello to an old svc still
+    /// succeeds and the GUI can shut it down gracefully instead of
+    /// timing out against a process that holds the pipe and the mutex.
     Welcome {
         version: u32,
+        #[serde(default)]
+        app_version: String,
         status: SupervisorStatus,
     },
     /// Response to a command. `ok: false` carries a human-readable error.
@@ -163,6 +180,57 @@ impl ServerMessage {
             tgproxy_status: None,
             secret: None,
             rtt_ms: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Minimal status object: only the fields without `#[serde(default)]`.
+    fn status_json() -> &'static str {
+        r#"{"state":"stopped","pid":null,"active_strategy":null,"active_transport":null,"binary_path":null,"uptime_secs":0,"total_logs_buffered":0}"#
+    }
+
+    #[test]
+    fn welcome_without_app_version_deserializes_with_default() {
+        // A 1.4.0 svc sends no app_version: the field must default to ""
+        // instead of failing the whole Hello handshake — the GUI needs
+        // the handshake to SUCCEED against an old svc so it can shut it
+        // down gracefully (a rejected Hello would strand the upgrade).
+        let line = format!(
+            r#"{{"type":"welcome","version":2,"status":{}}}"#,
+            status_json()
+        );
+        let msg: ServerMessage = serde_json::from_str(&line).expect("old Welcome must parse");
+        match msg {
+            ServerMessage::Welcome {
+                version,
+                app_version,
+                status,
+            } => {
+                assert_eq!(version, PROTOCOL_VERSION);
+                assert_eq!(app_version, "");
+                assert_eq!(status.state, SupervisorState::Stopped);
+            }
+            _ => panic!("expected Welcome"),
+        }
+    }
+
+    #[test]
+    fn welcome_with_app_version_round_trips() {
+        let line = format!(
+            r#"{{"type":"welcome","version":2,"app_version":"1.5.0","status":{}}}"#,
+            status_json()
+        );
+        let msg: ServerMessage = serde_json::from_str(&line).expect("new Welcome must parse");
+        // And the server side serializes the field back out.
+        let encoded = serde_json::to_string(&msg).expect("Welcome must serialize");
+        assert!(encoded.contains(r#""app_version":"1.5.0""#), "{encoded}");
+        match msg {
+            ServerMessage::Welcome { app_version, .. } => assert_eq!(app_version, "1.5.0"),
+            _ => panic!("expected Welcome"),
         }
     }
 }

@@ -274,6 +274,34 @@ pub async fn resolve_conflicts(state: State<'_, AppState>) -> Result<usize, Stri
     platform_resolve_all_conflicts(pid)
 }
 
+/// Diagnoses the WinDivert driver service registration (GUI-local: the GUI
+/// runs elevated, so the SCM queries need no svc round-trip).
+#[tauri::command]
+pub async fn check_windivert_driver(
+) -> Result<crate::platform::windivert_common::WindivertDriverStatus, String> {
+    Ok(crate::platform::windivert::check_windivert_driver())
+}
+
+/// Repairs a broken WinDivert driver registration (GUI-local).
+/// Refuses unless the engine is fully stopped or in error — deleting the
+/// driver service from under a live winws would blackhole traffic, and
+/// deleting it while the engine is starting or stopping would kill the
+/// start in progress.
+#[tauri::command]
+pub async fn repair_windivert_driver(
+    state: State<'_, AppState>,
+) -> Result<crate::platform::windivert_common::WindivertRepairResult, String> {
+    let backend = state.backend.read().clone();
+    let status = backend.get_status().await;
+    if !matches!(
+        status.state,
+        SupervisorState::Stopped | SupervisorState::Error
+    ) {
+        return Err("Остановите обход перед починкой драйвера.".to_string());
+    }
+    Ok(crate::platform::windivert::repair_windivert_driver())
+}
+
 /// Saves or updates a custom user profile and returns the refreshed strategy list.
 #[tauri::command]
 pub async fn save_custom_profile(strategy: LuaStrategy) -> Result<Vec<LuaStrategy>, String> {
@@ -484,9 +512,8 @@ pub async fn probe_strategy(
     strategy_id: String,
     state: State<'_, AppState>,
 ) -> Result<crate::engine::probes::StrategyProbeResult, String> {
-    let strategies = discover_strategies().unwrap_or_default();
-    let strategy_name = match strategies.iter().find(|s| s.id == strategy_id) {
-        Some(s) => s.name.clone(),
+    let strategy_name = match resolve_strategy_name(&strategy_id) {
+        Some(name) => name,
         None => {
             return Ok(probe_error_result(
                 &strategy_id,
@@ -497,25 +524,10 @@ pub async fn probe_strategy(
     };
 
     let backend = state.backend.read().clone();
-    if let Err(e) = backend.start(Some(strategy_id.clone()), None).await {
-        return Ok(probe_error_result(&strategy_id, &strategy_name, &e));
-    }
-
-    // Wait until the engine reports Running (up to ~6s), then let the
-    // WinDivert filter and conntrack settle before measuring: probing a
-    // half-initialized engine would report false Blocked.
-    let mut running = false;
-    for _ in 0..12 {
-        let status = backend.get_status().await;
-        if status.state == crate::engine::supervisor::SupervisorState::Running {
-            running = true;
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    }
-    if running {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
+    let running = match start_engine_for_probe(&backend, &strategy_id).await {
+        Ok(running) => running,
+        Err(e) => return Ok(probe_error_result(&strategy_id, &strategy_name, &e)),
+    };
 
     let diag = state.diagnostics.clone();
     let (yt, disc, voice) = tokio::join!(
@@ -535,20 +547,7 @@ pub async fn probe_strategy(
         Some(latencies.iter().sum::<u64>() / (latencies.len() as u64))
     };
 
-    // The engine counts as measured only if it was up when probing started
-    // AND still up when probing ended: a recovery revival between the two
-    // (or a death mid-probe) leaves a mixed result, which must carry an
-    // error instead of posing as a clean measurement.
-    let final_running = backend.get_status().await.state
-        == crate::engine::supervisor::SupervisorState::Running;
-    let engine_running = running && final_running;
-    let error = if engine_running {
-        None
-    } else if !running {
-        Some("Движок не перешёл в состояние Running".to_string())
-    } else {
-        Some("Движок остановился во время проверки".to_string())
-    };
+    let (engine_running, error) = probe_engine_state(&backend, running).await;
 
     Ok(crate::engine::probes::StrategyProbeResult {
         strategy_id,
@@ -564,6 +563,108 @@ pub async fn probe_strategy(
         engine_running,
         error,
     })
+}
+
+/// Screens one strategy for real, YouTube only: phase 1 of the
+/// two-phase auto-tune. Same engine discipline as probe_strategy
+/// (start, wait for Running, 1s settle, Running-at-both-ends check) —
+/// only the probe set is smaller, so a screen pass is cheaper than a
+/// full probe. Discord/voice are NOT measured here; finalists get the
+/// full probe_strategy in phase 2. Same unknown-id and start-failure
+/// rules as probe_strategy.
+#[tauri::command]
+pub async fn probe_strategy_screen(
+    strategy_id: String,
+    state: State<'_, AppState>,
+) -> Result<crate::engine::probes::StrategyScreenResult, String> {
+    let strategy_name = match resolve_strategy_name(&strategy_id) {
+        Some(name) => name,
+        None => {
+            return Ok(screen_error_result(
+                &strategy_id,
+                &strategy_id,
+                &format!("Стратегия {} не найдена", strategy_id),
+            ));
+        }
+    };
+
+    let backend = state.backend.read().clone();
+    let running = match start_engine_for_probe(&backend, &strategy_id).await {
+        Ok(running) => running,
+        Err(e) => return Ok(screen_error_result(&strategy_id, &strategy_name, &e)),
+    };
+
+    let diag = state.diagnostics.clone();
+    let yt = diag.probe_youtube().await;
+
+    let (engine_running, error) = probe_engine_state(&backend, running).await;
+
+    Ok(crate::engine::probes::StrategyScreenResult {
+        strategy_id,
+        strategy_name,
+        youtube_status: yt.status,
+        youtube_ms: yt.latency_ms,
+        engine_running,
+        error,
+    })
+}
+
+/// Resolves a strategy id to its display name, or None when the id is
+/// not installed. Shared by the full probe and the screen: probing an
+/// unknown id would silently fall back to flowseal-alt and measure the
+/// wrong strategy under this id's name.
+fn resolve_strategy_name(strategy_id: &str) -> Option<String> {
+    discover_strategies()
+        .unwrap_or_default()
+        .iter()
+        .find(|s| s.id == strategy_id)
+        .map(|s| s.name.clone())
+}
+
+/// Starts the engine on a strategy and waits until it reports Running
+/// (up to ~6s), then lets the WinDivert filter and conntrack settle for
+/// 1s before measuring: probing a half-initialized engine would report
+/// false Blocked. Returns whether the engine reached Running; a start
+/// failure is an Err (the caller reports it without probing).
+async fn start_engine_for_probe(
+    backend: &crate::svc_client::SupervisorBackend,
+    strategy_id: &str,
+) -> Result<bool, String> {
+    backend.start(Some(strategy_id.to_string()), None).await?;
+    let mut running = false;
+    for _ in 0..12 {
+        let status = backend.get_status().await;
+        if status.state == crate::engine::supervisor::SupervisorState::Running {
+            running = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    if running {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    Ok(running)
+}
+
+/// The engine counts as measured only if it was up when probing started
+/// AND still up when probing ended: a recovery revival between the two
+/// (or a death mid-probe) leaves a mixed result, which must carry an
+/// error instead of posing as a clean measurement.
+async fn probe_engine_state(
+    backend: &crate::svc_client::SupervisorBackend,
+    was_running: bool,
+) -> (bool, Option<String>) {
+    let final_running = backend.get_status().await.state
+        == crate::engine::supervisor::SupervisorState::Running;
+    let engine_running = was_running && final_running;
+    let error = if engine_running {
+        None
+    } else if !was_running {
+        Some("Движок не перешёл в состояние Running".to_string())
+    } else {
+        Some("Движок остановился во время проверки".to_string())
+    };
+    (engine_running, error)
 }
 
 /// Restores the persisted last-used strategy without starting the engine.
@@ -603,6 +704,22 @@ fn probe_error_result(
         voice_ms: None,
         score: 0,
         average_ping_ms: None,
+        engine_running: false,
+        error: Some(error.to_string()),
+    }
+}
+
+fn screen_error_result(
+    strategy_id: &str,
+    strategy_name: &str,
+    error: &str,
+) -> crate::engine::probes::StrategyScreenResult {
+    use crate::engine::probes::ProbeStatus;
+    crate::engine::probes::StrategyScreenResult {
+        strategy_id: strategy_id.to_string(),
+        strategy_name: strategy_name.to_string(),
+        youtube_status: ProbeStatus::Blocked,
+        youtube_ms: None,
         engine_running: false,
         error: Some(error.to_string()),
     }
@@ -657,6 +774,19 @@ pub async fn set_auto_hostlist_enabled(enable: bool) -> Result<bool, String> {
 #[tauri::command]
 pub async fn set_engine_debug(enable: bool) -> Result<bool, String> {
     crate::platform::settings::update_settings(|s| s.engine_debug = enable)
+        .map_err(|e| e.to_string())?;
+    Ok(enable)
+}
+
+/// Toggles the hidden driver (Monkey): the engine runs from
+/// bin/monkey/ with the renamed WinDivert pair (service "Monkey",
+/// Monkey64.sys) so game anti-cheats that flag "WinDivert" by name
+/// stop complaining. The setting is consumed at engine start (it
+/// shapes binary resolution), so the frontend restarts a running
+/// engine after flipping it.
+#[tauri::command]
+pub async fn set_monkey_driver_enabled(enable: bool) -> Result<bool, String> {
+    crate::platform::settings::update_settings(|s| s.monkey_driver = enable)
         .map_err(|e| e.to_string())?;
     Ok(enable)
 }
@@ -1255,6 +1385,32 @@ pub async fn set_smart_hosts_adblock(
 #[tauri::command]
 pub async fn maybe_refresh_smart_hosts() {
     crate::platform::smart_hosts::maybe_refresh_smart_hosts().await
+}
+
+/// Toggles the YouTube-throttle lane inside smart hosts (deliberate
+/// 127.0.0.2 blocks of throttled googlevideo nodes).
+#[tauri::command]
+pub async fn set_youtube_throttle_enabled(
+    enabled: bool,
+) -> Result<crate::platform::smart_hosts::SmartHostsStatus, String> {
+    crate::platform::settings::update_settings(|s| {
+        s.youtube_throttle_enabled = enabled;
+    })?;
+    if crate::platform::settings::load_settings().smart_hosts_enabled {
+        crate::platform::smart_hosts::refresh_smart_hosts().await
+    } else {
+        Ok(crate::platform::smart_hosts::status())
+    }
+}
+
+/// Runs the YouTube throttling check: measures real videoplayback
+/// throughput per googlevideo node from this machine, records the
+/// verdicts and (lane + smart hosts on) applies the updated lane.
+/// With the lane off the check is diagnostic only.
+#[tauri::command]
+pub async fn run_youtube_throttle_check(
+) -> Result<crate::engine::youtube_probe::YoutubeCheckResult, String> {
+    Ok(crate::engine::youtube_probe::run_youtube_throttle_check().await)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

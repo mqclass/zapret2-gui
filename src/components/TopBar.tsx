@@ -63,30 +63,26 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
       };
     }, [isLangMenuOpen]);
 
-    const getTabMeta = (tab: NavTab) => {
+    // The header renders the tab title only; subtitles were computed
+    // here but never rendered (dead keys, removed in redesign stage 6).
+    const getTabTitle = (tab: NavTab) => {
       switch (tab) {
         case "dashboard":
-          return { title: t.tabMeta.dashboardTitle, subtitle: t.tabMeta.dashboardSubtitle };
-        case "strategies":
-          return { title: t.tabMeta.strategiesTitle, subtitle: t.tabMeta.strategiesSubtitle };
+          return t.tabMeta.dashboardTitle;
+        case "presets":
+          return t.tabMeta.presetsTitle;
         case "diagnostics":
-          return { title: t.tabMeta.diagnosticsTitle, subtitle: t.tabMeta.diagnosticsSubtitle };
+          return t.tabMeta.diagnosticsTitle;
         case "dns":
-          return { title: t.tabMeta.dnsTitle, subtitle: t.tabMeta.dnsSubtitle };
-        case "lists":
-          return { title: t.tabMeta.listsTitle, subtitle: t.tabMeta.listsSubtitle };
-        case "logs":
-          return { title: t.tabMeta.logsTitle, subtitle: t.tabMeta.logsSubtitle };
+          return t.tabMeta.dnsTitle;
         case "settings":
-          return { title: t.tabMeta.settingsTitle, subtitle: t.tabMeta.settingsSubtitle };
-        case "telegram":
-          return { title: t.tabMeta.telegramTitle, subtitle: t.tabMeta.telegramSubtitle };
+          return t.tabMeta.settingsTitle;
         default:
-          return { title: t.tabMeta.dashboardTitle, subtitle: t.tabMeta.dashboardSubtitle };
+          return t.tabMeta.dashboardTitle;
       }
     };
 
-    const meta = getTabMeta(activeTab);
+    const tabTitle = getTabTitle(activeTab);
 
     const languages: { code: Language; label: string; full: string }[] = [
       { code: "ru", label: "RU", full: t.header.langRu },
@@ -133,8 +129,8 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
       >
         <div className="flex items-center gap-4 min-w-0">
           <div data-tauri-drag-region onDoubleClick={handleToggleMaximize} className="min-w-0">
-            <h2 data-tauri-drag-region title={meta.title} className="text-sm font-semibold tracking-tight text-ink leading-tight truncate">
-              {meta.title}
+            <h2 data-tauri-drag-region title={tabTitle} className="text-sm font-semibold tracking-tight text-ink leading-tight truncate">
+              {tabTitle}
             </h2>
           </div>
         </div>
@@ -178,7 +174,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
           <button
             onClick={onKillStray}
             disabled={isStrayCleaning}
-            className="flex items-center gap-1.5 rounded-control border border-line bg-raise px-2.5 py-1 text-[11px] font-medium text-ink4 hover:text-rose-300 hover:border-rose-500/30 hover:bg-rose-500/10 transition-all cursor-pointer disabled:opacity-60"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control border border-line bg-raise px-2.5 py-1 text-[11px] font-medium text-ink4 hover:text-rose-300 hover:border-rose-500/30 hover:bg-rose-500/10 transition-all cursor-pointer disabled:opacity-60"
             title={t.header.cleanProcessesTooltip}
           >
             {isStrayCleaning ? (
@@ -186,7 +182,7 @@ export const TopBar: React.FC<TopBarProps> = React.memo(
             ) : (
               <Trash2 className="h-3.5 w-3.5" />
             )}
-            <span className="hidden sm:inline">{t.header.cleanShort}</span>
+            <span className="hidden sm:inline">{t.header.cleanProcesses}</span>
           </button>
           <div className="relative z-[60]" ref={langDropdownRef}>
             <button

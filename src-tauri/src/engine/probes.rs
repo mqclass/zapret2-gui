@@ -11,6 +11,7 @@
 //! 6. Cloudflare Global Network (`1.1.1.1:443` / `cloudflare.com:443`)
 //! 7. Custom Target Ping: User-specified domain or URL probing.
 
+use std::cmp::Ordering;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -80,6 +81,86 @@ pub struct StrategyProbeResult {
     /// Set when the strategy could not be probed at all (unknown id, engine
     /// failed to start). The caller must show it instead of the statuses.
     pub error: Option<String>,
+}
+
+/// Lightweight YouTube-only screen result: phase 1 of the two-phase
+/// auto-tune. Same engine discipline as StrategyProbeResult (the engine
+/// was really started on this strategy and the result carries whether it
+/// stayed Running), but only YouTube was measured, so a screen pass is
+/// cheaper than a full probe. Discord/voice are NOT measured here and
+/// must never be inferred from this result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StrategyScreenResult {
+    pub strategy_id: String,
+    pub strategy_name: String,
+    pub youtube_status: ProbeStatus,
+    pub youtube_ms: Option<u64>,
+    /// False when the engine never reached Running for this strategy.
+    pub engine_running: bool,
+    /// Set when the strategy could not be screened at all (unknown id,
+    /// engine failed to start). The caller must show it instead of the
+    /// status.
+    pub error: Option<String>,
+}
+
+impl StrategyScreenResult {
+    /// Viable for the finals: the engine really ran, nothing failed, and
+    /// YouTube was reachable (operational or degraded) through it. A
+    /// blocked YouTube means the strategy does not help the main pain
+    /// point, however well Discord might do.
+    pub fn is_viable(&self) -> bool {
+        self.engine_running
+            && self.error.is_none()
+            && matches!(
+                self.youtube_status,
+                ProbeStatus::Operational | ProbeStatus::Degraded
+            )
+    }
+}
+
+/// Screen-phase rank: reachable YouTube first, lower latency breaks
+/// ties. Blocked/Checking sort last — they are never finalists, but the
+/// order stays total so the ranking is stable and testable.
+///
+/// Canonical ordering, mirrored by the frontend auto-tune loop
+/// (AutoTuneModal.tsx): the loop runs in the frontend, so Rust cannot
+/// own the phase transition — but the rules live here, pinned by unit
+/// tests, and the mirror is a transliteration of these three functions.
+#[allow(dead_code)]
+pub fn screen_status_rank(status: ProbeStatus) -> u8 {
+    match status {
+        ProbeStatus::Operational => 0,
+        ProbeStatus::Degraded => 1,
+        _ => 2,
+    }
+}
+
+#[allow(dead_code)]
+pub fn compare_screen_results(a: &StrategyScreenResult, b: &StrategyScreenResult) -> Ordering {
+    screen_status_rank(a.youtube_status)
+        .cmp(&screen_status_rank(b.youtube_status))
+        .then_with(|| {
+            a.youtube_ms
+                .unwrap_or(u64::MAX)
+                .cmp(&b.youtube_ms.unwrap_or(u64::MAX))
+        })
+}
+
+/// Finalists for phase 2: viable screens only, best first, capped at
+/// `limit`. Returns owned results in ranked order.
+#[allow(dead_code)]
+pub fn select_finalists(
+    results: &[StrategyScreenResult],
+    limit: usize,
+) -> Vec<StrategyScreenResult> {
+    let mut ranked: Vec<StrategyScreenResult> = results
+        .iter()
+        .filter(|r| r.is_viable())
+        .cloned()
+        .collect();
+    ranked.sort_by(compare_screen_results);
+    ranked.truncate(limit);
+    ranked
 }
 
 impl Default for DiagnosticsReport {
@@ -598,7 +679,111 @@ fn parse_host_port(input: &str) -> (String, u16) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_public_ip, parse_host_port};
+    use super::{
+        is_public_ip, parse_host_port, select_finalists, ProbeStatus, StrategyScreenResult,
+    };
+
+    fn screen(id: &str, status: ProbeStatus, ms: Option<u64>) -> StrategyScreenResult {
+        StrategyScreenResult {
+            strategy_id: id.to_string(),
+            strategy_name: id.to_string(),
+            youtube_status: status,
+            youtube_ms: ms,
+            engine_running: true,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn test_screen_result_serializes_snake_case() {
+        // The frontend reads these exact field names; a rename breaks the
+        // modal silently (undefined statuses, no crash).
+        let r = screen("yt4k", ProbeStatus::Operational, Some(84));
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["strategy_id"], "yt4k");
+        assert_eq!(v["strategy_name"], "yt4k");
+        assert_eq!(v["youtube_status"], "operational");
+        assert_eq!(v["youtube_ms"], 84);
+        assert_eq!(v["engine_running"], true);
+        assert!(v["error"].is_null());
+        // And it round-trips.
+        let back: StrategyScreenResult = serde_json::from_value(v).unwrap();
+        assert_eq!(back.strategy_id, "yt4k");
+        assert!(back.is_viable());
+    }
+
+    #[test]
+    fn test_select_finalists_ranks_status_then_latency() {
+        let input = vec![
+            screen("slow-op", ProbeStatus::Operational, Some(300)),
+            screen("blocked", ProbeStatus::Blocked, None),
+            screen("fast-op", ProbeStatus::Operational, Some(90)),
+            screen("degraded", ProbeStatus::Degraded, Some(50)),
+            screen("checking", ProbeStatus::Checking, None),
+            StrategyScreenResult {
+                engine_running: false,
+                ..screen("dead-engine", ProbeStatus::Operational, Some(10))
+            },
+            StrategyScreenResult {
+                error: Some("boom".to_string()),
+                ..screen("errored", ProbeStatus::Operational, Some(5))
+            },
+        ];
+        let out = select_finalists(&input, 8);
+        let ids: Vec<&str> = out.iter().map(|r| r.strategy_id.as_str()).collect();
+        // Viable only; operational first by latency, then degraded.
+        // Blocked/Checking, a dead engine and an errored screen are out,
+        // even though two of them carry the lowest latencies.
+        assert_eq!(ids, vec!["fast-op", "slow-op", "degraded"]);
+    }
+
+    #[test]
+    fn test_select_finalists_caps_at_limit_and_keeps_best() {
+        let input: Vec<StrategyScreenResult> = (0..10)
+            .map(|i| {
+                screen(
+                    &format!("cand-{i}"),
+                    ProbeStatus::Operational,
+                    Some(100 + i * 10),
+                )
+            })
+            .collect();
+        let out = select_finalists(&input, 8);
+        assert_eq!(out.len(), 8);
+        assert_eq!(out[0].strategy_id, "cand-0");
+        assert_eq!(out[7].strategy_id, "cand-7");
+    }
+
+    #[test]
+    fn test_select_finalists_empty_when_nothing_viable() {
+        let input = vec![
+            screen("blocked", ProbeStatus::Blocked, None),
+            screen("checking", ProbeStatus::Checking, None),
+            StrategyScreenResult {
+                engine_running: false,
+                ..screen("dead", ProbeStatus::Operational, Some(10))
+            },
+        ];
+        assert!(select_finalists(&input, 8).is_empty());
+    }
+
+    #[test]
+    fn test_screen_viability_needs_engine_and_reachable_youtube() {
+        assert!(screen("ok", ProbeStatus::Operational, Some(90)).is_viable());
+        assert!(screen("ok", ProbeStatus::Degraded, Some(90)).is_viable());
+        assert!(!screen("ok", ProbeStatus::Blocked, None).is_viable());
+        assert!(!screen("ok", ProbeStatus::Checking, None).is_viable());
+        assert!(!StrategyScreenResult {
+            engine_running: false,
+            ..screen("ok", ProbeStatus::Operational, Some(90))
+        }
+        .is_viable());
+        assert!(!StrategyScreenResult {
+            error: Some("x".to_string()),
+            ..screen("ok", ProbeStatus::Operational, Some(90))
+        }
+        .is_viable());
+    }
 
     #[test]
     fn test_is_public_ip_ipv4_embedded_in_ipv6() {

@@ -17,7 +17,12 @@ import { ListSyncReport } from "../../types";
 import { notifyUser } from "../../utils/notify";
 import { formatErrorMessage } from "../../utils/error";
 
-export const ListsView: React.FC = React.memo(() => {
+interface ListsViewProps {
+  /** Shell view mode (redesign): accepted since stage 1, used by later stages. */
+  expertMode?: boolean;
+}
+
+export const ListsView: React.FC<ListsViewProps> = React.memo((_props) => {
   const { t } = useI18n();
 
   const [files, setFiles] = useState<string[]>([]);

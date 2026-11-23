@@ -839,6 +839,45 @@ impl Supervisor {
             }
         };
 
+        // 1b. The stock and hidden drivers share the `\\.\WinDivert`
+        // device name, so the idle one's service must not stay loaded —
+        // otherwise the second driver fails to create its device object
+        // (bol-van's windivert-hide README says the same: stop the
+        // original service first). Best-effort: a service that is not
+        // running simply reports false, and a stop failure is logged,
+        // not fatal. After the stop signal, poll until the service is
+        // actually gone (same 20x100ms pattern as the repair): spawning
+        // winws2 while the other driver is still unloading could fail
+        // with the exit-177 signature, or worse, open the device
+        // object still owned by the other driver.
+        #[cfg(target_os = "windows")]
+        {
+            let idle_service =
+                crate::platform::windivert_common::driver_service_name(!binaries.monkey_mode);
+            if crate::platform::conflicts::stop_service_native(idle_service) {
+                for _ in 0..20 {
+                    if !crate::platform::conflicts::is_service_running(idle_service) {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                if crate::platform::conflicts::is_service_running(idle_service) {
+                    self.log(
+                        "warn",
+                        &format!(
+                            "Idle {} driver service did not stop within 2s; engine start may fail",
+                            idle_service
+                        ),
+                    );
+                } else {
+                    self.log(
+                        "info",
+                        &format!("Stopped idle {} driver service", idle_service),
+                    );
+                }
+            }
+        }
+
         // Determine target strategy & engine
         let strategies = discover_strategies().unwrap_or_default();
         let target_strat = if let Some(ref id) = strategy_id {
@@ -1014,6 +1053,7 @@ impl Supervisor {
         // same fresh settings the builders will read.
         let tunnel_applied = if is_custom_args
             || active_id == "zapret2-ru-ultimate"
+            || crate::engine::imported_strategies::is_imported(&active_id)
             || target_strat
                 .as_ref()
                 .map_or(false, |s| s.category == "custom")
@@ -1289,9 +1329,10 @@ impl Supervisor {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_stream).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
-                    // WinDivert open-filter failure: the driver is held by
-                    // another bypass tool or left in a stale state. The
-                    // monitor task pairs this with exit code 10.
+                    // WinDivert open-filter failure: the driver could not be
+                    // opened (held by another bypass tool, or its service
+                    // registration is broken). The monitor task pairs this
+                    // flag with the exit code to tell the two modes apart.
                     let lowered = line.to_lowercase();
                     if lowered.contains("windivert")
                         && lowered.contains("error opening filter")
@@ -1374,18 +1415,35 @@ impl Supervisor {
                 let (strategy_id, custom_args) =
                     supervisor_clone.last_start_params.read().clone();
 
-                // WinDivert open-filter failure (exit code 10 plus the stderr
-                // signature) means the driver is held by another bypass tool
-                // or left stale. The stderr reader drains the pipes
-                // asynchronously, so give it a short grace period before deciding.
-                let mut windivert_conflict = false;
-                if status.code() == Some(10) {
+                // WinDivert open-filter failure: the stderr signature plus the
+                // exit code tells the two failure modes apart.
+                // - Exit 10: the driver is held by another bypass tool (or
+                //   left stale); one recovery restart may shake it loose.
+                // - Any other code (177 today: the driver SERVICE cannot
+                //   start at all — disabled, or its binary path points at a
+                //   deleted folder): restarting changes nothing, the
+                //   registration has to be repaired (see platform::windivert).
+                //   The signature is specific enough that a future winws2
+                //   changing its exit code still lands on the repair banner;
+                //   the repair re-diagnoses first and returns
+                //   nothing_to_repair when the service is actually healthy.
+                // The stderr reader drains the pipes asynchronously, so give
+                // it a short grace period before deciding. The flag is
+                // usually already set by the time the monitor notices the
+                // exit, so check it once for free before polling — the poll
+                // itself only runs for the known codes (10/177).
+                let mut windivert_signature = supervisor_clone
+                    .windivert_open_error
+                    .load(Ordering::SeqCst);
+                if !windivert_signature
+                    && (status.code() == Some(10) || status.code() == Some(177))
+                {
                     for _ in 0..10 {
                         if supervisor_clone
                             .windivert_open_error
                             .load(Ordering::SeqCst)
                         {
-                            windivert_conflict = true;
+                            windivert_signature = true;
                             break;
                         }
                         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1394,7 +1452,25 @@ impl Supervisor {
                 let superseded =
                     *supervisor_clone.generation.read() != generation_before;
                 let mut recovery_requested = false;
-                if windivert_conflict && !superseded {
+                // Any code but 10 with the signature: no recovery restart —
+                // a broken service registration cannot heal by retrying.
+                // Surface the repair banner instead (the GUI offers a
+                // one-click fix).
+                if windivert_signature
+                    && status.code().is_some_and(|c| c != 10)
+                    && !superseded
+                {
+                    *supervisor_clone.last_engine_error.write() =
+                        Some("windivert_driver_broken".to_string());
+                    supervisor_clone.log(
+                        "error",
+                        &format!(
+                            "WinDivert filter open failed (exit code {}): the driver service is disabled or points at a missing file. Use the repair button on the dashboard or run the Auto-Doctor in Diagnostics.",
+                            status.code().unwrap_or(-1),
+                        ),
+                    );
+                }
+                if windivert_signature && status.code() == Some(10) && !superseded {
                     if !supervisor_clone
                         .windivert_recovery_done
                         .swap(true, Ordering::SeqCst)
@@ -2096,23 +2172,108 @@ impl Supervisor {
         args
     }
 
+    /// Builds winws2 arguments for an imported kinlay0 strategy.
+    /// Pure: the caller resolves the filesystem-shaped inputs (the
+    /// auto-hostlist path and the list resolver, same shape as
+    /// branch 4's l()) so tests can pin the output.
+    ///
+    /// Layout mirrors the flagship: our standard root capture
+    /// filters, the three stock lua-init libraries the collection
+    /// loads (minus its blobs.lua — blobs are registered our way,
+    /// only the ones this strategy references), then the strategy's
+    /// profiles in the .bat's own order as --new=<slug> sections.
+    ///
+    /// Honest scope limits, same as the flagship: the split-tunnel
+    /// Lua modes do not reshape these lists (start_locked reports
+    /// the mode as not applied for imported ids), and the .bat
+    /// gamefilter sections are not carried over — the GUI's own
+    /// game sections belong to the Flowseal/Lua-preset builders.
+    ///
+    /// Auto-hostlist (design §3): with the setting on, the
+    /// domain_tls section — the TCP section gated on list-general —
+    /// gains --hostlist-auto after its exclude lines, like the
+    /// flagship's general sections. The QUIC section stays out:
+    /// the UDP failure detector is out of phase-1 scope there too.
+    fn build_imported_args(
+        imported: &crate::engine::imported_strategies::ImportedStrategy,
+        auto: Option<&str>,
+        list_path: &dyn Fn(&str) -> String,
+    ) -> Vec<String> {
+        let mut args: Vec<String> = vec![
+            "--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into(),
+            "--wf-udp-out=443,19294-19344,50000-65535".into(),
+            "--lua-init=@zapret-lib.lua".into(),
+            "--lua-init=@zapret-antidpi.lua".into(),
+            "--lua-init=@zapret-auto.lua".into(),
+        ];
+        for name in imported.blobs {
+            if let Some(file) = crate::engine::imported_strategies::blob_file(name) {
+                args.push(format!("--blob={}:@{}", name, file));
+            }
+        }
+        for (slug, profile_args) in imported.profiles {
+            args.push(format!("--new={}", slug));
+            for arg in *profile_args {
+                if let Some(pos) = arg.find("{L}") {
+                    let file = &arg[pos + 3..];
+                    args.push(format!("{}{}", &arg[..pos], list_path(file)));
+                } else {
+                    args.push(arg.to_string());
+                }
+            }
+        }
+        if let Some(auto_path) = auto {
+            let anchor = format!(
+                "--hostlist-exclude={}",
+                list_path("list-exclude-user.txt")
+            );
+            Self::insert_after_in_section(
+                &mut args,
+                "domain_tls",
+                &anchor,
+                &[format!("--hostlist-auto={}", auto_path)],
+            );
+        }
+        args
+    }
+
     /// Builds zapret2 Ultimate configuration for Russia on winws2 v2.
     /// Thin wrapper: reads the auto-hostlist setting and resolves
-    /// the absolute auto path from the user lists directory (the
-    /// parameter this builder historically ignored); the argument
-    /// list itself is built by the pure inner function so tests can
-    /// pin both states.
-    fn build_zapret2_ru_ultimate_args(_bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
+    /// the absolute auto path from the user lists directory; the
+    /// argument list itself is built by the pure inner function so
+    /// tests can pin both states. bin_dir is passed through for the
+    /// list-path resolver (relative "lists/..." when the files sit
+    /// next to the engine, absolute lists_dir otherwise).
+    fn build_zapret2_ru_ultimate_args(bin_dir: &Path, lists_dir: &Path) -> Vec<String> {
         let settings = crate::platform::settings::load_settings();
         let auto = if settings.auto_hostlist_enabled {
             Some(auto_hostlist_path(lists_dir))
         } else {
             None
         };
-        Self::build_ultimate_args_with_auto(auto.as_deref())
+        Self::build_ultimate_args_with_auto(bin_dir, lists_dir, auto.as_deref())
     }
 
-    fn build_ultimate_args_with_auto(auto: Option<&str>) -> Vec<String> {
+    fn build_ultimate_args_with_auto(
+        bin_dir: &Path,
+        lists_dir: &Path,
+        auto: Option<&str>,
+    ) -> Vec<String> {
+        // Same resolver as the other builders: prefer the relative
+        // "lists/..." path when the file sits next to the engine
+        // (stock mode), otherwise the absolute lists_dir path. The
+        // relative form MUST NOT be assumed: in Monkey mode the engine
+        // spawns with cwd=bin/monkey/, where lists/ is deliberately
+        // not mirrored (both modes share the stock bin/lists/), and
+        // a missing hostlist file makes the engine silently run with
+        // an empty list — a quiet no-op, not an error.
+        let l = |file: &str| {
+            if bin_dir.join("lists").join(file).is_file() {
+                format!("lists/{}", file)
+            } else {
+                lists_dir.join(file).to_string_lossy().replace('\\', "/")
+            }
+        };
         let mut args = vec![
             "--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into(),
             "--wf-udp-out=443,19294-19344,50000-65535".into(),
@@ -2131,9 +2292,9 @@ impl Supervisor {
             // 1. YouTube QUIC Handshake Bypass (UDP 443)
             "--new=quic_youtube".into(),
             "--filter-udp=443".into(),
-            "--hostlist=lists/list-general.txt".into(),
-            "--hostlist=lists/list-general-user.txt".into(),
-            "--hostlist-exclude=lists/list-exclude.txt".into(),
+            format!("--hostlist={}", l("list-general.txt")),
+            format!("--hostlist={}", l("list-general-user.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude.txt")),
             "--payload=quic_initial".into(),
             "--lua-desync=fake:blob=quic_google:repeats=11".into(),
 
@@ -2156,7 +2317,7 @@ impl Supervisor {
             // 4. YouTube 4K Google TCP (443) - seqovl=681 + TLS Fake Google + out-range=n1-n4 for 60FPS
             "--new=youtube_4k".into(),
             "--filter-tcp=443".into(),
-            "--hostlist=lists/list-google.txt".into(),
+            format!("--hostlist={}", l("list-google.txt")),
             "--payload=tls_client_hello".into(),
             "--out-range=n1-n4".into(),
             "--lua-desync=fake:blob=tls_google:repeats=8:tcp_ts=1000:ip_id=zero".into(),
@@ -2165,9 +2326,9 @@ impl Supervisor {
             // 5. General Blocked Websites HTTPS (80,443) - seqovl=664 + TLS Fake max_ru
             "--new=general_https".into(),
             "--filter-tcp=80,443".into(),
-            "--hostlist=lists/list-general.txt".into(),
-            "--hostlist=lists/list-general-user.txt".into(),
-            "--hostlist-exclude=lists/list-exclude.txt".into(),
+            format!("--hostlist={}", l("list-general.txt")),
+            format!("--hostlist={}", l("list-general-user.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude.txt")),
             "--payload=tls_client_hello".into(),
             "--out-range=n1-n4".into(),
             "--lua-desync=fake:blob=tls_max_ru:repeats=8:tcp_ts=1000".into(),
@@ -2176,7 +2337,7 @@ impl Supervisor {
             // 6. General HTTP (80)
             "--new=general_http".into(),
             "--filter-tcp=80".into(),
-            "--hostlist=lists/list-general.txt".into(),
+            format!("--hostlist={}", l("list-general.txt")),
             "--payload=http_req".into(),
             "--lua-desync=fake:blob=tls_max_ru:tcp_ts=1000".into(),
             "--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max_ru:tcp_ts=1000".into(),
@@ -2184,8 +2345,8 @@ impl Supervisor {
             // 7. IPSet All Fallback
             "--new=ipset_fallback".into(),
             "--filter-tcp=80,443,8443".into(),
-            "--ipset=lists/ipset-all.txt".into(),
-            "--hostlist-exclude=lists/list-exclude.txt".into(),
+            format!("--ipset={}", l("ipset-all.txt")),
+            format!("--hostlist-exclude={}", l("list-exclude.txt")),
             "--payload=tls_client_hello".into(),
             "--out-range=n1-n4".into(),
             "--lua-desync=fake:blob=tls_max_ru:repeats=8:tcp_ts=1000".into(),
@@ -2198,35 +2359,38 @@ impl Supervisor {
             // their own narrow sets and must not apply their
             // specialized handling to random learned domains, and
             // ipset_fallback is an IP filter, not a domain one. The
-            // auto path is the only absolute path in this builder
-            // (everything else is "lists/..." relative to the engine
-            // cwd): the engine WRITES to this file, so it must land
-            // in the user lists directory. At the same time — and
-            // only with the setting on — the general sections gain
-            // the exclude pairs they historically lacked, because
-            // the invariant "exclude always wins" must hold in every
+            // auto path is absolute (the engine WRITES to this file,
+            // so it must land in the user lists directory); every
+            // other list path goes through the same l() resolver as
+            // the vec above — including the insert anchors, which
+            // must match the resolved lines exactly, or the insert
+            // silently does nothing. At the same time — and only
+            // with the setting on — the general sections gain the
+            // exclude pairs they historically lacked, because the
+            // invariant "exclude always wins" must hold in every
             // section that carries auto: general_https gets the user
             // exclude next to its static one; general_http gets the
             // whole pair (its include side is NOT extended —
             // list-general-user stays out of this section, as
-            // before). With the setting off the argument list above
-            // is byte for byte the historical one.
+            // before). With the setting off and stock lists present
+            // the argument list above is byte for byte the
+            // historical one.
             Self::insert_after_in_section(
                 &mut args,
                 "general_https",
-                "--hostlist-exclude=lists/list-exclude.txt",
+                &format!("--hostlist-exclude={}", l("list-exclude.txt")),
                 &[
-                    "--hostlist-exclude=lists/list-exclude-user.txt".to_string(),
+                    format!("--hostlist-exclude={}", l("list-exclude-user.txt")),
                     format!("--hostlist-auto={}", auto_path),
                 ],
             );
             Self::insert_after_in_section(
                 &mut args,
                 "general_http",
-                "--hostlist=lists/list-general.txt",
+                &format!("--hostlist={}", l("list-general.txt")),
                 &[
-                    "--hostlist-exclude=lists/list-exclude.txt".to_string(),
-                    "--hostlist-exclude=lists/list-exclude-user.txt".to_string(),
+                    format!("--hostlist-exclude={}", l("list-exclude.txt")),
+                    format!("--hostlist-exclude={}", l("list-exclude-user.txt")),
                     format!("--hostlist-auto={}", auto_path),
                 ],
             );
@@ -2501,6 +2665,28 @@ impl Supervisor {
         // 2. If it's the flagship zapret2 Ultimate Russia preset, build winws2 arguments
         if strat_id == "zapret2-ru-ultimate" {
             return Ok(Self::build_zapret2_ru_ultimate_args(&binaries.bin_dir, &lists_dir));
+        }
+
+        // 2b. Imported community strategies (kinlay0 collection,
+        // pinned): bundled argument vectors translated from the
+        // collection's .bat files (engine::imported_strategies). The
+        // list resolution mirrors branch 4's l() exactly: the bundled
+        // copy under bin/lists wins over the user lists directory.
+        if let Some(imported) = crate::engine::imported_strategies::find(strat_id) {
+            let settings = crate::platform::settings::load_settings();
+            let auto = if settings.auto_hostlist_enabled {
+                Some(auto_hostlist_path(&lists_dir))
+            } else {
+                None
+            };
+            let l = |file: &str| {
+                if binaries.bin_dir.join("lists").join(file).is_file() {
+                    format!("lists/{}", file)
+                } else {
+                    lists_dir.join(file).to_string_lossy().replace('\\', "/")
+                }
+            };
+            return Ok(Self::build_imported_args(imported, auto.as_deref(), &l));
         }
 
         let strategies = discover_strategies().unwrap_or_default();
@@ -3548,7 +3734,9 @@ mod tests {
     #[test]
     fn test_ultimate_without_auto_matches_historical_args() {
         // OFF pin: byte for byte the flagship list before the
-        // auto-hostlist feature.
+        // auto-hostlist feature. Stock layout: the bin dir carries
+        // lists/, so the resolver keeps the relative form.
+        let (bin_dir, lists_dir) = temp_stock_bin_dir("off-pin");
         let expected: Vec<String> = vec![
             "--wf-tcp-out=80,443,2053,2083,2087,2096,8443".into(),
             "--wf-udp-out=443,19294-19344,50000-65535".into(),
@@ -3609,14 +3797,19 @@ mod tests {
             "--lua-desync=fake:blob=tls_max_ru:repeats=8:tcp_ts=1000".into(),
             "--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max_ru:tcp_ts=1000".into(),
         ];
-        assert_eq!(Supervisor::build_ultimate_args_with_auto(None), expected);
+        assert_eq!(
+            Supervisor::build_ultimate_args_with_auto(&bin_dir, &lists_dir, None),
+            expected
+        );
     }
 
     #[test]
     fn test_ultimate_with_auto_extends_only_general_sections() {
         const AUTO: &str = "/user/lists/list-auto.txt";
-        let base = Supervisor::build_ultimate_args_with_auto(None);
-        let with_auto = Supervisor::build_ultimate_args_with_auto(Some(AUTO));
+        let (bin_dir, lists_dir) = temp_stock_bin_dir("auto");
+        let base = Supervisor::build_ultimate_args_with_auto(&bin_dir, &lists_dir, None);
+        let with_auto =
+            Supervisor::build_ultimate_args_with_auto(&bin_dir, &lists_dir, Some(AUTO));
 
         // Reconstruct the expected list from the pinned base: the
         // ONLY differences are the two insertion points.
@@ -3668,6 +3861,77 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Temp bin dir with a populated `lists/` (stock layout) plus a
+    /// separate user lists dir. All six files the ultimate builder
+    /// resolves must exist, or l() falls back to the absolute form.
+    fn temp_stock_bin_dir(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "zapret2-ultimate-test-{}-{}",
+            tag,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let bin_lists = root.join("bin").join("lists");
+        std::fs::create_dir_all(&bin_lists).unwrap();
+        for f in [
+            "list-general.txt",
+            "list-general-user.txt",
+            "list-exclude.txt",
+            "list-exclude-user.txt",
+            "list-google.txt",
+            "ipset-all.txt",
+        ] {
+            std::fs::write(bin_lists.join(f), "").unwrap();
+        }
+        let user_lists = root.join("user-lists");
+        std::fs::create_dir_all(&user_lists).unwrap();
+        (root.join("bin"), user_lists)
+    }
+
+    #[test]
+    fn test_ultimate_without_bin_lists_resolves_absolute_and_keeps_auto() {
+        // Monkey-mode shape: the engine spawns with cwd=bin/monkey/,
+        // where lists/ is deliberately not mirrored. Every list path
+        // must resolve to the absolute shared lists_dir — a bare
+        // "lists/..." would make the engine silently run with empty
+        // hostlists (a quiet no-op, not an error).
+        const AUTO: &str = "/user/lists/list-auto.txt";
+        let root = std::env::temp_dir().join(format!(
+            "zapret2-ultimate-test-nobinlists-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let bin_dir = root.join("bin");
+        let lists_dir = root.join("user-lists");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::create_dir_all(&lists_dir).unwrap();
+        let args =
+            Supervisor::build_ultimate_args_with_auto(&bin_dir, &lists_dir, Some(AUTO));
+        assert!(
+            !args.iter().any(|a| a.contains("=lists/")),
+            "no bare lists/... path may survive: {:?}",
+            args.iter().filter(|a| a.contains("=lists/")).collect::<Vec<_>>()
+        );
+        let lists_prefix = lists_dir.to_string_lossy().replace('\\', "/");
+        for a in args.iter().filter(|a| {
+            a.starts_with("--hostlist=")
+                || a.starts_with("--hostlist-exclude=")
+                || a.starts_with("--ipset=")
+        }) {
+            assert!(
+                a.split('=').nth(1).unwrap().starts_with(&lists_prefix),
+                "list path must be absolute from lists_dir: {}",
+                a
+            );
+        }
+        // The auto inserts landed too (their anchors are resolved,
+        // not hardcoded relative paths).
+        assert_eq!(
+            args.iter().filter(|a| a.starts_with("--hostlist-auto=")).count(),
+            2
+        );
     }
 
     #[test]
@@ -3850,6 +4114,245 @@ mod tests {
         assert_eq!(out[3], "--dpi-desync=fake-tls=tls_clienthello_www_google_com.bin");
         assert_eq!(out[4], "--dpi-desync-cutoff=n4");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Builds imported-strategy args the way branch 2b of
+    /// resolve_strategy_args does, with bundled list resolution.
+    fn imported_test_args(
+        id: &str,
+        auto: Option<&str>,
+    ) -> Vec<String> {
+        let imported = crate::engine::imported_strategies::find(id)
+            .unwrap_or_else(|| panic!("unknown imported strategy {}", id));
+        Supervisor::build_imported_args(imported, auto, &|f| format!("lists/{}", f))
+    }
+
+    /// The `--new=<slug>` section span of a built argument list.
+    fn section_of<'a>(args: &'a [String], slug: &str) -> &'a [String] {
+        let marker = format!("--new={}", slug);
+        let start = args
+            .iter()
+            .position(|a| a == &marker)
+            .unwrap_or_else(|| panic!("section {} missing", slug));
+        let end = args
+            .iter()
+            .skip(start + 1)
+            .position(|a| a.starts_with("--new="))
+            .map(|p| start + 1 + p)
+            .unwrap_or(args.len());
+        &args[start..end]
+    }
+
+    #[test]
+    fn test_imported_args_shape_for_all_strategies() {
+        let all = crate::engine::imported_strategies::all();
+        assert_eq!(
+            all.len(),
+            26,
+            "kinlay0 groups 1+2+circular are exactly 26 strategies (7 + 17 + 2)"
+        );
+        for strat in all {
+            let args = imported_test_args(strat.id, None);
+            // Our root capture first, stock lua inits, no collection
+            // wrapping anywhere in the output.
+            assert_eq!(args[0], "--wf-tcp-out=80,443,2053,2083,2087,2096,8443", "{}", strat.id);
+            assert_eq!(args[1], "--wf-udp-out=443,19294-19344,50000-65535", "{}", strat.id);
+            assert_eq!(
+                args.iter().filter(|a| a.starts_with("--lua-init=")).count(),
+                3,
+                "{}",
+                strat.id
+            );
+            for arg in &args {
+                for banned in [
+                    "blobs.lua",
+                    "gamefilter",
+                    "GameFilter",
+                    "%",
+                    "--ctrack",
+                    "--wf-tcp-in",
+                    "--wf-udp-in",
+                    "{L}",
+                ] {
+                    assert!(
+                        !arg.contains(banned),
+                        "{}: arg {:?} contains banned {:?}",
+                        strat.id,
+                        arg,
+                        banned
+                    );
+                }
+            }
+            // The .bat game sections are dropped: 9 profiles become 7.
+            let sections: Vec<&String> = args
+                .iter()
+                .filter(|a| a.starts_with("--new="))
+                .collect();
+            assert_eq!(sections.len(), 7, "{}", strat.id);
+            // Blob completeness: every blob a desync chain references
+            // is registered our way before the profiles start. Blob
+            // references come as blob= (fake payload),
+            // seqovl_pattern= (multisplit/multidisorder overlap
+            // pattern) and fallback= (the clone's fallback payload):
+            // all three resolve through blob() in the stock Lua.
+            // Runtime blobs (ch_clone) are filled in by the desync
+            // function itself and are exempt; 0x.. values are inline
+            // hex patterns, not blob names.
+            let first_section = args
+                .iter()
+                .position(|a| a.starts_with("--new="))
+                .unwrap();
+            for arg in &args {
+                if let Some(pos) = arg.find("--lua-desync=") {
+                    for part in arg[pos..].split(':') {
+                        let name = ["blob=", "seqovl_pattern=", "fallback="]
+                            .iter()
+                            .find_map(|prefix| part.strip_prefix(prefix));
+                        let Some(name) = name else { continue };
+                        if name.starts_with("0x")
+                            || crate::engine::imported_strategies::is_runtime_blob(name)
+                        {
+                            continue;
+                        }
+                        let reg = format!("--blob={}:@", name);
+                        assert!(
+                            args[..first_section]
+                                .iter()
+                                .any(|a| a.starts_with(&reg)),
+                            "{}: blob {} used but not registered",
+                            strat.id,
+                            name
+                        );
+                    }
+                }
+            }
+            // The auto-hostlist target section exists in every one.
+            let _ = section_of(&args, "domain_tls");
+        }
+    }
+
+    #[test]
+    fn test_imported_double_fake_really_has_two_fakes() {
+        // The family's defining trait, pinned so a translator or pin
+        // change cannot silently flatten it: in domain_tls the DOUBLE
+        // FAKE chains carry two fake instances on the TLS payload
+        // (plus one on HTTP), SINGLE FAKE carries one (plus one).
+        let count_fakes = |id: &str| {
+            let args = imported_test_args(id, None);
+            section_of(&args, "domain_tls")
+                .iter()
+                .filter(|a| a.starts_with("--lua-desync=fake:"))
+                .count()
+        };
+        assert_eq!(count_fakes("kinlay0-double-fake"), 3);
+        assert_eq!(count_fakes("kinlay0-double-fake-alt"), 3);
+        assert_eq!(count_fakes("kinlay0-double-fake-alt2"), 3);
+        assert_eq!(count_fakes("kinlay0-single-fake"), 2);
+        // hostfakesplit's domain_tls leads with hostfakesplit, not fake.
+        let args = imported_test_args("kinlay0-hostfakesplit-ts", None);
+        let section = section_of(&args, "domain_tls");
+        assert!(section
+            .iter()
+            .any(|a| a.starts_with("--lua-desync=hostfakesplit:")));
+    }
+
+    #[test]
+    fn test_imported_exp5_clones_client_hello_without_file_blob() {
+        // EXP5's defining trait: tls_client_hello_clone fills the
+        // ch_clone slot at runtime (with the chain's fallback blob
+        // if the clone fails), so ch_clone must be a runtime blob
+        // with no --blob registration, while the fallback IS one.
+        assert!(crate::engine::imported_strategies::is_runtime_blob(
+            "ch_clone"
+        ));
+        let args = imported_test_args("kinlay0-exp5", None);
+        let section = section_of(&args, "domain_tls");
+        assert!(section.iter().any(|a| a.starts_with(
+            "--lua-desync=tls_client_hello_clone:blob=ch_clone:fallback=tls_steamchat"
+        )));
+        assert!(section
+            .iter()
+            .any(|a| a.starts_with("--lua-desync=fake:blob=ch_clone:")));
+        assert!(!args.iter().any(|a| a.starts_with("--blob=ch_clone:")));
+        assert!(args
+            .iter()
+            .any(|a| a == "--blob=tls_steamchat:@tls_clienthello_steam_chat_com.bin"));
+    }
+
+    #[test]
+    fn test_imported_blob_registry_is_complete() {
+        // Every blob any strategy lists must have a payload file:
+        // build_imported_args silently skips unmapped names, so a
+        // translator slip here would ship a strategy whose desync
+        // chain references a blob the engine never sees.
+        for strat in crate::engine::imported_strategies::all() {
+            for name in strat.blobs {
+                assert!(
+                    crate::engine::imported_strategies::blob_file(name).is_some(),
+                    "{}: blob {} has no file mapping",
+                    strat.id,
+                    name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_imported_strategies_are_all_distinct() {
+        // The pool's value is variety: no two strategies may carry
+        // the same profile set, or auto-tune would probe the same
+        // recipe twice under different names.
+        let mut seen = std::collections::HashSet::new();
+        for strat in crate::engine::imported_strategies::all() {
+            assert!(
+                seen.insert(strat.profiles),
+                "{} duplicates another strategy's profiles",
+                strat.id
+            );
+        }
+    }
+
+    #[test]
+    fn test_imported_auto_hostlist_injected_only_into_domain_tls() {
+        let with = imported_test_args(
+            "kinlay0-double-fake",
+            Some("/tmp/lists/list-auto.txt"),
+        );
+        let auto_args: Vec<&String> = with
+            .iter()
+            .filter(|a| a.starts_with("--hostlist-auto="))
+            .collect();
+        assert_eq!(auto_args.len(), 1);
+        assert_eq!(auto_args[0], "--hostlist-auto=/tmp/lists/list-auto.txt");
+        // It sits inside domain_tls, right after the user exclude.
+        let section = section_of(&with, "domain_tls");
+        let at = section
+            .iter()
+            .position(|a| a.starts_with("--hostlist-auto="))
+            .unwrap();
+        assert_eq!(
+            section[at - 1],
+            "--hostlist-exclude=lists/list-exclude-user.txt"
+        );
+        // Setting off: no auto line anywhere.
+        let without = imported_test_args("kinlay0-double-fake", None);
+        assert!(!without.iter().any(|a| a.starts_with("--hostlist-auto=")));
+    }
+
+    /// Manual validation hook: dumps the built argument lists (one
+    /// argument per line) to /tmp/imported-dryrun/ so they can be fed
+    /// to the real nfqws2 v1.0.7 with --dry-run (strip --wf-* first,
+    /// as the Linux nftables rewrite does). Not a CI test.
+    #[test]
+    #[ignore]
+    fn dump_imported_args_for_dryrun() {
+        let dir = std::path::Path::new("/tmp/imported-dryrun");
+        std::fs::create_dir_all(dir).unwrap();
+        for strat in crate::engine::imported_strategies::all() {
+            let args = imported_test_args(strat.id, None);
+            std::fs::write(dir.join(format!("{}.args", strat.id)), args.join("\n"))
+                .unwrap();
+        }
     }
 }
 

@@ -44,6 +44,14 @@ pub struct TgProxyStatus {
     pub port: u16,
     /// 32-hex-char MTProto secret; empty when not generated yet.
     pub secret: String,
+    /// The secret exactly as it appears in the `tg://proxy` link: the
+    /// library prefixes the raw key with `dd` (MTProto mode marker),
+    /// so the UI must show this value, not `secret`, or the user sees
+    /// one secret in the app and a different-looking one in Telegram.
+    /// Empty when no secret yet. Serde default keeps older svc replies
+    /// decodable (the UI falls back to `secret` then).
+    #[serde(default)]
+    pub link_secret: String,
     /// Ready-to-use `tg://proxy?...` deep link (empty when no secret yet).
     pub tg_link: String,
     pub uptime_secs: u64,
@@ -392,6 +400,74 @@ impl TgProxyManager {
         s.len() == 32 && s.chars().all(|c| c.is_ascii_hexdigit())
     }
 
+    /// The secret as it appears in the `tg://proxy` link, mirroring the
+    /// library's `link_secret_for` (config.rs): the raw 32-hex key with
+    /// the `dd` MTProto mode marker in front, unless it already carries
+    /// a `dd`/`ee` prefix. Our bridge configures no FakeTLS domain, so
+    /// the `ee`+domain form cannot occur here; when the canonical link
+    /// exists, `secret_from_link` is authoritative instead.
+    fn link_secret_for(secret: &str) -> String {
+        if secret.starts_with("dd") || secret.starts_with("ee") {
+            secret.to_string()
+        } else {
+            format!("dd{secret}")
+        }
+    }
+
+    /// Extracts the `secret=` value from a `tg://proxy?...` link.
+    /// Returns None when the link has no secret parameter.
+    fn secret_from_link(link: &str) -> Option<String> {
+        let rest = link.split("secret=").nth(1)?;
+        let value = rest.split('&').next().unwrap_or("");
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    }
+
+    /// Scrubs the current bridge secret out of a vendor-supplied string
+    /// before it reaches the log — the same redaction the tracing layer
+    /// applies. Today's vendor error shapes never carry the secret, but
+    /// a future vendor version echoing a payload in an error must not
+    /// turn into a leak in an exportable log file.
+    fn redact_secret(&self, text: &str) -> String {
+        let secret = self.log_redact.read();
+        if secret.is_empty() {
+            text.to_string()
+        } else {
+            text.replace(secret.as_str(), "[redacted]")
+        }
+    }
+
+    /// Picks the tg:// link to advertise. The live link the bridge reported
+    /// on bind is authoritative only while the bridge is alive
+    /// (Starting/Running). A bridge that died into Error leaves its last
+    /// link behind; trusting it after the user changed the secret would
+    /// advertise a secret nothing listens with — the card and the form
+    /// then disagree, and "Open in Telegram" hands Telegram a dead secret.
+    fn advertised_link(state: SupervisorState, live_link: &str, fallback: String) -> String {
+        match state {
+            SupervisorState::Starting | SupervisorState::Running if !live_link.is_empty() => {
+                live_link.to_string()
+            }
+            _ => fallback,
+        }
+    }
+
+    /// Accepts a secret the user pasted back from the UI: the displayed
+    /// value carries the `dd` marker (34 chars), the stored key does
+    /// not (32 chars). Strips the marker only on the 34-char form, so
+    /// a raw 32-hex key that happens to start with `dd` is untouched.
+    fn normalize_secret_input(secret: &str) -> String {
+        let secret = secret.trim().to_lowercase();
+        if secret.len() == 34 && secret.starts_with("dd") {
+            secret[2..].to_string()
+        } else {
+            secret
+        }
+    }
+
     fn generate_secret() -> String {
         let mut buf = [0u8; 16];
         OsRng.fill_bytes(&mut buf);
@@ -450,10 +526,27 @@ impl TgProxyManager {
         }
     }
 
+    /// The IP to advertise in the tg:// link (`--link-ip` for the bridge).
+    /// The library auto-detects the LAN IP whenever the bind address is
+    /// loopback or wildcard — but with LAN off the bridge listens on
+    /// 127.0.0.1 only, so a LAN IP in the link is unreachable (connection
+    /// refused) and Telegram never connects. Advertise loopback unless LAN
+    /// mode is on, where the bridge binds 0.0.0.0 and phones on the LAN
+    /// need the real LAN address; fall back to loopback when detection
+    /// fails (the local client still works).
+    fn link_ip_for(lan_enabled: bool, detected_lan_ip: Option<String>) -> String {
+        if lan_enabled {
+            detected_lan_ip.unwrap_or_else(|| TGWS_DEFAULT_HOST.to_string())
+        } else {
+            TGWS_DEFAULT_HOST.to_string()
+        }
+    }
+
     /// Builds the bridge configuration through the library's own CLI parser,
     /// so all of its defaults (timeouts, pool sizes, fallbacks) stay exactly
     /// as the upstream project ships them — we only override what the user
-    /// controls: port, bind host, secret and connection mode.
+    /// controls: port, bind host, secret, connection mode, and the IP
+    /// advertised in the tg:// link.
     ///
     /// The mode pins the upstream tier order: "auto" leaves the library's
     /// default ladder alone (CF-proxy → TCP fallback; the direct WS tier is
@@ -465,6 +558,7 @@ impl TgProxyManager {
         port: u16,
         secret: &str,
         mode: &str,
+        link_ip: &str,
     ) -> Result<tg_ws_proxy_rs::config::Config, TgProxyError> {
         // M1 hardening: the library declares `env = "TG_..."` on ~40 options.
         // try_parse_from would silently inherit them from our process
@@ -487,6 +581,11 @@ impl TgProxyManager {
             host.to_string(),
             "--secret".to_string(),
             secret.to_string(),
+            // Pin the advertised link IP: without --link-ip the library
+            // auto-detects the LAN IP even when bound to loopback, and the
+            // tg:// link then points at an address nothing listens on.
+            "--link-ip".to_string(),
+            link_ip.to_string(),
         ];
         // Pin the tier order for non-default modes. Media connections keep
         // the default ladder (pinning media too aggressively breaks calls).
@@ -524,20 +623,38 @@ impl TgProxyManager {
             .map(|t| t.elapsed().as_secs())
             .unwrap_or(0);
         let lan_enabled = settings.tgproxy_lan;
-        let link_host = Self::bind_host(lan_enabled);
-        // The library generates the canonical tg:// link on bind; fall back
-        // to a locally built one when the bridge has not bound yet.
-        let tg_link = {
-            let link = self.tg_link.read();
-            if link.is_empty() && Self::is_valid_secret(&secret) {
-                format!(
-                    "tg://proxy?server={}&port={}&secret={}",
-                    link_host, port, secret
-                )
-            } else {
-                link.clone()
-            }
+        // The fallback link must advertise a connectable address, not the
+        // bind host: with LAN on, bind_host is 0.0.0.0, which no client can
+        // dial. Same rule as the bridge's --link-ip (see link_ip_for).
+        let link_host = Self::link_ip_for(lan_enabled, Self::detect_lan_ip());
+        // The secret as Telegram sees it: the library prefixes the raw
+        // key with `dd` in the canonical link, so the fallback link
+        // must carry the same value or the two links disagree.
+        let derived_link_secret = if Self::is_valid_secret(&secret) {
+            Self::link_secret_for(&secret)
+        } else {
+            String::new()
         };
+        // The library generates the canonical tg:// link on bind; fall back
+        // to a locally built one when the bridge has not bound yet — or
+        // when it is not alive at all (see advertised_link).
+        let fallback_link = if Self::is_valid_secret(&secret) {
+            format!(
+                "tg://proxy?server={}&port={}&secret={}",
+                link_host, port, derived_link_secret
+            )
+        } else {
+            String::new()
+        };
+        let tg_link = Self::advertised_link(
+            *self.state.read(),
+            &self.tg_link.read(),
+            fallback_link,
+        );
+        // The canonical link is authoritative for the displayed secret
+        // (it also covers the `ee`+domain form, should one ever appear);
+        // the derived value is the fallback when no link exists yet.
+        let link_secret = Self::secret_from_link(&tg_link).unwrap_or(derived_link_secret);
         let host = Self::bind_host(lan_enabled);
         let (stale_secret_detected, secret_rotated, bad_handshake_count, rotation_count, stale_trip_count) =
             self.health.snapshot();
@@ -546,6 +663,7 @@ impl TgProxyManager {
             host: host.to_string(),
             port,
             secret,
+            link_secret,
             tg_link,
             uptime_secs,
             last_error: self.last_error.read().clone(),
@@ -602,10 +720,10 @@ impl TgProxyManager {
                 *self.health.rotation_count.write() += 1;
                 self.supervisor.log(
                     "warn",
-                    "Секрет Telegram-моста был утерян (например, после переноса профиля на другого пользователя или машину) и создан заново. Старые ссылки в Telegram больше не работают.",
+                    "[tg-bridge] Секрет моста был утерян (например, после переноса профиля на другого пользователя или машину) и создан заново. Старые ссылки в Telegram больше не работают.",
                 );
             } else {
-                self.supervisor.log("info", "Сгенерирован новый MTProto-secret");
+                self.supervisor.log("info", "[tg-bridge] Сгенерирован новый MTProto-secret");
             }
         }
         let host = Self::bind_host(settings.tgproxy_lan);
@@ -616,7 +734,7 @@ impl TgProxyManager {
         if free != port {
             self.supervisor.log(
                 "info",
-                &format!("Порт {port} занят, мост использует {free}"),
+                &format!("[tg-bridge] Порт {port} занят, мост использует {free}"),
             );
             port = free;
             crate::platform::settings::update_settings(|s| {
@@ -637,15 +755,19 @@ impl TgProxyManager {
 
         // M2: a config error must never leave us stuck in `Starting` with no
         // task running — build it before touching the state machine.
-        let config = Self::bridge_config(host, port, &secret, &settings.tgproxy_mode)?;
+        let link_ip = Self::link_ip_for(settings.tgproxy_lan, Self::detect_lan_ip());
+        let config = Self::bridge_config(host, port, &secret, &settings.tgproxy_mode, &link_ip)?;
 
+        // Clear the old link BEFORE flipping the state: between the two
+        // writes get_status could otherwise read Starting + the previous
+        // run's link and advertise a dead secret for one poll.
+        *self.tg_link.write() = String::new();
         *self.state.write() = SupervisorState::Starting;
         *self.last_error.write() = None;
-        *self.tg_link.write() = String::new();
         self.emit_state(SupervisorState::Starting);
         self.supervisor.log(
             "info",
-            &format!("Запуск встроенного Telegram-моста на {host}:{port}…"),
+            &format!("[tg-bridge] Запуск встроенного моста на {host}:{port}…"),
         );
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -684,7 +806,7 @@ impl TgProxyManager {
                     cb_supervisor.log(
                         "info",
                         &format!(
-                            "Telegram-мост слушает {} — введите параметры в Telegram-клиенте",
+                            "[tg-bridge] Мост слушает {} — введите параметры в Telegram-клиенте",
                             info.addr
                         ),
                     );
@@ -695,6 +817,12 @@ impl TgProxyManager {
             // The task ended. A deliberate stop() owns the state transition
             // (it set Stopping before awaiting us); anything else is either
             // an unexpected death or a bind failure — surface it honestly.
+            //
+            // No task means no bridge listens with the last reported link
+            // any more: drop it, or get_status would keep advertising a
+            // dead secret after the user changes it. A stop() in flight
+            // clears it again; the write is idempotent.
+            *tg_link.write() = String::new();
             match result {
                 Ok(()) => {
                     let mut st = state.write();
@@ -703,8 +831,8 @@ impl TgProxyManager {
                     }
                 }
                 Err(e) => {
-                    let msg = format!("{e}");
-                    supervisor.log("error", &format!("Telegram-мост: {msg}"));
+                    let msg = this.redact_secret(&format!("{e}"));
+                    supervisor.log("error", &format!("[tg-bridge] Мост завершён с ошибкой: {msg}"));
                     *last_error.write() = Some(msg);
                     let mut st = state.write();
                     if *st != SupervisorState::Stopping && *st != SupervisorState::Stopped {
@@ -747,7 +875,7 @@ impl TgProxyManager {
         }
         *self.state.write() = SupervisorState::Stopping;
         self.emit_state(SupervisorState::Stopping);
-        self.supervisor.log("info", "Остановка Telegram-моста…");
+        self.supervisor.log("info", "[tg-bridge] Остановка моста…");
 
         // Signal shutdown first, then take the task handle — each guarded by
         // its own short critical section, never across an await point.
@@ -781,7 +909,7 @@ impl TgProxyManager {
         if persist_intent {
             let _ = crate::platform::settings::update_settings(|s| s.tgproxy_enabled = false);
         }
-        self.supervisor.log("info", "Telegram-мост остановлен");
+        self.supervisor.log("info", "[tg-bridge] Мост остановлен");
         Ok(())
     }
 
@@ -796,13 +924,22 @@ impl TgProxyManager {
         use tracing_subscriber::layer::SubscriberExt;
         static INSTALLED: std::sync::Once = std::sync::Once::new();
         INSTALLED.call_once(|| {
+            let warn_supervisor = supervisor.clone();
             let layer = BridgeLogLayer {
                 supervisor,
                 redact,
                 health,
             };
             let subscriber = tracing_subscriber::registry().with(layer);
-            let _ = tracing::subscriber::set_global_default(subscriber);
+            if tracing::subscriber::set_global_default(subscriber).is_err() {
+                // Another subscriber already owns the global default: the
+                // library's diagnostics (handshakes, ladder decisions)
+                // would be silently invisible, so say so in our own log.
+                warn_supervisor.log(
+                    "warn",
+                    "[tg-bridge] Не удалось подключить логирование библиотеки: глобальный подписчик tracing уже установлен, события моста не будут видны.",
+                );
+            }
         });
     }
 
@@ -820,7 +957,7 @@ impl TgProxyManager {
         if port == 0 {
             return Err(TgProxyError::BadPort(port));
         }
-        let secret = secret.trim().to_lowercase();
+        let secret = Self::normalize_secret_input(&secret);
         if !Self::is_valid_secret(&secret) {
             return Err(TgProxyError::BadSecret);
         }
@@ -899,11 +1036,18 @@ impl TgProxyManager {
             tg_ws_proxy_rs::check::BridgeProbeResult::Ok(rtt) => {
                 self.supervisor.log(
                     "info",
-                    &format!("Проверка моста: Telegram ответил за {} мс", rtt.as_millis()),
+                    &format!("[tg-bridge] Проверка моста: Telegram ответил за {} мс", rtt.as_millis()),
                 );
                 Ok(rtt)
             }
             tg_ws_proxy_rs::check::BridgeProbeResult::Fail(e) => {
+                self.supervisor.log(
+                    "warn",
+                    &format!(
+                        "[tg-bridge] Проверка моста не прошла: {}",
+                        self.redact_secret(&format!("{e}"))
+                    ),
+                );
                 Err(TgProxyError::Bridge(format!("проверка не прошла: {e}")))
             }
         }
@@ -922,5 +1066,156 @@ impl TgProxyManager {
         // Same reasoning as set_config: an explicit regeneration is not a loss.
         *self.health.rotated.write() = false;
         Ok(secret)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SECRET: &str = "0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn link_ip_is_loopback_when_lan_off() {
+        // Even when a LAN IP is detected, LAN-off means the bridge binds
+        // 127.0.0.1 only — advertising anything else is unreachable.
+        assert_eq!(
+            TgProxyManager::link_ip_for(false, Some("192.168.1.121".to_string())),
+            "127.0.0.1"
+        );
+        assert_eq!(TgProxyManager::link_ip_for(false, None), "127.0.0.1");
+    }
+
+    #[test]
+    fn link_ip_is_detected_lan_when_lan_on() {
+        assert_eq!(
+            TgProxyManager::link_ip_for(true, Some("192.168.1.121".to_string())),
+            "192.168.1.121"
+        );
+        // Detection failed: loopback still serves the local client.
+        assert_eq!(TgProxyManager::link_ip_for(true, None), "127.0.0.1");
+    }
+
+    #[test]
+    fn link_secret_adds_dd_marker_once() {
+        // The displayed secret is the link secret: raw key + `dd` mode
+        // marker, exactly what Telegram shows for the tg:// link.
+        assert_eq!(
+            TgProxyManager::link_secret_for(TEST_SECRET),
+            format!("dd{TEST_SECRET}")
+        );
+        // Already prefixed: no double marker.
+        assert_eq!(
+            TgProxyManager::link_secret_for(&format!("dd{TEST_SECRET}")),
+            format!("dd{TEST_SECRET}")
+        );
+    }
+
+    #[test]
+    fn secret_from_link_parses_param() {
+        assert_eq!(
+            TgProxyManager::secret_from_link(
+                "tg://proxy?server=127.0.0.1&port=1443&secret=ddabcdef"
+            ),
+            Some("ddabcdef".to_string())
+        );
+        // Trailing params stop the value.
+        assert_eq!(
+            TgProxyManager::secret_from_link(
+                "tg://proxy?server=127.0.0.1&port=1443&secret=ddabcdef&foo=1"
+            ),
+            Some("ddabcdef".to_string())
+        );
+        assert_eq!(
+            TgProxyManager::secret_from_link("tg://proxy?server=127.0.0.1&port=1443"),
+            None
+        );
+        assert_eq!(TgProxyManager::secret_from_link(""), None);
+    }
+
+    #[test]
+    fn advertised_link_trusts_live_link_only_while_alive() {
+        // Regression test: a bridge that died into Error left its last
+        // tg:// link behind, and get_status advertised its secret even
+        // after the user regenerated — the card and the form disagreed,
+        // and Telegram got a dead secret.
+        let live = "tg://proxy?server=127.0.0.1&port=1443&secret=ddAAAA";
+        let fallback = "tg://proxy?server=127.0.0.1&port=1443&secret=ddBBBB".to_string();
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Running, live, fallback.clone()),
+            live
+        );
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Starting, live, fallback.clone()),
+            live
+        );
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Error, live, fallback.clone()),
+            fallback
+        );
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Stopped, live, fallback.clone()),
+            fallback
+        );
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Stopping, live, fallback.clone()),
+            fallback
+        );
+        // No live link yet: the fallback serves even while alive.
+        assert_eq!(
+            TgProxyManager::advertised_link(SupervisorState::Running, "", fallback.clone()),
+            fallback
+        );
+    }
+
+    #[test]
+    fn normalize_secret_input_strips_only_displayed_form() {
+        // Displayed form (dd + 32 hex): the marker comes off.
+        assert_eq!(
+            TgProxyManager::normalize_secret_input(&format!("DD{TEST_SECRET}")),
+            TEST_SECRET
+        );
+        // Raw 32-hex key: untouched, even when it starts with `dd`.
+        assert_eq!(
+            TgProxyManager::normalize_secret_input(TEST_SECRET),
+            TEST_SECRET
+        );
+        let dd_start = format!("dd{}", "ab".repeat(15));
+        assert_eq!(dd_start.len(), 32);
+        assert_eq!(
+            TgProxyManager::normalize_secret_input(&dd_start),
+            dd_start
+        );
+        // Whitespace and case are normalized like before.
+        assert_eq!(
+            TgProxyManager::normalize_secret_input(&format!("  {}  ", TEST_SECRET.to_uppercase())),
+            TEST_SECRET
+        );
+    }
+
+    #[test]
+    fn bridge_config_advertises_the_passed_link_ip() {
+        // Regression test for issue #3: without --link-ip the library
+        // auto-detects the LAN IP even when bound to loopback, so the
+        // tg:// link points at an address nothing listens on.
+        let cfg = TgProxyManager::bridge_config(
+            TGWS_DEFAULT_HOST,
+            1443,
+            TEST_SECRET,
+            "auto",
+            TGWS_DEFAULT_HOST,
+        )
+        .expect("bridge config must parse");
+        assert_eq!(cfg.link_host(), "127.0.0.1");
+
+        let cfg = TgProxyManager::bridge_config(
+            TGWS_LAN_HOST,
+            1443,
+            TEST_SECRET,
+            "auto",
+            "192.168.1.121",
+        )
+        .expect("bridge config must parse");
+        assert_eq!(cfg.link_host(), "192.168.1.121");
     }
 }

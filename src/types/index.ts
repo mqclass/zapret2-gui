@@ -45,6 +45,18 @@ export interface StrategyProbeResult {
   error: string | null;
 }
 
+/** YouTube-only screen result: phase 1 of the two-phase auto-tune.
+ *  Discord/voice were NOT measured here; finalists get the full
+ *  StrategyProbeResult in phase 2. */
+export interface StrategyScreenResult {
+  strategy_id: string;
+  strategy_name: string;
+  youtube_status: ProbeStatus;
+  youtube_ms: number | null;
+  engine_running: boolean;
+  error: string | null;
+}
+
 export interface SupervisorStatus {
   state: SupervisorState;
   pid: number | null;
@@ -76,6 +88,11 @@ export interface TgProxyStatus {
   port: number;
   /** 32-hex-char MTProto secret; empty when not generated yet. */
   secret: string;
+  /** The secret exactly as it appears in the tg://proxy link (raw key
+      with the `dd` MTProto mode marker). The UI shows this value, not
+      `secret`, so it matches what Telegram displays. May be absent
+      from older svc replies — fall back to `secret` then. */
+  link_secret?: string;
   /** Ready-to-use tg://proxy?... deep link; empty when no secret yet. */
   tg_link: string;
   uptime_secs: number;
@@ -135,6 +152,24 @@ export interface ConflictItem {
   description: string;
 }
 
+/** WinDivert driver registration health (see `platform::windivert`). */
+export interface WindivertDriverStatus {
+  /** "ok" | "not_installed" | "service_disabled" | "stale_path" | "driver_file_missing" | "check_failed" | "not_applicable" */
+  state: string;
+  service_start_type: string | null;
+  service_binary_path: string | null;
+  expected_path: string | null;
+  /** Human-readable Russian one-liner for the state. */
+  message: string;
+}
+
+export interface WindivertRepairResult {
+  /** "repaired" | "reboot_required" | "nothing_to_repair" | "failed" */
+  outcome: string;
+  /** Human-readable Russian one-liner for the outcome. */
+  message: string;
+}
+
 export interface SystemStatusResponse {
   is_elevated: boolean;
   supervisor: SupervisorStatus;
@@ -175,6 +210,8 @@ export interface AppSettings {
   auto_hostlist_enabled?: boolean;
   /** Engine debug logging (`--debug=1`); diagnostics only, off by default. */
   engine_debug?: boolean;
+  /** Hidden driver (Monkey): the engine runs from bin/monkey/ with the renamed WinDivert pair. */
+  monkey_driver?: boolean;
   /** UI accent color override ("#RRGGBB"); null/undefined = built-in violet. */
   accent_color?: string | null;
   /** Active camouflage transport id (`null`/`undefined` = direct launch). */
@@ -263,8 +300,44 @@ export interface SmartHostsStatus {
   include_adblock: boolean;
   last_update: number | null;
   entry_count: number;
+  last_error: string | null;
   section_present: boolean;
   backup_present: boolean;
+  youtube_throttle_enabled: boolean;
+  youtube_blocked_count: number;
+}
+
+// "mixed" is aggregate-only: some nodes fast, some unreachable. It is
+// never assigned to a single node probe (see youtube_probe.rs).
+export type YoutubeNodeVerdict = "fast" | "throttled" | "unreachable" | "unknown" | "mixed";
+
+export interface YoutubeNodeProbe {
+  host: string;
+  verdict: YoutubeNodeVerdict;
+  mbps: number;
+  bytes: number;
+}
+
+// One IP-substitution attempt from a Mixed check: a dead node
+// re-measured with its signed URL sent to a live IP. Diagnostic only.
+export interface YoutubeSubstitutionTest {
+  host: string;
+  substitute_ip: string;
+  verdict: YoutubeNodeVerdict;
+  mbps: number;
+  bytes: number;
+}
+
+export interface YoutubeCheckResult {
+  outcome: YoutubeNodeVerdict;
+  nodes: YoutubeNodeProbe[];
+  substitution: YoutubeSubstitutionTest[];
+  mapping_node: string | null;
+  lane_enabled: boolean;
+  smart_hosts_enabled: boolean;
+  applied: boolean;
+  blocked_now: number;
+  apply_error: string | null;
 }
 
 export interface SpeedtestResult {

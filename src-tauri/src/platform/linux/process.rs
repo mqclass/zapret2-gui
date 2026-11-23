@@ -286,12 +286,42 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
         custom_args: None,
     });
 
+    // 2b. Imported community strategies (kinlay0 collection, pinned
+    // commit): argument-vector strategies for winws2, registered from
+    // the shared registry in engine::imported_strategies; the
+    // supervisor builds their arguments from the vendored .bat
+    // templates (see resolve_strategy_args, branch 2b).
+    for meta in crate::engine::imported_strategies::all() {
+        list.push(LuaStrategy {
+            id: meta.id.into(),
+            name: meta.name.into(),
+            filename: format!("{} (winws2)", meta.filename),
+            path: PathBuf::from(format!(
+                "strategies/imported/kinlay0/{}",
+                meta.filename
+            )),
+            size_bytes: meta.size_bytes,
+            description: meta.description.into(),
+            engine: "winws2".into(),
+            category: "zapret2".into(),
+            custom_args: None,
+        });
+    }
+
     // 3. Discover local Lua scripts for zapret2 engine (filtering out internal helper/test modules)
     const INTERNAL_LUA_SCRIPTS: &[&str] = &[
+        // zapret-auto.lua is upstream's orchestrator library, not a
+        // preset: it never defines fake/multisplit (they live in
+        // zapret-antidpi.lua, which the discovered-preset builder
+        // does not load), so offering it as a strategy fails the
+        // engine with "desync function 'fake' does not exist"
+        // (issue #4).
+        "zapret-auto.lua",
         "zapret-lib.lua",
         "zapret-obfs.lua",
         "zapret-pcap.lua",
         "zapret-tests.lua",
+        "auto.lua",
         "lib.lua",
         "obfs.lua",
         "pcap.lua",
@@ -337,10 +367,6 @@ pub fn discover_strategies() -> Result<Vec<LuaStrategy>, ProcessError> {
                                 "antidpi" => (
                                     "zapret2 Универсальный Lua".into(),
                                     "Официальный Lua скрипт zapret-antidpi.lua (winws2)".into(),
-                                ),
-                                "auto" => (
-                                    "zapret2 Автоматический Lua".into(),
-                                    "Автоматический подбор desync в Lua (winws2)".into(),
                                 ),
                                 "yt4k" => (
                                     "zapret2 YouTube 4K".into(),

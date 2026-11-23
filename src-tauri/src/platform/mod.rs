@@ -9,6 +9,8 @@
 //! In progress: Linux (`platform/linux`) — zapret2 ships a native Linux
 //! engine (`nfqws2`), so the port adds an implementation, not a rewrite.
 
+pub mod windivert_common;
+
 #[cfg(windows)]
 pub mod windows;
 

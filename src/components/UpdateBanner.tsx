@@ -10,7 +10,7 @@ interface UpdateBannerProps {
 }
 
 /**
- * Slim banner pinned to the top of the dashboard when a newer release is
+ * Slim global banner shown above all tabs when a newer release is
  * available. It only *announces* — the download starts solely from the
  * confirmation dialog.
  */

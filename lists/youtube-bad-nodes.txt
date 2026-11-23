@@ -1,0 +1,34 @@
+# Медленные серверы видео YouTube (googlevideo), замеченные в торможении
+# у отдельных провайдеров. zapret2-gui прописывает эти адреса в hosts на
+# 127.0.0.2, и плеер YouTube уходит на другие, здоровые серверы.
+#
+# Формат: один адрес сервера на строку, # — комментарий.
+# Сюда попадают только адреса вида rrN---sn-<кластер>.googlevideo.com —
+# остальные строки программа игнорирует.
+#
+# Происхождение стартового списка: разбор сообщества Flowseal
+# (zapret-discord-youtube, issues #18725 и #18271, разбор ekungurov) —
+# кластер, тормозящий у Ростелекома в Москве. Спасибо сообществу.
+# Списки зависят от провайдера и города и со временем устаревают.
+#
+# Ростелеком, Москва: кластер sn-gvnuxaxjvh-n8ml
+rr1---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr2---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr3---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr4---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr5---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr6---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr7---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr8---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr9---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr10---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr11---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr12---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr13---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr14---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr15---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr16---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr17---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr18---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr19---sn-gvnuxaxjvh-n8ml.googlevideo.com
+rr20---sn-gvnuxaxjvh-n8ml.googlevideo.com
