@@ -100,6 +100,9 @@ const AppContent: React.FC = () => {
   const [isTogglingWatchdog, setIsTogglingWatchdog] = useState<boolean>(false);
   const [autoHostlistOn, setAutoHostlistOn] = useState<boolean>(true);
   const [isTogglingAutoHostlist, setIsTogglingAutoHostlist] = useState<boolean>(false);
+  // Engine debug logging (--debug=1). Diagnostics only; off by default.
+  const [engineDebug, setEngineDebug] = useState<boolean>(false);
+  const [isTogglingEngineDebug, setIsTogglingEngineDebug] = useState<boolean>(false);
   const [watchdogInterval, setWatchdogInterval] = useState<number>(15);
   // Accent override ("#RRGGBB"); null means the built-in violet.
   const [accentColor, setAccentColor] = useState<string | null>(null);
@@ -553,6 +556,7 @@ const AppContent: React.FC = () => {
           setWatchdogOn(cfg.watchdog_enabled ?? true);
           setWatchdogInterval(cfg.watchdog_interval_minutes ?? 15);
           setAutoHostlistOn(cfg.auto_hostlist_enabled ?? true);
+          setEngineDebug(cfg.engine_debug ?? false);
           const accent = cfg.accent_color ?? null;
           setAccentColor(accent);
           applyAccent(accent);
@@ -840,6 +844,38 @@ const AppContent: React.FC = () => {
     }
   }, [autoHostlistOn, status.state, status.active_strategy, status.active_custom_args, handleStop, handleStartStrategy]);
 
+  // Engine debug toggle: the setting shapes the engine's argument list
+  // (--debug=1 vs --debug=0), so it only takes effect at engine start.
+  // When the engine is running, restart it on the active strategy right
+  // away; otherwise the switch would look dead until the next manual start.
+  // Exception: a run started with one-off custom arguments reports a
+  // stand-in active_strategy, so restarting would silently swap the user's
+  // custom config for that preset — there the setting is only saved and
+  // applies at the next manual start.
+  const handleToggleEngineDebug = useCallback(async () => {
+    setIsTogglingEngineDebug(true);
+    try {
+      const res = await invoke<boolean>("set_engine_debug", {
+        enable: !engineDebug,
+      });
+      setEngineDebug(res);
+      if (
+        status.state === "running" &&
+        status.active_strategy &&
+        !status.active_custom_args
+      ) {
+        const restartTarget = status.active_strategy;
+        await handleStop();
+        await handleStartStrategy(restartTarget, { silent: true });
+      }
+    } catch (err: any) {
+      console.error("Failed to toggle engine debug:", err);
+      setErrorAlert(formatErrorMessage(err));
+    } finally {
+      setIsTogglingEngineDebug(false);
+    }
+  }, [engineDebug, status.state, status.active_strategy, status.active_custom_args, handleStop, handleStartStrategy]);
+
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
 
   // Manual log refresh (user-initiated): the live `log-batch` event stream is the
@@ -1120,6 +1156,9 @@ const AppContent: React.FC = () => {
               autoHostlistOn={autoHostlistOn}
               onToggleAutoHostlist={handleToggleAutoHostlist}
               isTogglingAutoHostlist={isTogglingAutoHostlist}
+              engineDebug={engineDebug}
+              onToggleEngineDebug={handleToggleEngineDebug}
+              isTogglingEngineDebug={isTogglingEngineDebug}
               watchdogInterval={watchdogInterval}
               onWatchdogInterval={handleWatchdogInterval}
               accentColor={accentColor}

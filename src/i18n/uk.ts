@@ -494,6 +494,13 @@ export const uk: Translations = {
     autoHostlistOff: "Вимкнено",
     autoHostlistBtnEnable: "Увімкнути авто-додавання",
     autoHostlistBtnDisable: "Вимкнути авто-додавання",
+    engineDebugTitle: "Відлагоджувальний журнал рушія",
+    engineDebugDesc:
+      "Докладний режим: рушій пише в журнал кожен оброблений пакет. Лише для діагностики — за великого навантаження журнал дуже швидко росте. Вимкніть після перевірки.",
+    engineDebugOn: "Увімкнено",
+    engineDebugOff: "Вимкнено",
+    engineDebugBtnEnable: "Увімкнути відлагодження",
+    engineDebugBtnDisable: "Вимкнути відлагодження",
     accentTitle: "Колір застосунку",
     accentDesc:
       "Змінює колір усього застосунку: фони, скло та акценти. Застосунок лишається темним.",

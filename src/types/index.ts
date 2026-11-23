@@ -173,6 +173,8 @@ export interface AppSettings {
   watchdog_interval_minutes?: number;
   /** Auto-hostlist: the engine learns newly blocked domains itself. */
   auto_hostlist_enabled?: boolean;
+  /** Engine debug logging (`--debug=1`); diagnostics only, off by default. */
+  engine_debug?: boolean;
   /** UI accent color override ("#RRGGBB"); null/undefined = built-in violet. */
   accent_color?: string | null;
   /** Active camouflage transport id (`null`/`undefined` = direct launch). */

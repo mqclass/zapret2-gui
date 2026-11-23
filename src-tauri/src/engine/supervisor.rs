@@ -2353,9 +2353,16 @@ impl Supervisor {
         // desynced packet, which floods the log buffer and can saturate the
         // stdout pipe under load; fatal errors (e.g. WinDivert open failures)
         // still reach stderr at 0, so status/error detection is unaffected.
-        // A user-supplied --debug=N in custom args is respected as-is.
+        // The engine_debug setting flips the default to --debug=1 for
+        // diagnostics; a user-supplied --debug=N in custom args is respected
+        // as-is and wins over the setting.
         if !final_args.iter().any(|a| a.starts_with("--debug")) {
-            final_args.insert(0, "--debug=0".to_string());
+            let debug_flag = if crate::platform::settings::load_settings().engine_debug {
+                "--debug=1"
+            } else {
+                "--debug=0"
+            };
+            final_args.insert(0, debug_flag.to_string());
         }
 
         // Normalize DPI fake-blob file references before the launch: custom

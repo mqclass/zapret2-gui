@@ -494,6 +494,13 @@ export const en: Translations = {
     autoHostlistOff: "Disabled",
     autoHostlistBtnEnable: "Enable auto-add",
     autoHostlistBtnDisable: "Disable auto-add",
+    engineDebugTitle: "Engine debug log",
+    engineDebugDesc:
+      "Verbose mode: the engine writes every processed packet to the log. Diagnostics only — under heavy load the log grows very fast. Turn it off after checking.",
+    engineDebugOn: "On",
+    engineDebugOff: "Off",
+    engineDebugBtnEnable: "Enable debug",
+    engineDebugBtnDisable: "Disable debug",
     accentTitle: "App color",
     accentDesc:
       "Recolors the whole app: backgrounds, glass and accents. The app stays dark.",

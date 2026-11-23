@@ -494,6 +494,13 @@ export const ru: Translations = {
     autoHostlistOff: "Выключено",
     autoHostlistBtnEnable: "Включить авто-добавление",
     autoHostlistBtnDisable: "Выключить авто-добавление",
+    engineDebugTitle: "Отладочный журнал движка",
+    engineDebugDesc:
+      "Подробный режим: движок пишет в журнал каждый обработанный пакет. Только для диагностики — при большой нагрузке журнал растёт очень быстро. Выключите после проверки.",
+    engineDebugOn: "Включён",
+    engineDebugOff: "Выключен",
+    engineDebugBtnEnable: "Включить отладку",
+    engineDebugBtnDisable: "Выключить отладку",
     accentTitle: "Цвет приложения",
     accentDesc:
       "Меняет цвет всего приложения: фоны, стекло и акценты. Приложение остаётся тёмным.",

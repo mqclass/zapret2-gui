@@ -491,6 +491,12 @@ export interface Translations {
     autoHostlistOff: string;
     autoHostlistBtnEnable: string;
     autoHostlistBtnDisable: string;
+    engineDebugTitle: string;
+    engineDebugDesc: string;
+    engineDebugOn: string;
+    engineDebugOff: string;
+    engineDebugBtnEnable: string;
+    engineDebugBtnDisable: string;
     accentTitle: string;
     accentDesc: string;
     accentCustom: string;
