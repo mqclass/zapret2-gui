@@ -579,12 +579,16 @@ pub async fn cleanup_windivert_driver() {
             let _ = Command::new(crate::platform::system32("net.exe"))
                 .args(["stop", name, "/y"])
                 .creation_flags(CREATE_NO_WINDOW)
-                .output();
+                .output()
+                .await;
             let _ = Command::new(crate::platform::system32("sc.exe"))
                 .args(["stop", name])
                 .creation_flags(CREATE_NO_WINDOW)
-                .output();
-            // Bounded wait for the SCM state to settle before the final check.
+                .output()
+                .await;
+            // Bounded wait so the SCM stop request can take effect before we
+            // move on; a service still running after this point is given up
+            // on, as documented above.
             let _ = tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
     }
