@@ -332,6 +332,57 @@ $dllAscii = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllByt
 if ($dllAscii.Contains('.msvcjmc')) {
     throw "Monkey setup: the built DLL contains a .msvcjmc section - it was built against the Debug CRT (issue #7)."
 }
+# Functional tripwire (issue #7, second round): the .msvcjmc check above
+# only proves the DLL does not link the Debug CRT - it did NOT catch
+# the v143 compiler replacing the custom memcpy/memmove byte loops with
+# a call to the builtin, which resolves to the function itself and
+# recurses until STATUS_STACK_OVERFLOW on engine start. This test
+# compiles the SAME patched windivert.c with the SAME optimization as
+# the DLL build (/O1 + /Oi, same defines) and calls memcpy/memmove
+# with n >= 16; a crash or a wrong result fails the build. No driver
+# needed: it exercises the copy functions directly, which is exactly
+# what WinDivertOpen does first (the engine copies its 2 KB filter
+# before any packet is seen).
+$TestDir = Join-Path $env:TEMP "windivert-memmove-test"
+New-Item -ItemType Directory -Path $TestDir -Force | Out-Null
+$TestC = Join-Path $PSScriptRoot "windivert-memmove-test.c"
+if (-not (Test-Path $TestC)) {
+    throw "Monkey setup: memmove tripwire test source not found at $TestC."
+}
+$WdDllDir = Join-Path $WDSrc "dll"
+$WdInc = Join-Path $WDSrc "include"
+$WdC = Join-Path $WdDllDir "windivert.c"
+$VcVars = & $VsWhere -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Auxiliary\Build\vcvars64.bat' | Select-Object -First 1
+if (-not $VcVars -or -not (Test-Path $VcVars)) {
+    throw "Monkey setup: vcvars64.bat not found - cannot build the memmove tripwire test."
+}
+# Build via a .bat file: vcvars64.bat must run in the same cmd session
+# as cl.exe (it sets INCLUDE/LIB/PATH), and quoting nested quotes for
+# cmd /c "..." in PowerShell is error-prone.
+$TestBat = Join-Path $TestDir "build-test.bat"
+@"
+@echo off
+call "$VcVars" >nul
+if errorlevel 1 exit /b 1
+rem windivert.c with the DLL build's settings (/O1 + /Oi, same defines):
+rem this must reproduce the DLL's codegen, or the test proves nothing.
+cl /nologo /O1 /Oi /c "$WdC" /Fo:"$TestDir\windivert.obj" /I "$WdDllDir" /I "$WdInc" /DWIN32 /DNDEBUG /D_WINDOWS /D_USRDLL /DDLL_EXPORTS
+if errorlevel 1 exit /b 1
+rem Test main with intrinsics off, so its calls reach windivert.c's
+rem definitions instead of being expanded inline.
+cl /nologo /O2 /Oi- /c "$TestC" /Fo:"$TestDir\test.obj"
+if errorlevel 1 exit /b 1
+cl /nologo /Fe:"$TestDir\windivert-memmove-test.exe" "$TestDir\test.obj" "$TestDir\windivert.obj" advapi32.lib
+if errorlevel 1 exit /b 1
+"@ | Set-Content -Path $TestBat -Encoding Ascii
+cmd /c "`"$TestBat`""
+if ($LASTEXITCODE -ne 0) { throw "Monkey setup: failed to build the memmove tripwire test." }
+$testProc = Start-Process -FilePath (Join-Path $TestDir "windivert-memmove-test.exe") -NoNewWindow -Wait -PassThru
+if ($testProc.ExitCode -ne 0) {
+    throw ("Monkey setup: memmove/memcpy tripwire test failed (exit code {0}) - the renamed DLL's copy functions recurse (issue #7)." -f $testProc.ExitCode)
+}
+Write-Host "    [+] memmove/memcpy tripwire test passed" -ForegroundColor Green
+
 # Smoke check (issue #7): the mirrored engines must at least start with
 # the renamed DLL. This proves the DLL loads and the process runs; it
 # does NOT prove WinDivertOpen works (a live start on a real machine is

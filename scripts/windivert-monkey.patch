@@ -1,5 +1,5 @@
 diff --git a/dll/windivert.c b/dll/windivert.c
-index f0ec577..be4e670 100644
+index f0ec577..12a7de8 100644
 --- a/dll/windivert.c
 +++ b/dll/windivert.c
 @@ -49,7 +49,17 @@
@@ -21,7 +21,32 @@ index f0ec577..be4e670 100644
  #define WINDIVERT_DRIVER32_SYS          L"\\" WINDIVERT_DRIVER_NAME L"32.sys"
  #define WINDIVERT_DRIVER64_SYS          L"\\" WINDIVERT_DRIVER_NAME L"64.sys"
  #define WINDIVERT_VERSION_MAJOR_MIN     2
-@@ -111,6 +121,35 @@ void *memset(void *dst, int c, size_t n)
+@@ -91,6 +101,24 @@ static UINT32 WinDivertDivTen128(UINT32 *a);
+ 
+ #ifdef _MSC_VER
+ 
++/*
++ * zapret2-gui (Monkey) note: optimization stays OFF for the
++ * memcpy/memset/memmove definitions below. With optimization on,
++ * the v143 compiler recognizes the byte loops as the builtin
++ * memory functions and replaces the loop with a call to the
++ * builtin - which resolves to the very function being defined.
++ * The first memcpy/memmove with n >= 16 then recurses forever
++ * and dies with STATUS_STACK_OVERFLOW on engine start (issue #7:
++ * the 1.5.2 Debug-CRT fix did not stop it, the shipped DLL still
++ * crashed the same way - the call lands on a jump stub that
++ * jumps straight back into memmove). The functions are tiny;
++ * unoptimized byte loops cost nothing measurable here.
++ * #pragma function alone does NOT prevent this: it only affects
++ * explicit calls, not the compiler's loop-idiom recognition
++ * inside the definition itself.
++ */
++#pragma optimize("", off)
++
+ #pragma intrinsic(memcpy)
+ #pragma function(memcpy)
+ void *memcpy(void *dst, const void *src, size_t n)
+@@ -111,6 +139,38 @@ void *memset(void *dst, int c, size_t n)
      return dst;
  }
  
@@ -31,12 +56,13 @@ index f0ec577..be4e670 100644
 +{
 +    /*
 +     * zapret2-gui (Monkey) addition: the DLL must not depend on the
-+     * CRT's memmove. The 1.5.2 build pulled the Debug CRT's memmove
-+     * in, and its internal memcpy call resolved back to memmove
-+     * itself - infinite recursion and STATUS_STACK_OVERFLOW on engine
-+     * start (issue #7). A local byte loop, mirroring the custom
++     * CRT's memmove - a local byte loop, mirroring the custom
 +     * memcpy/memset above, keeps the DLL CRT-independent.
 +     * Overlap-safe: copies backward when dst > src.
++     * NOTE: this function is compiled with optimization OFF (see the
++     * #pragma optimize block above): with optimization on, the v143
++     * compiler replaces the loop with a call to memmove itself, and
++     * the first call recurses until STATUS_STACK_OVERFLOW (issue #7).
 +     */
 +    UINT8 *d = (UINT8 *)dst;
 +    const UINT8 *s = (const UINT8 *)src;
@@ -54,10 +80,12 @@ index f0ec577..be4e670 100644
 +    return dst;
 +}
 +
++#pragma optimize("", on)
++
  #define WINDIVERT_INLINE    __forceinline
  
  #else       /* _MSC_VER */
-@@ -324,7 +363,7 @@ static BOOLEAN WinDivertDriverInstall(VOID)
+@@ -324,7 +384,7 @@ static BOOLEAN WinDivertDriverInstall(VOID)
      }
  
      // Check if the WinDivert service already exists; if so, start it.
@@ -66,7 +94,7 @@ index f0ec577..be4e670 100644
      if (service != NULL)
      {
          goto WinDivertDriverInstallExit;
-@@ -337,15 +376,15 @@ static BOOLEAN WinDivertDriverInstall(VOID)
+@@ -337,15 +397,15 @@ static BOOLEAN WinDivertDriverInstall(VOID)
      }
  
      // Create the service:
