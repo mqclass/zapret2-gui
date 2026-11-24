@@ -13,14 +13,24 @@
 //! the caller then keeps Tauri's default, so a failure here can never
 //! break a working launch. The old admin-profile data is not migrated:
 //! the first fixed launch starts a fresh profile under the session user.
+//!
+//! windows 0.58 notes (got wrong once — CI caught it, see below):
+//! - `PSID` is a tuple struct `PSID(pub *mut c_void)`, not a raw pointer:
+//!   construct it, never `as`-cast to it; test null via `.0.is_null()`.
+//! - `EqualSid` returns `Result<()>` (Ok = equal), not BOOL.
+//! - `OpenProcessToken` lives in `Win32::System::Threading`, and
+//!   `ConvertSidToStringSidW` in `Win32::Security::Authorization`,
+//!   not in `Win32::Security`.
 
+use std::ffi::c_void;
 use std::path::PathBuf;
 
 use windows::core::{w, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
+use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
 use windows::Win32::Security::{
-    ConvertSidToStringSidW, EqualSid, GetLengthSid, GetTokenInformation, LookupAccountNameW,
-    OpenProcessToken, TokenUser, PSID, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER,
+    EqualSid, GetLengthSid, GetTokenInformation, LookupAccountNameW, TokenUser, PSID,
+    SID_NAME_USE, TOKEN_QUERY, TOKEN_USER,
 };
 use windows::Win32::System::Registry::{
     RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ,
@@ -28,11 +38,19 @@ use windows::Win32::System::Registry::{
 use windows::Win32::System::RemoteDesktop::{
     WTSFreeMemory, WTSQuerySessionInformationW, WTSUserName, WTS_CURRENT_SESSION,
 };
-use windows::Win32::System::Threading::GetCurrentProcess;
+use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 /// App identifier, mirroring tauri.conf.json: the default WebView2 data
 /// folder is `%LOCALAPPDATA%\<identifier>\EBWebView`. Keep in sync.
 const APP_IDENTIFIER: &str = "com.zapret2.supervisor";
+
+/// A SID byte buffer as a `PSID` (the struct wraps a raw pointer, so
+/// this is only a re-interpretation — the bytes must stay alive).
+/// Both consumers (`EqualSid`, `ConvertSidToStringSidW`) only read the
+/// SID, so the `*mut` here is never written through.
+fn psid(bytes: &[u8]) -> PSID {
+    PSID(bytes.as_ptr() as *mut c_void)
+}
 
 /// WebView2 data folder for the interactive session user, when the
 /// process token belongs to a different account. `None` for a normal
@@ -41,13 +59,10 @@ pub fn session_user_data_dir() -> Option<PathBuf> {
     let session_sid = session_user_sid()?;
     let token_sid = process_token_sid()?;
     // Same user: the default data folder is already the session user's.
-    let same = unsafe {
-        EqualSid(
-            session_sid.as_ptr() as PSID,
-            token_sid.as_ptr() as PSID,
-        )
-        .as_bool()
-    };
+    // EqualSid returns Err both when the SIDs differ and on a genuine
+    // error; either way we redirect, which is the safe direction
+    // (WebView2 runs as the session user regardless).
+    let same = unsafe { EqualSid(psid(&session_sid), psid(&token_sid)).is_ok() };
     if same {
         return None;
     }
@@ -124,16 +139,22 @@ fn process_token_sid() -> Option<Vec<u8>> {
         ok.ok()?;
         // `buf` is a byte buffer: its alignment is not guaranteed, so
         // read the TOKEN_USER out unaligned instead of dereferencing.
+        // The API guarantees `needed >= sizeof(TOKEN_USER)`; check it
+        // anyway so the read below cannot run past the buffer.
+        if buf.len() < std::mem::size_of::<TOKEN_USER>() {
+            return None;
+        }
         let user = std::ptr::read_unaligned(buf.as_ptr() as *const TOKEN_USER);
         let sid = user.User.Sid;
-        if sid.is_null() {
+        if sid.0.is_null() {
             return None;
         }
         let len = GetLengthSid(sid) as usize;
-        if len == 0 || len > buf.len() {
+        // The SID data follows the TOKEN_USER header inside `buf`.
+        if len == 0 || std::mem::size_of::<TOKEN_USER>() + len > buf.len() {
             return None;
         }
-        Some(std::slice::from_raw_parts(sid as *const u8, len).to_vec())
+        Some(std::slice::from_raw_parts(sid.0 as *const u8, len).to_vec())
     }
 }
 
@@ -148,7 +169,7 @@ fn lookup_sid(account: &str) -> Option<Vec<u8>> {
         let _ = LookupAccountNameW(
             PCWSTR::null(),
             PCWSTR(name.as_ptr()),
-            std::ptr::null_mut(),
+            PSID(std::ptr::null_mut()),
             &mut sid_len,
             PWSTR::null(),
             &mut domain_len,
@@ -162,7 +183,7 @@ fn lookup_sid(account: &str) -> Option<Vec<u8>> {
         LookupAccountNameW(
             PCWSTR::null(),
             PCWSTR(name.as_ptr()),
-            sid.as_mut_ptr() as PSID,
+            PSID(sid.as_mut_ptr() as *mut c_void),
             &mut sid_len,
             PWSTR(domain.as_mut_ptr()),
             &mut domain_len,
@@ -179,7 +200,7 @@ fn lookup_sid(account: &str) -> Option<Vec<u8>> {
 fn sid_to_string(sid: &[u8]) -> Option<String> {
     unsafe {
         let mut out = PWSTR::null();
-        ConvertSidToStringSidW(sid.as_ptr() as PSID, &mut out).ok()?;
+        ConvertSidToStringSidW(psid(sid), &mut out).ok()?;
         if out.is_null() {
             return None;
         }
@@ -189,7 +210,7 @@ fn sid_to_string(sid: &[u8]) -> Option<String> {
             len += 1;
         }
         let s = String::from_utf16_lossy(std::slice::from_raw_parts(out.0, len));
-        let _ = LocalFree(HLOCAL(out.0 as isize));
+        let _ = LocalFree(HLOCAL(out.0 as *mut c_void));
         if s.is_empty() {
             None
         } else {
