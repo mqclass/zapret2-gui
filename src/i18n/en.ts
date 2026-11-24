@@ -423,6 +423,8 @@ export const en: Translations = {
   dns: {
     title: "DNS Manager & Anti-Spoofing",
     subtitle: "Configure system DNS on your primary network adapter to protect against ISP DNS poisoning and drops",
+    serversTitle: "DNS servers",
+    serversSubtitle: "Press “Apply DNS” next to a server to switch to it",
     adapterLabel: "Primary Network Adapter",
     currentDnsLabel: "Current System DNS",
     applyBtn: "Apply DNS",

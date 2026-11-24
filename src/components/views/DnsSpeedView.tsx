@@ -18,6 +18,7 @@ import {
   FileText,
   Clock,
   Gauge,
+  Server,
 } from "lucide-react";
 import { DnsStatus, SpeedtestResult, SmartHostsStatus, YoutubeCheckResult } from "../../types";
 import { useI18n } from "../../i18n";
@@ -795,7 +796,9 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
   // the grid default (stretch) turned the short ones into giant empty
   // voids. Each card takes its natural height. The smart-hosts and
   // YouTube-throttle panels are top-level grid items (not nested inside
-  // the DNS card) so the right column does not end up empty.
+  // the DNS card), and the DNS servers list is its own full-width item:
+  // nesting the list inside the DNS card stretched row 1 to the height
+  // of the whole list and left the right column empty below Smart hosts.
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4 items-start">
       {/* DNS Manager Section */}
@@ -937,8 +940,151 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
           </div>
         )}
 
+      </div>
+
+      {/* Smart hosts */}
+      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-accent-fill/5">
+                <FileText className="h-4 w-4 shrink-0" />
+              </div>
+              <div>
+                <h3 className="text-xs font-semibold text-ink">{t.smartHosts.title}</h3>
+                <p className="text-[11px] text-ink4">{t.smartHosts.subtitle}</p>
+              </div>
+            </div>
+            <span className={`rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 ${
+              hostsStatus?.enabled
+                ? "hosts-on-pill bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                : "bg-hovert text-ink4 border-line"
+            }`}>
+              {hostsStatus?.enabled ? t.smartHosts.enabledBadge : t.smartHosts.disabledBadge}
+            </span>
+          </div>
+
+          <p className="text-[11px] text-ink4 leading-relaxed">{t.smartHosts.howItWorks}</p>
+          <p className="text-[10px] text-ink5 leading-relaxed">{t.smartHosts.backupNote}</p>
+
+          {hostsError && (
+            <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+              <span>{hostsError}</span>
+            </div>
+          )}
+
+          {/* Sources */}
+          <div className="space-y-1.5">
+            <span className="text-[11px] font-medium text-ink3">{t.smartHosts.sourcesLabel}</span>
+            {hostsStatus?.sources.map((s) => (
+              <label
+                key={s.id}
+                className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={s.enabled}
+                  disabled={hostsBusy}
+                  onChange={() => handleToggleSource(s.id)}
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500 cursor-pointer"
+                />
+                <span>
+                  <span className="block text-xs font-semibold text-ink">{s.name}</span>
+                  <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{s.description}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {/* Adblock toggle */}
+          <label className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors">
+            <input
+              type="checkbox"
+              checked={hostsStatus?.include_adblock ?? false}
+              disabled={hostsBusy}
+              onChange={handleToggleAdblock}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500 cursor-pointer"
+            />
+            <span>
+              <span className="block text-xs font-semibold text-ink">{t.smartHosts.adblockLabel}</span>
+              <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{t.smartHosts.adblockDesc}</span>
+            </span>
+          </label>
+
+          {/* Status line */}
+          {hostsStatus?.enabled && (
+            <div className="flex items-center gap-2 text-[11px] text-ink4">
+              <Clock className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {t.smartHosts.lastUpdateLabel} {formatHostsDate(hostsStatus.last_update)}
+                {hostsStatus.entry_count > 0 && (
+                  <> · {hostsStatus.entry_count} {t.smartHosts.entriesLabel}</>
+                )}
+              </span>
+            </div>
+          )}
+
+          {/* Source problems from the last refresh that still applied */}
+          {hostsStatus?.enabled && hostsStatus.last_error && (
+            <div className="flex items-center gap-2 text-[11px] text-amber-300/90">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{hostsStatus.last_error}</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleToggleSmartHosts}
+              disabled={hostsBusy}
+              className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+                hostsStatus?.enabled
+                  ? "bg-hovert hover:bg-rose-500/15 text-ink3 hover:text-rose-300 border-line hover:border-rose-500/30"
+                  : "bg-accent-fill hover:opacity-90 text-accent-contrast border-transparent"
+              }`}
+            >
+              {hostsBusy && hostsBusyOp === "toggle" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              <span>
+                {hostsBusyOp === "toggle"
+                  ? t.smartHosts.enabling
+                  : hostsStatus?.enabled
+                  ? t.smartHosts.disableBtn
+                  : t.smartHosts.enableBtn}
+              </span>
+            </button>
+            {hostsStatus?.enabled && (
+              <button
+                type="button"
+                onClick={handleRefreshSmartHosts}
+                disabled={hostsBusy}
+                className="flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${hostsBusyOp === "refresh" ? "animate-spin" : ""}`} />
+                <span>{hostsBusyOp === "refresh" ? t.smartHosts.refreshing : t.smartHosts.refreshNowBtn}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+      {/* DNS servers, full width: the providers list + custom form used
+          to live inside the DNS Manager card, which stretched row 1 to
+          the height of the whole list and left the right column empty
+          below Smart hosts. */}
+      <div className="t-card p-5 space-y-4 stagger-item lg:col-span-2" style={{ "--stagger-i": 4 } as React.CSSProperties}>
+        <div className="flex items-center gap-3 border-b border-line pb-3">
+          <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-accent-fill/5">
+            <Server className="h-4 w-4 shrink-0" />
+          </div>
+          <div>
+            <h3 className="text-xs font-semibold text-ink">{t.dns.serversTitle}</h3>
+            <p className="text-[11px] text-ink4">{t.dns.serversSubtitle}</p>
+          </div>
+        </div>
+
         {/* DNS Providers List */}
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {dnsStatus?.available_providers?.map((p) => {
             const isCurrent = (dnsStatus.active_provider_id || dnsStatus.current_provider) === p.id;
             const isApplying = applyingDnsId === p.id;
@@ -1068,132 +1214,6 @@ export const DnsSpeedView: React.FC<DnsSpeedViewProps> = React.memo(
           </button>
         </div>
       </div>
-
-      {/* Smart hosts */}
-      <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 2 } as React.CSSProperties}>
-          <div className="flex items-center justify-between border-b border-line pb-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-gradient-to-br from-accent-fill/20 to-accent-fill/5 border border-accent-line text-accent shadow-sm shadow-accent-fill/5">
-                <FileText className="h-4 w-4 shrink-0" />
-              </div>
-              <div>
-                <h3 className="text-xs font-semibold text-ink">{t.smartHosts.title}</h3>
-                <p className="text-[11px] text-ink4">{t.smartHosts.subtitle}</p>
-              </div>
-            </div>
-            <span className={`rounded-chip px-1.5 py-0.5 text-[9px] font-semibold uppercase border shrink-0 ${
-              hostsStatus?.enabled
-                ? "hosts-on-pill bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                : "bg-hovert text-ink4 border-line"
-            }`}>
-              {hostsStatus?.enabled ? t.smartHosts.enabledBadge : t.smartHosts.disabledBadge}
-            </span>
-          </div>
-
-          <p className="text-[11px] text-ink4 leading-relaxed">{t.smartHosts.howItWorks}</p>
-          <p className="text-[10px] text-ink5 leading-relaxed">{t.smartHosts.backupNote}</p>
-
-          {hostsError && (
-            <div className="flex items-start gap-2.5 rounded-panel border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
-              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
-              <span>{hostsError}</span>
-            </div>
-          )}
-
-          {/* Sources */}
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-medium text-ink3">{t.smartHosts.sourcesLabel}</span>
-            {hostsStatus?.sources.map((s) => (
-              <label
-                key={s.id}
-                className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors"
-              >
-                <input
-                  type="checkbox"
-                  checked={s.enabled}
-                  disabled={hostsBusy}
-                  onChange={() => handleToggleSource(s.id)}
-                  className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500 cursor-pointer"
-                />
-                <span>
-                  <span className="block text-xs font-semibold text-ink">{s.name}</span>
-                  <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{s.description}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-
-          {/* Adblock toggle */}
-          <label className="flex items-start gap-2.5 rounded-control border border-line bg-card p-2.5 cursor-pointer hover:border-linestrong transition-colors">
-            <input
-              type="checkbox"
-              checked={hostsStatus?.include_adblock ?? false}
-              disabled={hostsBusy}
-              onChange={handleToggleAdblock}
-              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500 cursor-pointer"
-            />
-            <span>
-              <span className="block text-xs font-semibold text-ink">{t.smartHosts.adblockLabel}</span>
-              <span className="block text-[10px] text-ink4 leading-tight mt-0.5">{t.smartHosts.adblockDesc}</span>
-            </span>
-          </label>
-
-          {/* Status line */}
-          {hostsStatus?.enabled && (
-            <div className="flex items-center gap-2 text-[11px] text-ink4">
-              <Clock className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                {t.smartHosts.lastUpdateLabel} {formatHostsDate(hostsStatus.last_update)}
-                {hostsStatus.entry_count > 0 && (
-                  <> · {hostsStatus.entry_count} {t.smartHosts.entriesLabel}</>
-                )}
-              </span>
-            </div>
-          )}
-
-          {/* Source problems from the last refresh that still applied */}
-          {hostsStatus?.enabled && hostsStatus.last_error && (
-            <div className="flex items-center gap-2 text-[11px] text-amber-300/90">
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>{hostsStatus.last_error}</span>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleToggleSmartHosts}
-              disabled={hostsBusy}
-              className={`flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold border transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
-                hostsStatus?.enabled
-                  ? "bg-hovert hover:bg-rose-500/15 text-ink3 hover:text-rose-300 border-line hover:border-rose-500/30"
-                  : "bg-accent-fill hover:opacity-90 text-accent-contrast border-transparent"
-              }`}
-            >
-              {hostsBusy && hostsBusyOp === "toggle" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : null}
-              <span>
-                {hostsBusyOp === "toggle"
-                  ? t.smartHosts.enabling
-                  : hostsStatus?.enabled
-                  ? t.smartHosts.disableBtn
-                  : t.smartHosts.enableBtn}
-              </span>
-            </button>
-            {hostsStatus?.enabled && (
-              <button
-                type="button"
-                onClick={handleRefreshSmartHosts}
-                disabled={hostsBusy}
-                className="flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold bg-hovert hover:bg-accent-fill hover:text-accent-contrast text-ink3 border border-line transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${hostsBusyOp === "refresh" ? "animate-spin" : ""}`} />
-                <span>{hostsBusyOp === "refresh" ? t.smartHosts.refreshing : t.smartHosts.refreshNowBtn}</span>
-              </button>
-            )}
-          </div>
-        </div>
 
       {/* YouTube throttle */}
       <div className="t-card p-5 space-y-4 stagger-item" style={{ "--stagger-i": 3 } as React.CSSProperties}>

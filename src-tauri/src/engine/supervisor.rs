@@ -763,14 +763,29 @@ impl Supervisor {
         // path, not only in the IPC command. The tray "Включить обход" item and
         // the --autostart path call start() directly; without this gate the engine
         // would start half-broken (WinDivert fails without admin rights) and
-        // the UI would never show the admin prompt. The error string keeps the
-        // ADMIN_REQUIRED prefix so the frontend opens the admin gate modal.
+        // the UI would never show the admin prompt. On Windows the error string
+        // keeps the ADMIN_REQUIRED prefix so the frontend opens the admin gate
+        // modal. On Linux the GUI is unprivileged by design and the engine
+        // lives in zapret2-svc, so this gate only fires when the attach probe
+        // failed and the backend stayed Local: the message says that, and the
+        // error carries SVC_UNREACHABLE (no admin modal on Linux, issue #9).
         if !crate::platform::privileges::is_elevated().unwrap_or(false) {
-            self.log(
-                "error",
-                "Запуск движка требует прав администратора — пропуск запуска",
-            );
-            return Err(ProcessError::NotElevated);
+            #[cfg(target_os = "linux")]
+            {
+                self.log(
+                    "error",
+                    "Запуск движка пропущен: интерфейс не подключился к службе zapret2-svc",
+                );
+                return Err(ProcessError::SvcUnreachable);
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                self.log(
+                    "error",
+                    "Запуск движка требует прав администратора — пропуск запуска",
+                );
+                return Err(ProcessError::NotElevated);
+            }
         }
 
         // Fail loudly on an explicitly requested but unknown strategy id.

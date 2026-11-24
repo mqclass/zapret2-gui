@@ -1027,8 +1027,12 @@ async fn restart_stale_svc(
 
 /// Attach to a running svc if one is already up, restarting it first
 /// when its version is stale. Never spawns: returns `Ok(None)` when no
-/// svc is running or it does not answer Hello. The startup probe uses
-/// this; [`ensure_svc_attached`] is the spawning counterpart.
+/// svc is running (no endpoint at all). Returns `Err` naming the io
+/// error kind when the endpoint exists but is unreachable (e.g. a 0660
+/// socket owned by another user) or the hello handshake fails — the
+/// caller logs it, so a failed attach is diagnosable instead of silent
+/// (issue #9). The startup probe uses this; [`ensure_svc_attached`] is
+/// the spawning counterpart.
 ///
 /// Takes the attach mutex, like `ensure_svc_attached`: without it, the
 /// startup probe could shut a stale svc down while the autostart path
@@ -1038,17 +1042,53 @@ pub async fn attach_to_running_svc(
     timeout: Duration,
 ) -> Result<Option<Arc<SvcClient>>, String> {
     let _guard = attach_mutex().lock().await;
-    if let Ok(client) = SvcClient::connect().await {
-        if let Ok(reply) = client.hello().await {
+    let client = match SvcClient::connect().await {
+        Ok(c) => c,
+        Err(e) => {
+            // No endpoint at all is the normal case (fresh start before
+            // the svc ever ran): stay silent, the caller keeps Local.
+            if e.kind() == io::ErrorKind::NotFound {
+                return Ok(None);
+            }
+            // The endpoint exists but is unreachable: a 0660 socket owned
+            // by another user (PermissionDenied), a stale socket
+            // (ConnectionRefused), or a busy pipe on Windows. Name the
+            // kind: the caller logs it, so a failed attach is diagnosable
+            // instead of silent (issue #9).
+            return Err(format!(
+                "cannot connect to the svc endpoint ({}): {} [kind: {:?}]",
+                svc_endpoint_label(),
+                e,
+                e.kind()
+            ));
+        }
+    };
+    match client.hello().await {
+        Ok(reply) => {
             if svc_is_stale(&reply.app_version, APP_VERSION) {
                 return restart_stale_svc(&client, reply, timeout)
                     .await
                     .map(Some);
             }
-            return Ok(Some(Arc::new(client)));
+            Ok(Some(Arc::new(client)))
         }
+        Err(e) => Err(format!(
+            "svc endpoint answered but the hello handshake failed: {e} [kind: {:?}]",
+            e.kind()
+        )),
     }
-    Ok(None)
+}
+
+/// Human-readable label for the svc endpoint, for attach diagnostics.
+#[cfg(windows)]
+fn svc_endpoint_label() -> String {
+    SVC_PIPE_NAME.to_string()
+}
+
+/// Human-readable label for the svc endpoint, for attach diagnostics.
+#[cfg(target_os = "linux")]
+fn svc_endpoint_label() -> String {
+    crate::svc_ipc::svc_socket_path().display().to_string()
 }
 
 /// Attach to a running svc, spawning it first if necessary. Polls the pipe

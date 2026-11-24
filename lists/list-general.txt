@@ -81,3 +81,8 @@ i.giphy.com
 roblox.com
 rbxcdn.com
 rbxtrk.com
+
+# SoundCloud (audio CDN: tracks stream from sndcdn, not soundcloud.com)
+cf-media.sndcdn.com
+cf-hls-media.sndcdn.com
+ec-media.sndcdn.com

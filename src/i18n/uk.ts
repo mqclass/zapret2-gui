@@ -423,6 +423,8 @@ export const uk: Translations = {
   dns: {
     title: "Менеджер DNS & Захист від підміни",
     subtitle: "Перемикання системного DNS на основному мережевому адаптері для захисту від перехоплення провайдером",
+    serversTitle: "DNS-сервери",
+    serversSubtitle: "Натисніть «Застосувати DNS» біля сервера, щоб перейти на нього",
     adapterLabel: "Активний мережевий адаптер",
     currentDnsLabel: "Поточний системний DNS",
     applyBtn: "Застосувати DNS",

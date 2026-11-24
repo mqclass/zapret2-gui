@@ -28,6 +28,11 @@ use crate::platform::process::{
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SystemStatusResponse {
     pub is_elevated: bool,
+    /// Whether the admin-gate flow applies on this platform: on Windows
+    /// the GUI may need elevation to start the engine; on Linux the
+    /// engine runs in zapret2-svc and the GUI is unprivileged by design,
+    /// so the admin gate must never open there.
+    pub admin_gate_applicable: bool,
     pub supervisor: SupervisorStatus,
     pub diagnostics: DiagnosticsReport,
     pub binaries: Option<ZapretBinaries>,
@@ -104,6 +109,7 @@ pub async fn get_system_status(state: State<'_, AppState>) -> Result<SystemStatu
 
     Ok(SystemStatusResponse {
         is_elevated: elevated,
+        admin_gate_applicable: cfg!(windows),
         supervisor: supervisor_status,
         diagnostics: diag,
         binaries,
@@ -137,6 +143,9 @@ pub async fn list_strategies() -> Result<Vec<LuaStrategy>, String> {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SupervisorStatusResponse {
     pub is_elevated: bool,
+    /// Whether the admin-gate flow applies on this platform (see
+    /// `SystemStatusResponse::admin_gate_applicable`).
+    pub admin_gate_applicable: bool,
     pub supervisor: SupervisorStatus,
 }
 
@@ -146,6 +155,7 @@ pub async fn get_supervisor_status(state: State<'_, AppState>) -> Result<Supervi
     let backend = state.backend.read().clone();
     Ok(SupervisorStatusResponse {
         is_elevated: is_elevated().unwrap_or(false),
+        admin_gate_applicable: cfg!(windows),
         supervisor: backend.get_status().await,
     })
 }

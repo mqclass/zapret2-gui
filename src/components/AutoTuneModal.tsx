@@ -272,9 +272,10 @@ export function useAutoTune({
     const screened: StrategyScreenResult[] = [];
     let probedAny = false;
     let lastStartedId: string | null = null;
-    // ADMIN_REQUIRED aborts the whole run (both phases): without
-    // elevation no probe can measure anything, and phase 2 would only
-    // repeat the same failure on the finalists.
+    // ADMIN_REQUIRED / SVC_UNREACHABLE aborts the whole run (both
+    // phases): without elevation — or without a reachable svc — no
+    // probe can measure anything, and phase 2 would only repeat the
+    // same failure on the finalists.
     let aborted = false;
     try {
       // Phase 1: screen every candidate, YouTube only. Cheap per
@@ -294,6 +295,14 @@ export function useAutoTune({
             throw new Error("Проверка не вернула результат");
           }
           screened.push(res);
+          if (res.error && res.error.includes("SVC_UNREACHABLE")) {
+            // Linux: the engine lives in zapret2-svc and the GUI could
+            // not reach it. Report the probe's own message, not the
+            // admin gate text — there is no admin flow on Linux.
+            reportError(res.error);
+            aborted = true;
+            break;
+          }
           if (res.error && res.error.includes("ADMIN_REQUIRED")) {
             reportError(t.adminGate.message);
             aborted = true;
@@ -335,6 +344,13 @@ export function useAutoTune({
           }
           results.push(res);
           setProbeResults([...results]);
+          if (res.error && res.error.includes("SVC_UNREACHABLE")) {
+            // Linux: the engine lives in zapret2-svc and the GUI could
+            // not reach it. Report the probe's own message, not the
+            // admin gate text — there is no admin flow on Linux.
+            reportError(res.error);
+            break;
+          }
           if (res.error && res.error.includes("ADMIN_REQUIRED")) {
             reportError(t.adminGate.message);
             break;

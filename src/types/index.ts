@@ -172,6 +172,7 @@ export interface WindivertRepairResult {
 
 export interface SystemStatusResponse {
   is_elevated: boolean;
+  admin_gate_applicable: boolean;
   supervisor: SupervisorStatus;
   diagnostics: DiagnosticsReport;
   binaries: ZapretBinaries | null;
@@ -182,6 +183,7 @@ export interface SystemStatusResponse {
 /** Lightweight heartbeat response: supervisor state + elevation only. */
 export interface SupervisorStatusResponse {
   is_elevated: boolean;
+  admin_gate_applicable: boolean;
   supervisor: SupervisorStatus;
 }
 

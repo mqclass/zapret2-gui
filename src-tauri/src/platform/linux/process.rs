@@ -55,8 +55,14 @@ pub enum ProcessError {
     #[error("Failed to wait for child process: {0}")]
     WaitFailed(#[source] io::Error),
 
-    #[error("ADMIN_REQUIRED: для запуска движка нужны права root. Движок работает в службе zapret2-svc (systemd), а не из интерфейса.")]
-    NotElevated,
+    /// The GUI could not reach zapret2-svc: the attach probe failed and
+    /// the backend stayed Local, so the engine cannot start. No
+    /// ADMIN_REQUIRED marker — there is no admin flow on Linux, and the
+    /// frontend must not open the admin gate modal for this (issue #9).
+    /// (The old NotElevated variant is gone: on Linux the GUI is
+    /// unprivileged by design and never needs root itself.)
+    #[error("SVC_UNREACHABLE: не удалось подключиться к службе zapret2-svc. Движок работает в службе (systemd), а не из интерфейса. Проверьте, что служба запущена: systemctl status zapret2-svc")]
+    SvcUnreachable,
 
     /// The engine cannot run on this platform as requested (e.g. a
     /// Flowseal strategy, whose `--dpi-desync` flags nfqws2 does not

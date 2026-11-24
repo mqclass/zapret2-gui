@@ -14,6 +14,7 @@ pub mod settings;
 pub mod smart_hosts;
 pub mod updater;
 pub mod webview_check;
+pub mod webview_data_dir;
 pub mod windivert;
 
 pub use autostart::{is_autostart_enabled, set_autostart};

@@ -17,6 +17,10 @@ use commands::CachedBinaries;
 use engine::supervisor::Supervisor;
 use crate::platform::privileges::{ensure_elevated, is_elevated};
 
+/// Extra Chromium flags for the main window, mirroring the old
+/// tauri.conf.json value (the window is built in code now, issue #8).
+const ADDITIONAL_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disable-gpu-vsync";
+
 #[tokio::main]
 async fn main() {
     // Update helper mode: the staged binary performs the install swap
@@ -103,6 +107,46 @@ async fn main() {
             classifier_restored: Arc::new(parking_lot::Mutex::new(None)),
         })
         .setup(move |app| {
+            // The main window is built here, not from tauri.conf.json:
+            // on Windows the WebView2 data folder must follow the
+            // interactive session user when the process token belongs
+            // to another account (run-as-admin, issue #8). The values
+            // below mirror the old tauri.conf.json window one-to-one.
+            let window_builder = tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("zapret2")
+            .inner_size(1050.0, 760.0)
+            .min_inner_size(850.0, 620.0)
+            .resizable(true)
+            .center()
+            .decorations(false)
+            .additional_browser_args(ADDITIONAL_BROWSER_ARGS);
+            #[cfg(windows)]
+            let window_builder =
+                match crate::platform::webview_data_dir::session_user_data_dir() {
+                    Some(dir) => {
+                        if let crate::svc_client::SupervisorBackend::Local(s) = &*app
+                            .state::<crate::commands::AppState>()
+                            .backend
+                            .read()
+                        {
+                            s.log(
+                                "info",
+                                &format!(
+                                    "Папка данных WebView2 перенаправлена на пользователя сессии: {}",
+                                    dir.display()
+                                ),
+                            );
+                        }
+                        window_builder.data_directory(dir)
+                    }
+                    None => window_builder,
+                };
+            window_builder.build()?;
+
             // One-shot repair for the 1.2.1 -> 1.3.0 transition: that
             // upgrade ran under the old app's defective restore, which
             // never carried the live *-user.txt files into the new
@@ -173,7 +217,23 @@ async fn main() {
                             );
                         }
                         Ok(None) => {}
-                        Err(e) => eprintln!("svc attach at startup failed: {e}"),
+                        Err(e) => {
+                            eprintln!("svc attach at startup failed: {e}");
+                            // Persist to the GUI log as well: on a desktop
+                            // launch stderr is invisible, and this is the
+                            // only trace of a failed attach (issue #9: the
+                            // failure used to be fully silent).
+                            if let crate::svc_client::SupervisorBackend::Local(s) =
+                                &*backend.read()
+                            {
+                                s.log(
+                                    "error",
+                                    &format!(
+                                        "Не удалось подключиться к службе zapret2-svc: {e}"
+                                    ),
+                                );
+                            }
+                        }
                     }
                     // Block classifier dead-man (§4.3): if the previous GUI
                     // died mid-classification, the engine may still be

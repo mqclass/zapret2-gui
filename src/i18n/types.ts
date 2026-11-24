@@ -433,6 +433,8 @@ export interface Translations {
   dns: {
     title: string;
     subtitle: string;
+    serversTitle: string;
+    serversSubtitle: string;
     adapterLabel: string;
     currentDnsLabel: string;
     applyBtn: string;

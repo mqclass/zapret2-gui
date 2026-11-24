@@ -214,7 +214,7 @@ export async function runHeadlessAutoTune(
             throw new Error("Проверка не вернула результат");
           }
           results.push(res);
-          if (res.error && res.error.includes("ADMIN_REQUIRED")) break;
+          if (res.error && (res.error.includes("ADMIN_REQUIRED") || res.error.includes("SVC_UNREACHABLE"))) break;
         } catch (err) {
           console.error("Watchdog probe error:", err);
           results.push({

@@ -91,6 +91,11 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const [isElevated, setIsElevated] = useState<boolean>(true);
+  // Whether the admin-gate flow applies on this platform (false on
+  // Linux, where the GUI is unprivileged by design and the engine runs
+  // in zapret2-svc). Defaults to true so the gate behaves as before
+  // until the first status poll answers.
+  const [adminGateApplicable, setAdminGateApplicable] = useState<boolean>(true);
   const [status, setStatus] = useState<SupervisorStatus>({
     state: "stopped",
     pid: null,
@@ -169,11 +174,14 @@ const AppContent: React.FC = () => {
   const notifiedUpdateVersionRef = useRef<string | null>(null);
 
   // Surface the admin gate once the real elevation state is known.
+  // Only where the flow applies: on Linux the GUI is never elevated
+  // (by design), so opening the gate there would nag on every launch
+  // with a relaunch button that cannot work.
   useEffect(() => {
-    if (!isElevated) {
+    if (!isElevated && adminGateApplicable) {
       setShowAdminGate(true);
     }
-  }, [isElevated]);
+  }, [isElevated, adminGateApplicable]);
 
   const handleModeChange = useCallback(async (mode: SplitTunnelMode, opts?: { silent?: boolean }) => {
     try {
@@ -570,6 +578,7 @@ const AppContent: React.FC = () => {
     invoke<SystemStatusResponse>("get_system_status")
       .then((res) => {
         setIsElevated(res.is_elevated);
+        setAdminGateApplicable(res.admin_gate_applicable);
         setStatus(res.supervisor);
         setConflicts(res.conflicts || []);
         if (res.diagnostics) {
@@ -705,6 +714,7 @@ setEngineDebug(cfg.engine_debug ?? false);
       invoke<SupervisorStatusResponse>("get_supervisor_status")
         .then((res) => {
           setIsElevated(res.is_elevated);
+          setAdminGateApplicable(res.admin_gate_applicable);
           setStatus((prev) => {
             // Never let a slow poll clobber an in-flight start: while svc
             // attach is underway the backend still reports "stopped", which
@@ -1289,6 +1299,7 @@ setEngineDebug(cfg.engine_debug ?? false);
               expertMode={expertMode}
               onExpertModeChange={handleExpertModeChange}
               isElevated={isElevated}
+              adminGateApplicable={adminGateApplicable}
               engineRunning={
                 status.state === "running" || status.state === "starting"
               }

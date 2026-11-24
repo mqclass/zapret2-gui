@@ -56,6 +56,9 @@ interface SettingsViewProps {
   /** Switch the shell to expert mode (simple view's "show all settings"). */
   onExpertModeChange?: (expert: boolean) => void;
   isElevated: boolean;
+  /** Whether the admin-gate flow applies on this platform (false on
+      Linux, where relaunch-elevated cannot work). */
+  adminGateApplicable: boolean;
   /** Engine running or starting: the driver reset is disabled then —
       repair stops the loaded driver, so resetting mid-run would kill
       a working bypass. The check stays available. */
@@ -108,6 +111,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     expertMode = false,
     onExpertModeChange,
     isElevated,
+    adminGateApplicable,
     engineRunning = false,
     onRelaunchElevated,
     isAutostart,
@@ -708,7 +712,7 @@ engineDebug,
                 </p>
               </div>
 
-              {!isElevated && (
+              {!isElevated && adminGateApplicable && (
                 <button
                   type="button"
                   onClick={onRelaunchElevated}
