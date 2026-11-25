@@ -2,11 +2,11 @@
 
 ## What is this
 
-A vendored copy of **tg-ws-proxy-rs v2.5.4** — a Telegram MTProto WebSocket
+A vendored copy of **tg-ws-proxy-rs v2.7.2** — a Telegram MTProto WebSocket
 bridge proxy written in Rust.
 
 - Upstream repository: https://github.com/valnesfjord/tg-ws-proxy-rs
-- Upstream tag/commit: `v2.5.4`
+- Upstream tag/commit: `v2.7.2`
 - License: **MIT** (see `LICENSE` in this directory;
   copyright (c) 2026 valnesfjord)
 - The upstream project is itself a Rust port of
@@ -20,7 +20,7 @@ with secret redaction, `TG_*` env cleanup before config parsing).
 
 ## What was changed vs upstream
 
-The library sources under `src/` are **byte-identical** to upstream `v2.5.4`,
+The library sources under `src/` are **byte-identical** to upstream `v2.7.2`,
 except one deliberate addition (see below). Only the packaging was trimmed
 for embedding:
 

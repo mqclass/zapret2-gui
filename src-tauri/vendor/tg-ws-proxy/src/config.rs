@@ -195,6 +195,24 @@ pub struct Config {
     #[arg(long, env = "TG_HOST")]
     pub host: Option<String>,
 
+    /// Enable a separate, unauthenticated Telegram-only SOCKS5 listener.
+    #[arg(long, env = "TG_SOCKS_ENABLED")]
+    pub socks_enabled: bool,
+
+    /// SOCKS5 bind IP. Keep loopback when used by a router's local routing service.
+    #[arg(long, default_value = "127.0.0.1", env = "TG_SOCKS_HOST")]
+    pub socks_host: std::net::IpAddr,
+
+    /// SOCKS5 TCP port (separate from the MTProto listener).
+    #[arg(long, default_value = "1080", env = "TG_SOCKS_PORT")]
+    pub socks_port: u16,
+
+    /// Additional SOCKS destination mappings, signed DC:IP (negative DC = media).
+    /// These identify client destinations, independently of upstream --dc-ip overrides.
+    #[arg(long, value_parser = crate::inbound::socks::parse_dc_mapping,
+        value_delimiter = ',', allow_hyphen_values = true, env = "TG_SOCKS_DC")]
+    pub socks_dc: Vec<crate::inbound::socks::DcMapping>,
+
     /// MTProto proxy secret(s) (32 hex chars each).
     /// Can be specified multiple times or as a comma-separated list.
     /// A random secret is generated if not provided.
@@ -335,6 +353,11 @@ pub struct Config {
     #[arg(long = "cf-balance", env = "TG_CF_BALANCE")]
     pub cf_balance: bool,
 
+    /// Disable HTTP/2 media multiplexing through Cloudflare /api.
+    /// The Cloudflare proxy tier uses WebSocket for media instead.
+    #[arg(long = "no-h2", env = "TG_NO_H2")]
+    pub no_h2: bool,
+
     /// Upgrade Cloudflare proxy and Worker connections over plaintext
     /// `ws://` (port 80) instead of `wss://` (port 443).
     ///
@@ -454,7 +477,9 @@ pub struct Config {
     /// Stepped over, not written off: a connection that finds every fallback
     /// tier dead re-probes the address anyway, and the first direct connect
     /// that succeeds clears the cooldown — so a window opened by a passing
-    /// glitch cannot strand anyone.  The skipping needs a fallback tier to be
+    /// glitch cannot strand anyone.  When the window ends, a background probe
+    /// re-tests the address before any client is sent back to it: an answer
+    /// clears the cooldown, another timeout starts a new window.  The skipping needs a fallback tier to be
     /// configured; the record itself is always kept, since the pool reads it
     /// to stop pre-connecting into the same hole.  Matches upstream
     /// tg-ws-proxy's `IP_FAIL_COOLDOWN`.
@@ -472,6 +497,14 @@ pub struct Config {
         env = "TG_HANDSHAKE_TIMEOUT"
     )]
     pub handshake_timeout: u64,
+
+    /// Seconds without traffic in either direction before closing a client session (0 disables).
+    #[arg(
+        long = "client-idle-timeout",
+        default_value = "900",
+        env = "TG_CLIENT_IDLE_TIMEOUT"
+    )]
+    pub client_idle_timeout: u64,
 
     /// TCP fallback connect timeout in seconds.
     #[arg(
@@ -608,6 +641,12 @@ pub struct Config {
     #[arg(long = "check-listener", env = "TG_CHECK_LISTENER")]
     pub check_listener: bool,
 
+    /// Print every enabled listener's connection links and exit, binding
+    /// nothing: one `inbound<TAB>label<TAB>url` line each, for a UI such as
+    /// LuCI to offer them for copying.
+    #[arg(long = "print-links", env = "TG_PRINT_LINKS")]
+    pub print_links: bool,
+
     /// Use the default Cloudflare-proxy domain list from the upstream repository.
     ///
     /// When set, the proxy fetches an obfuscated list of working CF proxy
@@ -616,8 +655,8 @@ pub struct Config {
     /// configure their own Cloudflare DNS zone.
     ///
     /// The fetched domains are appended after any domains supplied with
-    /// `--cf-domain`.  If the fetch fails the proxy falls back to a small
-    /// built-in list.
+    /// `--cf-domain`.  If the fetch fails the proxy serves from a small
+    /// built-in list and re-fetches in the background for about an hour.
     ///
     /// Source:
     ///   https://github.com/Flowseal/tg-ws-proxy/blob/main/.github/cfproxy-domains.txt

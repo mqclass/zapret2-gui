@@ -106,15 +106,6 @@ impl<K: Eq + Hash> CooldownMap<K> {
 static CF_EDGE_TLS_FAIL: CooldownMap<IpAddr> = CooldownMap::new();
 static CF_EDGE_PLAINTEXT_FAIL: CooldownMap<IpAddr> = CooldownMap::new();
 
-/// Per-relay failure memory for the Cloudflare proxy domain walk, keyed by the
-/// base relay domain (shared across DCs: a relay that is down is down for every
-/// DC). Without it, every client connection re-walks all configured relays and
-/// re-pays each one's connect timeout — the storm that saturates the engine
-/// when the relays are unreachable. A relay that fails TLS/upgrade is skipped
-/// for `cf_fail_cooldown`, then probed again on expiry, so recovery is automatic
-/// and needs no restart.
-static CF_DOMAIN_FAIL: CooldownMap<String> = CooldownMap::new();
-
 /// Cloudflare-specific dial settings shared by proxy, Worker, and pool paths.
 #[derive(Clone, Copy)]
 pub struct CfDialOpts<'a> {
@@ -134,7 +125,7 @@ impl CfDialOpts<'_> {
 /// Starting index for one logical Cloudflare connection. Every configured IP
 /// is still tried before failure; rotating only spreads which one gets first
 /// chance.
-fn cf_ip_start(ips: &[IpAddr]) -> usize {
+pub(crate) fn cf_ip_start(ips: &[IpAddr]) -> usize {
     if ips.len() <= 1 {
         return 0;
     }
@@ -533,6 +524,10 @@ async fn connect_cf_with_path(
 /// Split out from `connect_ws_with_path` so it can be exercised in tests
 /// against a stream connected to an arbitrary local port — the public
 /// connect functions always dial `:443`, Telegram's real WS port.
+#[expect(
+    clippy::result_large_err,
+    reason = "passes tokio-tungstenite's own result through; the caller matches on it at once"
+)]
 async fn tls_handshake_and_upgrade<R>(
     tcp: TcpStream,
     request: R,
@@ -604,6 +599,7 @@ pub fn cf_worker_path(dst: &str, dc: u32, is_media: bool) -> String {
 }
 
 /// Try all domains for a DC in order; return the first success or the last error.
+/// A TCP connect that times out ends the walk: every domain shares the address.
 ///
 /// Returns `(Some(stream), all_redirects)`:
 /// - `all_redirects = true` when every domain returned a redirect (WS is
@@ -692,6 +688,13 @@ pub async fn connect_ws_for_dc_with_outbound(
 
                 all_redirects = false;
                 any_connect_timed_out = true;
+
+                // Every record is dialled at the same `ip` — the hostname only
+                // reaches the SNI and Host header, after the TCP connect.  A
+                // connect that ran out the clock would run it out again for
+                // the next record, so the second attempt only doubled what a
+                // client waits before the fallback chain gets a turn (#148).
+                break;
             }
         }
     }
@@ -729,8 +732,14 @@ pub async fn connect_ws_for_dc_with_outbound(
 pub fn cf_ws_domains(dc: u32, cf_domains: &[String], _is_media: bool) -> Vec<String> {
     cf_domains
         .iter()
-        .map(|cf_domain| format!("kws{}.{}", dc, cf_domain))
+        .map(|cf_domain| cf_record(dc, cf_domain))
         .collect()
+}
+
+/// The `kws{N}` record of one `--cf-domain` zone — the only name in the zone
+/// that is ever dialled.
+pub(crate) fn cf_record(dc: u32, cf_domain: &str) -> String {
+    format!("kws{}.{}", dc, cf_domain)
 }
 
 /// Ordering policy for the Cloudflare connect loop.
@@ -752,11 +761,6 @@ struct CfAttempts<'a> {
     next_ordinal: usize,
     /// The domain just attempted for the first time, until its retry is due.
     pending_retry: Option<usize>,
-    /// Whether the domain last returned by `next_domain` was its retry (second
-    /// attempt) rather than the first. The CF failure cooldown is recorded only
-    /// once this retry also fails, so it never kills the load-bearing second
-    /// attempt within the same walk.
-    last_was_retry: bool,
 }
 
 impl<'a> CfAttempts<'a> {
@@ -776,14 +780,12 @@ impl<'a> CfAttempts<'a> {
             },
             next_ordinal: 0,
             pending_retry: None,
-            last_was_retry: false,
         }
     }
 
     /// The next record to attempt.
     fn next_domain(&mut self) -> Option<String> {
         if let Some(domain_index) = self.pending_retry.take() {
-            self.last_was_retry = true;
             return Some(self.hostname(domain_index));
         }
 
@@ -799,7 +801,6 @@ impl<'a> CfAttempts<'a> {
             }
 
             self.pending_retry = Some(domain_index);
-            self.last_was_retry = false;
             return Some(self.hostname(domain_index));
         }
 
@@ -812,13 +813,8 @@ impl<'a> CfAttempts<'a> {
         self.pending_retry = None;
     }
 
-    /// Whether the domain last returned by `next_domain` was its retry.
-    fn last_was_retry(&self) -> bool {
-        self.last_was_retry
-    }
-
     fn hostname(&self, domain_index: usize) -> String {
-        format!("kws{}.{}", self.dc, self.domains[domain_index])
+        cf_record(self.dc, &self.domains[domain_index])
     }
 }
 
@@ -938,22 +934,8 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
     let media = media_tag(is_media);
     let mut all_redirects = true;
     let mut attempts = CfAttempts::with_offset(dc, cf_domains, first_domain);
-    let cooldown = opts.fail_cooldown;
 
     while let Some(domain) = attempts.next_domain() {
-        // Relay domain without the kws{N}. prefix: a relay that is down is
-        // down for every DC, so one cooldown entry covers them all.
-        let base = domain.split_once('.').map_or(domain.as_str(), |(_, b)| b);
-
-        // Skip a relay still in its failure cooldown rather than re-paying its
-        // connect timeout on every connection. Expiry re-probes it, so a relay
-        // that recovers is picked up again without a restart.
-        if !cooldown.is_zero() && CF_DOMAIN_FAIL.active(base) {
-            attempts.note_timed_out();
-            all_redirects = false;
-            continue;
-        }
-
         debug!("CF WS trying DC{}{} → {}", dc, media, domain);
 
         match connect_cf_with_path(
@@ -968,7 +950,6 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
         .await
         {
             WsConnectResult::Connected(ws) => {
-                CF_DOMAIN_FAIL.clear(base);
                 return (Some(ws), Some(domain), false);
             }
             WsConnectResult::Redirect(code) => {
@@ -976,29 +957,15 @@ pub(crate) async fn connect_cf_ws_for_dc_with_outbound_ordered(
                     "CF WS DC{}{} got {} from {} (redirect)",
                     dc, media, code, domain
                 );
-                // A redirect means the relay answered (Telegram moved WS off
-                // it), not a transport failure — never cool it down for that.
-                CF_DOMAIN_FAIL.clear(base);
             }
             WsConnectResult::Failed(reason) => {
                 warn!("CF WS DC{}{} failed on {}: {}", dc, media, domain, reason);
                 all_redirects = false;
-                // Cool the relay down only once its load-bearing retry also
-                // failed. Recording it after the first failure would make the
-                // cooldown skip above kill the second attempt in this walk.
-                if !cooldown.is_zero() && attempts.last_was_retry() {
-                    CF_DOMAIN_FAIL.set(base.to_string(), cooldown);
-                }
             }
             WsConnectResult::TimedOut | WsConnectResult::ConnectTimedOut(_) => {
                 warn!("CF WS DC{}{} timed out on {}", dc, media, domain);
-                // A timeout cancels the retry (note_timed_out), so this is the
-                // domain's last attempt — cool it down now.
                 attempts.note_timed_out();
                 all_redirects = false;
-                if !cooldown.is_zero() {
-                    CF_DOMAIN_FAIL.set(base.to_string(), cooldown);
-                }
             }
         }
     }
@@ -1279,7 +1246,7 @@ fn build_tls_connector(skip_verify: bool) -> Connector {
 
 /// The shared certificate-verifying client config, using the bundled WebPKI
 /// root store.
-fn verifying_rustls_config() -> Arc<rustls::ClientConfig> {
+pub(crate) fn verifying_rustls_config() -> Arc<rustls::ClientConfig> {
     VERIFYING_CONFIG
         .get_or_init(|| {
             let mut root_store = rustls::RootCertStore::empty();
@@ -1301,7 +1268,7 @@ fn verifying_rustls_config() -> Arc<rustls::ClientConfig> {
 /// the domain-fronting path, which *always* needs it: the real certificate
 /// presented by Telegram can never match a fronted (spoofed) SNI hostname, so
 /// hostname verification would fail even for an otherwise-legitimate server.
-fn no_verify_rustls_config() -> Arc<rustls::ClientConfig> {
+pub(crate) fn no_verify_rustls_config() -> Arc<rustls::ClientConfig> {
     NO_VERIFY_CONFIG
         .get_or_init(|| {
             let mut config = rustls::ClientConfig::builder()

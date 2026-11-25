@@ -39,6 +39,10 @@ a `-upx` variant that is ~70% smaller on disk, for routers where flash is
 tight — see [docs/Building.md](docs/Building.md#shrinking-the-binary-for-flash-constrained-devices)
 for the RAM trade-off that comes with it.
 
+On Windows 7 and 8, take `tg-ws-proxy-x86_64-win7-windows-msvc.zip` (or the
+`i686` one for 32-bit Windows). The regular `x86_64-pc-windows-gnu` build needs
+Windows 10 or newer.
+
 The Android app ships on the same page. Take
 `tg-ws-proxy-rs-android-<version>-universal.apk` unless you know your phone's
 ABI — the per-ABI `arm64-v8a`, `armeabi-v7a` and `x86_64` builds are about a
@@ -94,6 +98,18 @@ binary, without the LuCI package. See
    - **Secret:** shown in the proxy startup log
 
 Or use the `tg://proxy?...` link that is printed on startup.
+
+## Optional SOCKS5 input / Forkop
+
+Enable `--socks-enabled` (or **Enable SOCKS5 input** in LuCI) to expose a separate
+Telegram-only SOCKS5 listener on `127.0.0.1:1080`. A local routing service can send
+supported Telegram TCP transports through it while existing MTProto clients keep
+using the original listener. WSS, Cloudflare and fallback settings are shared.
+
+See **[SOCKS5 and Forkop setup](docs/Forkop.md)** / **[Настройка Forkop на русском](docs/Forkop.ru.md)**
+for installation, device-scoped routing, loop prevention, DC mappings, testing and
+rollback. This is not a general-purpose SOCKS proxy or a virtual VPN interface;
+UDP calls and arbitrary HTTPS traffic are not supported.
 
 ## OpenWrt installation
 
@@ -247,6 +263,9 @@ tg-ws-proxy [OPTIONS]
 | `--link-ip <IP>` | auto-detected | IP shown in the `tg://` link (see [Router deployment](docs/Deployment.md#router-deployment)) |
 | `--secret <HEX>` | random | 32 hex-char MTProto secret (repeatable / comma-separated for per-user secrets) |
 | `--listen-faketls-domain <DOMAIN>` | — | Accept inbound clients with `ee` FakeTLS and advertise this SNI domain in the link |
+| `--socks-enabled` | off | Also listen for Telegram over SOCKS5, no authentication (see [docs/Forkop.md](docs/Forkop.md)) |
+| `--socks-host <IP>` / `--socks-port <PORT>` | `127.0.0.1` / `1080` | SOCKS5 listen address |
+| `--socks-dc <DC:IP>` | built-in map | Extra SOCKS destination mappings, signed (`-2` = DC2 media), comma-separated/repeatable |
 | `--dc-ip <DC:IP>` | DC2 + DC4 | Target IP per DC (repeatable); omit when using `--cf-domain` to let CF proxy handle all DCs |
 | `--buf-kb <KB>` | `256` | Socket buffer size (accepted but currently unused) |
 | `--pool-size <N>` | `4` | Pre-warmed WS connections per DC |
@@ -260,12 +279,14 @@ tg-ws-proxy [OPTIONS]
 | `--ip-fail-cooldown <SECS>` | `3600` | How long to skip the direct WS path for a `--dc-ip` address whose TCP connect timed out, when a Cloudflare/upstream fallback is configured |
 | `--fronting-domain <DOMAIN>` | off | Always present this domain as the TLS SNI for direct WS connections (fronting), e.g. `sprinthost.ru`; needs `--dc-ip` |
 | `--max-connections <N>` | auto | Max concurrent client connections (auto-computed from `ulimit -n`) |
+| `--client-idle-timeout <SECS>` | `900` | Close a client session after this long without traffic in either direction. `0` disables the timeout. |
 | `--mtproto-proxy <HOST:PORT:SECRET>` | — | Upstream MTProto proxy fallback (repeatable) |
 | `--outbound-proxy <URL>` | — | Proxy for all outgoing connections: `http://`, `socks5://`, or `socks5h://`; `https://` proxy URLs are not supported |
 | `--no-outbound-proxy` | off | Ignore standard outbound proxy environment variables |
 | `--no-proxy <LIST>` | — | Comma-separated host bypass list for `--outbound-proxy` |
 | `--check` | off | Test every configured CF domain and MTProto proxy, print OK/FAIL with latency, then exit `0` if all pass and `1` otherwise |
 | `--check-listener` | off | Implies `--check`: binds and serves, probes its own listener end-to-end (obfuscation handshake, a real `req_pq_multi`, the DC's `resPQ` back), then exits with the check's code |
+| `--print-links` | off | Print every enabled listener's connection links (`inbound<TAB>label<TAB>url` per line) and exit without binding; LuCI uses it for its copy buttons |
 | `--log-file <PATH>` | — | Write logs to a file instead of stderr (no ANSI color codes) |
 | `-q / --quiet` | off | Suppress all log output |
 | `-v / --verbose` | off | Debug logging |

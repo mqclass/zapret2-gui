@@ -1,16 +1,16 @@
-//! Core proxy logic: client handling, re-encryption bridge, TCP fallback.
+//! Core proxy logic: routing, re-encryption bridge, TCP fallback.
 //!
 //! Flow for each inbound client connection:
 //!
 //! ```text
-//!  Telegram Desktop
-//!       │  MTProto obfuscated TCP (port 1443)
+//!  Telegram client
+//!       │  MTProto (port 1443) or SOCKS5
 //!       ▼
-//!  [parse_handshake]  ← validates secret, extracts DC id + protocol
-//!       │
+//!  [inbound::serve]   ← the listener's handshake yields a Session:
+//!       │                DC, framing, client obfuscation
 //!       ▼
 //!  [select_upstream]  ← the fallback ladder: pooled/direct WebSocket,
-//!       │                Cloudflare Worker, Cloudflare proxy, upstream
+//!       │                Cloudflare Worker, Cloudflare proxy (H2/WS), upstream
 //!       │                MTProto proxy, and finally raw TCP
 //!       ▼
 //!  [bridge_ws / bridge_relay / bridge_tcp]  ← bidirectional re-encryption
@@ -21,6 +21,7 @@
 //! client's own reader/writer halves only ever have to be moved into a single
 //! bridge call.
 
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -40,21 +41,23 @@ use tungstenite::Message;
 
 use crate::config::{Config, MtProtoProxy, UpstreamTier};
 use crate::crypto::{
-    AesCtr256, ConnectionCiphers, ProtoTag, build_connection_ciphers, generate_client_handshake,
-    generate_relay_init, parse_handshake,
+    AesCtr256, ProtoTag, build_raw_ciphers, generate_client_handshake, generate_relay_init,
 };
 use crate::faketls::{
-    TLS_MAX_RECORD_PAYLOAD, TLS_RECORD_HANDSHAKE, build_faketls_client_hello,
-    build_faketls_server_hello, drain_faketls_server_hello, parse_faketls_client_hello,
-    read_tls_appdata, read_tls_record_bytes, sign_faketls_client_hello, write_tls_appdata,
+    TLS_MAX_RECORD_PAYLOAD, TLS_READ_HEADROOM, build_faketls_client_hello,
+    drain_faketls_server_hello, read_tls_appdata, sign_faketls_client_hello, write_tls_appdata,
+    write_tls_client_init,
 };
+use crate::inbound::mtproto::MtProto;
+use crate::inbound::{self, CLIENT_READ_BUF_SIZE, ClientReader, ClientWriter, Session};
 use crate::outbound::OutboundConnector;
 use crate::pool::{CfTarget, CfTier, WsPool};
-use crate::runtime::Runtime;
+use crate::runtime::{AbortOnDrop, Runtime};
 use crate::splitter::MsgSplitter;
 use crate::ws_client::{
-    CfDialOpts, CooldownMap, TgWsStream, WsAttempt, connect_cf_worker_ws_for_dc_with_outbound_opts,
-    connect_cf_ws_for_dc_with_outbound_ordered, connect_ws_for_dc_with_outbound, media_tag,
+    CfDialOpts, CooldownMap, TgWsStream, WsAttempt, cf_record,
+    connect_cf_worker_ws_for_dc_with_outbound_opts, connect_cf_ws_for_dc_with_outbound_ordered,
+    connect_ws_for_dc_with_outbound, media_tag,
 };
 
 type TcpReader = OwnedReadHalf;
@@ -75,20 +78,23 @@ type TcpWriter = OwnedWriteHalf;
 /// from 12.5 MiB to 3.1 MiB on the WebSocket path, and from 25 MiB to 6.2 MiB
 /// on the TCP fallback.
 const RELAY_BUF_SIZE: usize = 16 * 1024;
-/// AEAD expansion allowance over a full TLS record payload (RFC 8446 §5.2
-/// caps a ciphertext record at 2^14 + 256).  The 5-byte record header is read
-/// separately and never lands in these buffers.
-const TLS_READ_HEADROOM: usize = 256;
+/// A client direction's transport obfuscation; `None` for a plain transport.
+struct ClientCipher(Option<AesCtr256>);
 
-/// Buffer size for reads from the *client*.
-///
-/// With `--listen-faketls-domain` a client read is a whole TLS record, and
-/// `read_tls_appdata` reports a record that does not fit as `Ok(0)` — which
-/// every bridge loop reads as EOF and silently ends the session. Sizing this
-/// to the same tolerance the inbound handshake already accepts keeps a client
-/// that emits a slightly oversized record working, for 256 bytes per
-/// connection.
-const CLIENT_READ_BUF_SIZE: usize = TLS_MAX_RECORD_PAYLOAD + TLS_READ_HEADROOM;
+impl ClientCipher {
+    fn apply_keystream(&mut self, data: &mut [u8]) {
+        if let Some(cipher) = &mut self.0 {
+            cipher.apply_keystream(data);
+        }
+    }
+}
+
+struct BridgeCiphers {
+    clt_dec: ClientCipher,
+    clt_enc: ClientCipher,
+    tg_enc: AesCtr256,
+    tg_dec: AesCtr256,
+}
 
 // ─── Failure cooldowns ───────────────────────────────────────────────────────
 
@@ -107,20 +113,123 @@ static IP_FAIL: CooldownMap<String> = CooldownMap::new();
 static UPSTREAM_FAIL: CooldownMap<String> = CooldownMap::new();
 /// Per-Worker cooldown for the Cloudflare Worker path.
 static CF_WORKER_FAIL: CooldownMap<String> = CooldownMap::new();
-/// Per-DC cooldown for the raw-TCP last-resort fallback, keyed by the DC IP.
-///
-/// A SYN-blocked DC IP answers nothing, so re-paying its connect timeout on
-/// every client is the second half of the storm (the CF relay walk is the
-/// first). The address is skipped for a short breather, then re-probed on
-/// expiry, so a DC that becomes reachable is picked up again automatically.
-static TCP_FALLBACK_FAIL: CooldownMap<String> = CooldownMap::new();
-/// Breather for a DC IP whose raw-TCP connect timed out. Shorter than the CF
-/// relay cooldown: this is the last-resort path and a DC address can come back
-/// quickly, so it is re-probed sooner.
-const TCP_FALLBACK_COOLDOWN: Duration = Duration::from_secs(30);
 
 fn upstream_key(host: &str, port: u16) -> String {
     format!("{}:{}", host, port)
+}
+
+// ─── Cooled-address probe ────────────────────────────────────────────────────
+
+/// `--dc-ip` addresses with an [`IpProbe`] waiting on them.
+static IP_PROBES: StdMutex<BTreeSet<String>> = StdMutex::new(BTreeSet::new());
+
+/// Decides, off the client path, when a cooled `--dc-ip` address comes back.
+///
+/// Without it the cooldown simply ran out, and the next client to arrive
+/// dialled the address on the full connect timeout.  On a box whose address
+/// stays dark, that was one client an hour, on the dot, sitting through ten
+/// seconds of silence that Telegram's own proxy check does not wait for
+/// (#148).  So the entry is held for as long as a probe needs, and only the
+/// probe ends it: an answer clears it, another timeout re-arms it.
+///
+/// A client's own direct connect still clears it as before — the "every
+/// fallback failed" re-probe and the no-fallback path both dial regardless —
+/// and a probe that finds its entry gone simply stops.
+struct IpProbe {
+    runtime: Arc<Runtime>,
+    ip: String,
+    dc: u32,
+    is_media: bool,
+    skip_tls_verify: bool,
+    connect_timeout: Duration,
+    cooldown: Duration,
+}
+
+/// Releases an address from [`IP_PROBES`] however its probe ends, including
+/// the runtime dropping the task on shutdown — an embedder that restarts the
+/// proxy in the same process would otherwise never probe that address again.
+struct IpProbeGuard(String);
+
+impl Drop for IpProbeGuard {
+    fn drop(&mut self) {
+        IP_PROBES.lock().unwrap().remove(&self.0);
+    }
+}
+
+impl IpProbe {
+    /// How long past the cooldown the entry is held: enough for one probe to
+    /// finish, so a client arriving mid-probe still steps over the address.
+    fn grace(&self) -> Duration {
+        self.connect_timeout * 2
+    }
+
+    /// Start or extend the cooldown, and make sure a probe waits at its end.
+    fn arm(self) {
+        // `--ip-fail-cooldown 0` turns the skipping off; there is no window
+        // for a probe to close.
+        if self.cooldown.is_zero() {
+            return;
+        }
+
+        IP_FAIL.set(self.ip.clone(), self.cooldown + self.grace());
+        if !IP_PROBES.lock().unwrap().insert(self.ip.clone()) {
+            return;
+        }
+
+        let guard = IpProbeGuard(self.ip.clone());
+        tokio::spawn(async move {
+            let _guard = guard;
+            self.run().await;
+        });
+    }
+
+    async fn run(self) {
+        let media = media_tag(self.is_media);
+        loop {
+            tokio::time::sleep(self.cooldown).await;
+            if !IP_FAIL.active(&self.ip) {
+                return;
+            }
+
+            let attempt = tokio::time::timeout(
+                self.grace(),
+                connect_ws_for_dc_with_outbound(
+                    &self.ip,
+                    self.runtime.websocket_dc(self.dc),
+                    self.is_media,
+                    self.skip_tls_verify,
+                    self.connect_timeout,
+                    self.runtime.outbound(),
+                    self.runtime.fronting_domain(),
+                ),
+            )
+            .await;
+            // Same verdict `direct_ws` reaches: only a connect that ran out
+            // the clock says the address is still dark.
+            let still_dark = attempt.map_or(true, |a| a.ws.is_none() && a.connect_timed_out);
+
+            if !IP_FAIL.active(&self.ip) {
+                return;
+            }
+            if !still_dark {
+                IP_FAIL.clear(&self.ip);
+                info!(
+                    "DC{}{} background probe: {} answers again, cooldown cleared",
+                    self.dc, media, self.ip
+                );
+                return;
+            }
+
+            IP_FAIL.set(self.ip.clone(), self.cooldown + self.grace());
+            info!(
+                "DC{}{} background probe: {} still times out, cooldown {}s",
+                self.dc,
+                media,
+                self.ip,
+                self.cooldown.as_secs()
+            );
+        }
+    }
 }
 
 // ─── Cloudflare domain balancing ─────────────────────────────────────────────
@@ -143,142 +252,6 @@ fn domain_order(domains: &[String], first: usize) -> impl Iterator<Item = &str> 
     (0..domains.len()).map(move |offset| domains[(first + offset) % domains.len()].as_str())
 }
 
-// ─── Client-side framing ─────────────────────────────────────────────────────
-
-enum ClientReader {
-    Plain(TcpReader),
-    FakeTls {
-        reader: TcpReader,
-        pending: PendingData,
-    },
-}
-
-#[derive(Default)]
-struct PendingData {
-    data: Vec<u8>,
-    offset: usize,
-}
-
-impl PendingData {
-    fn from_record(data: Vec<u8>, offset: usize) -> Self {
-        Self { data, offset }
-    }
-
-    fn read(&mut self, buf: &mut [u8]) -> Option<usize> {
-        let remaining = self.data.get(self.offset..)?;
-        if remaining.is_empty() {
-            return None;
-        }
-
-        let n = std::cmp::min(buf.len(), remaining.len());
-        buf[..n].copy_from_slice(&remaining[..n]);
-        self.offset += n;
-        if self.offset == self.data.len() {
-            self.data = Vec::new();
-            self.offset = 0;
-        }
-        Some(n)
-    }
-}
-
-impl ClientReader {
-    async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        match self {
-            Self::Plain(reader) => reader.read(buf).await,
-            Self::FakeTls { reader, pending } => {
-                if let Some(n) = pending.read(buf) {
-                    return Ok(n);
-                }
-
-                read_tls_appdata(reader, buf).await
-            }
-        }
-    }
-
-    async fn drain(self) {
-        match self {
-            Self::Plain(mut reader) | Self::FakeTls { mut reader, .. } => {
-                let _ = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await;
-            }
-        }
-    }
-}
-
-enum ClientWriter {
-    Plain(TcpWriter),
-    FakeTls(TcpWriter),
-}
-
-impl ClientWriter {
-    async fn write_all(&mut self, data: &[u8]) -> std::io::Result<()> {
-        match self {
-            Self::Plain(writer) => writer.write_all(data).await,
-            Self::FakeTls(writer) => write_tls_appdata(writer, data).await,
-        }
-    }
-}
-
-async fn accept_inbound_faketls(
-    label: SocketAddr,
-    reader: &mut TcpReader,
-    writer: &mut TcpWriter,
-    secrets: &[Vec<u8>],
-    expected_domain: &str,
-) -> Option<([u8; 64], PendingData)> {
-    let record = read_tls_record_bytes(reader, TLS_MAX_RECORD_PAYLOAD + TLS_READ_HEADROOM)
-        .await
-        .ok()??;
-    if record[0] != TLS_RECORD_HANDSHAKE || record[1..3] != [0x03, 0x01] {
-        debug!("[{}] bad FakeTLS ClientHello record", label);
-        return None;
-    }
-
-    let Some((hello, matched_secret)) = secrets.iter().find_map(|secret| {
-        parse_faketls_client_hello(&record, secret).map(|hello| (hello, secret))
-    }) else {
-        debug!("[{}] bad FakeTLS ClientHello digest", label);
-        return None;
-    };
-
-    if hello.hostname.as_deref() != Some(expected_domain) {
-        debug!(
-            "[{}] FakeTLS SNI mismatch: got {:?}, expected {}",
-            label, hello.hostname, expected_domain
-        );
-        return None;
-    }
-
-    let server_hello = build_faketls_server_hello(matched_secret, &hello);
-    if let Err(e) = writer.write_all(&server_hello).await {
-        debug!("[{}] write FakeTLS ServerHello: {}", label, e);
-        return None;
-    }
-
-    let mut handshake_buf = [0u8; 64];
-    let mut filled = 0;
-    while filled < handshake_buf.len() {
-        let record = read_tls_record_bytes(reader, TLS_MAX_RECORD_PAYLOAD + TLS_READ_HEADROOM)
-            .await
-            .ok()??;
-        let record_type = record[0];
-        let payload_len = record.len() - 5;
-        if record_type == crate::faketls::TLS_RECORD_CHANGE_CIPHER_SPEC {
-            continue;
-        }
-        if record_type != crate::faketls::TLS_RECORD_APPLICATION_DATA || payload_len == 0 {
-            return None;
-        }
-        let take = std::cmp::min(payload_len, handshake_buf.len() - filled);
-        handshake_buf[filled..filled + take].copy_from_slice(&record[5..5 + take]);
-        filled += take;
-        if take != payload_len {
-            return Some((handshake_buf, PendingData::from_record(record, 5 + take)));
-        }
-    }
-
-    Some((handshake_buf, PendingData::default()))
-}
-
 // ─── Client handler ──────────────────────────────────────────────────────────
 
 /// Connect timeouts and failure cooldowns for one connection, resolved from
@@ -289,7 +262,6 @@ struct Timeouts {
     ws_fail_cooldown: Duration,
     ws_redirect_cooldown: Duration,
     ip_fail_cooldown: Duration,
-    handshake: Duration,
     tcp_fallback: Duration,
     upstream_connect: Duration,
     upstream_fail_cooldown: Duration,
@@ -305,7 +277,6 @@ impl Timeouts {
             ws_fail_cooldown: Duration::from_secs(config.ws_fail_cooldown),
             ws_redirect_cooldown: Duration::from_secs(config.ws_redirect_cooldown),
             ip_fail_cooldown: Duration::from_secs(config.ip_fail_cooldown),
-            handshake: Duration::from_secs(config.handshake_timeout),
             tcp_fallback: Duration::from_secs(config.tcp_fallback_timeout),
             upstream_connect: Duration::from_secs(config.upstream_connect_timeout),
             upstream_fail_cooldown: Duration::from_secs(config.upstream_fail_cooldown),
@@ -315,7 +286,7 @@ impl Timeouts {
     }
 }
 
-/// Handle one inbound client connection end-to-end.
+/// Handle one MTProto-listener client end-to-end.
 ///
 /// `config` is shared rather than owned: it is read-only for the whole life of
 /// the process, and cloning it per connection meant copying every secret and
@@ -346,143 +317,105 @@ pub async fn handle_client_with_runtime(
     pool: Arc<WsPool>,
     runtime: Arc<Runtime>,
 ) {
-    let label = peer;
-    let _ = stream.set_nodelay(true);
+    inbound::serve(&MtProto, stream, peer, config, pool, runtime).await;
+}
 
-    let secrets = config.normalized_secrets();
-    let timeouts = Timeouts::from_config(&config);
-
-    // Split into independent read / write halves.
-    let (mut reader, mut writer) = stream.into_split();
-
-    // ── Step 1: read the 64-byte MTProto obfuscation init ────────────────
-    let inbound_faketls_domain = config.normalized_listen_faketls_domain();
-    let handshake = tokio::time::timeout(
-        timeouts.handshake,
-        read_inbound_handshake(
-            label,
-            &mut reader,
-            &mut writer,
-            secrets,
-            inbound_faketls_domain,
-        ),
-    )
-    .await;
-
-    let (handshake_buf, faketls_pending) = match handshake {
-        Ok(Some(result)) => result,
-        Ok(None) => return,
-        Err(_) => {
-            debug!("[{}] handshake timeout", label);
-            return;
-        }
-    };
-
-    let (reader, writer) = if inbound_faketls_domain.is_some() {
-        (
-            ClientReader::FakeTls {
-                reader,
-                pending: faketls_pending,
-            },
-            ClientWriter::FakeTls(writer),
-        )
-    } else {
-        (ClientReader::Plain(reader), ClientWriter::Plain(writer))
-    };
-
-    // ── Step 2: parse and validate the handshake ─────────────────────────
-    let Some((info, secret)) = secrets
-        .iter()
-        .find_map(|secret| parse_handshake(&handshake_buf, secret).map(|i| (i, secret.as_slice())))
-    else {
-        debug!(
-            "[{}] bad handshake (wrong secret or reserved prefix)",
-            label
-        );
-
-        // Drain the connection silently to avoid giving information to scanners.
-        reader.drain().await;
-
-        return;
-    };
-
-    let dc_id = info.dc_id;
-    let is_media = info.is_media;
-    let proto = info.proto;
-    let dc_idx: i16 = if is_media {
-        -(dc_id as i16)
-    } else {
-        dc_id as i16
-    };
-
-    debug!(
-        "[{}] handshake ok: DC{}{} proto={:?}",
-        label,
-        dc_id,
-        media_tag(is_media),
-        proto
-    );
-
-    // ── Step 3: generate the relay init packet for the Telegram backend ──
-    let relay_init = generate_relay_init(proto, dc_idx);
-
-    // ── Step 4: build all four AES-256-CTR ciphers ───────────────────────
-    let ciphers = build_connection_ciphers(&info.prekey_and_iv, secret, &relay_init);
-
-    // ── Step 5: walk the fallback ladder ─────────────────────────────────
-    let route = Route {
-        label,
-        config: &config,
-        runtime: &runtime,
-        pool: &pool,
-        timeouts,
-        dc: dc_id,
-        is_media,
-        media: media_tag(is_media),
-        dc_idx,
-        proto,
-    };
-    let target_ip = config.dc_target_ip(dc_id);
-
-    // ── Step 6: bridge whatever we ended up connected to ─────────────────
+/// Route and bridge a client whose inbound handshake is done.
+pub(crate) fn serve_session(
+    label: SocketAddr,
+    mut session: Session,
+    config: Arc<Config>,
+    pool: Arc<WsPool>,
+    runtime: Arc<Runtime>,
+) -> impl Future<Output = ()> + Send {
     // The routing ladder contains every TLS/WS fallback handshake, while only
     // one bridge branch survives for the session. Box the short-lived ladder,
     // then box only the bridge actually selected; otherwise Rust's async state
-    // machine reserves space for their combined widest variants forever.
-    let bridge = Box::pin(select_bridge(
-        &route,
-        target_ip,
-        reader,
-        writer,
-        BridgeDispatch {
-            label,
-            relay_init,
-            ciphers,
-            proto,
-            dc: dc_id,
-            is_media,
-            tcp_connect_timeout: route.timeouts.tcp_fallback,
-            runtime: Arc::clone(&runtime),
-        },
-    ))
-    .await;
-    if let Some(bridge) = bridge {
-        bridge.await;
+    // machine reserves space for their combined widest variants forever. Not
+    // an `async fn`: its arguments, the session's ciphers among them, would
+    // stay in the session's state machine after moving into the ladder.
+    let idle_timeout = Duration::from_secs(config.client_idle_timeout);
+    let activity = (!idle_timeout.is_zero()).then(|| session.track_activity());
+    let ladder = Box::pin(select_bridge(label, session, config, pool, runtime));
+    async move {
+        let Some(bridge) = ladder.await else {
+            return;
+        };
+        if let Some(activity) = activity {
+            activity.record();
+            tokio::select! {
+                _ = bridge => {}
+                _ = activity.wait_for_idle(idle_timeout) => {
+                    info!("[{}] session closed after {}s of inactivity", label, idle_timeout.as_secs());
+                }
+            }
+        } else {
+            bridge.await;
+        }
     }
 }
 
 // ─── Routing ─────────────────────────────────────────────────────────────────
 
 async fn select_bridge(
-    route: &Route<'_>,
-    target_ip: Option<&str>,
-    reader: ClientReader,
-    writer: ClientWriter,
-    params: BridgeDispatch,
+    label: SocketAddr,
+    session: Session,
+    config: Arc<Config>,
+    pool: Arc<WsPool>,
+    runtime: Arc<Runtime>,
 ) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> {
-    select_upstream(route, target_ip)
-        .await
-        .map(|upstream| bridge_selected(reader, writer, upstream, params))
+    let dc_id = u32::from(session.dc_idx.unsigned_abs());
+    let is_media = session.dc_idx < 0;
+    debug!(
+        "[{}] handshake ok: DC{}{} proto={:?}",
+        label,
+        dc_id,
+        media_tag(is_media),
+        session.proto
+    );
+
+    let route = Route {
+        label,
+        config: &config,
+        runtime: &runtime,
+        pool: &pool,
+        timeouts: Timeouts::from_config(&config),
+        dc: dc_id,
+        is_media,
+        media: media_tag(is_media),
+        dc_idx: session.dc_idx,
+        proto: session.proto,
+    };
+    let upstream = select_upstream(&route, config.dc_target_ip(dc_id)).await?;
+
+    // Whatever the inbound, the Telegram side is keyed the same way; built
+    // after the ladder so these ciphers are not held across it.
+    let relay_init = generate_relay_init(session.proto, session.dc_idx);
+    let (tg_enc, tg_dec) = build_raw_ciphers(&relay_init);
+    let (clt_dec, clt_enc) = match session.obfuscation {
+        Some((dec, enc)) => (Some(dec), Some(enc)),
+        None => (None, None),
+    };
+    Some(bridge_selected(
+        session.reader,
+        session.writer,
+        upstream,
+        BridgeDispatch {
+            label,
+            relay_init,
+            ciphers: BridgeCiphers {
+                clt_dec: ClientCipher(clt_dec),
+                clt_enc: ClientCipher(clt_enc),
+                tg_enc,
+                tg_dec,
+            },
+            proto: session.proto,
+            dc: dc_id,
+            is_media,
+            tcp_connect_timeout: route.timeouts.tcp_fallback,
+            runtime: Arc::clone(&runtime),
+        },
+    ))
 }
 
 /// The upstream a connection was routed to, ready to be bridged.
@@ -491,10 +424,14 @@ async fn select_bridge(
 // connect path for one move per connection.
 #[allow(clippy::large_enum_variant)]
 enum Upstream {
+    H2(Arc<crate::cf_h2::Lane>),
     /// A WebSocket to Telegram — direct, via the Cloudflare proxy, or through
     /// a Cloudflare Worker tunnel.  See [`WsFraming`] for why the two are not
     /// interchangeable once bridged.
-    Ws { ws: TgWsStream, framing: WsFraming },
+    Ws {
+        ws: TgWsStream,
+        framing: WsFraming,
+    },
     /// An upstream MTProto proxy, plain or FakeTLS-wrapped.
     Mtproto(UpstreamConnection),
     /// Last resort: a direct TCP connection to this Telegram DC IP.
@@ -504,7 +441,7 @@ enum Upstream {
 struct BridgeDispatch {
     label: SocketAddr,
     relay_init: [u8; 64],
-    ciphers: ConnectionCiphers,
+    ciphers: BridgeCiphers,
     proto: ProtoTag,
     dc: u32,
     is_media: bool,
@@ -536,6 +473,23 @@ fn bridge_selected(
     } = params;
 
     match upstream {
+        Upstream::H2(lane) => Box::pin(async move {
+            let result = crate::cf_h2::bridge(
+                reader,
+                writer,
+                lane,
+                proto,
+                ciphers.clt_dec.0,
+                ciphers.clt_enc.0,
+            )
+            .await;
+            info!(
+                "[{}] DC{} media HTTP/2 session closed: {}",
+                label,
+                dc,
+                result.err().as_deref().unwrap_or("finished")
+            );
+        }),
         Upstream::Ws { ws, framing } => Box::pin(bridge_ws(
             reader,
             writer,
@@ -551,7 +505,7 @@ fn bridge_selected(
             },
         )),
         Upstream::Mtproto(conn) => {
-            let ConnectionCiphers {
+            let BridgeCiphers {
                 clt_dec, clt_enc, ..
             } = ciphers;
 
@@ -562,7 +516,7 @@ fn bridge_selected(
                     label,
                     rem_reader: conn.reader,
                     rem_writer: conn.writer,
-                    ciphers: ConnectionCiphers {
+                    ciphers: BridgeCiphers {
                         clt_dec,
                         clt_enc,
                         tg_enc: conn.enc,
@@ -620,7 +574,7 @@ enum WsFraming {
 struct Route<'a> {
     label: SocketAddr,
     config: &'a Config,
-    runtime: &'a Runtime,
+    runtime: &'a Arc<Runtime>,
     pool: &'a Arc<WsPool>,
     timeouts: Timeouts,
     dc: u32,
@@ -754,10 +708,17 @@ impl Route<'_> {
     /// Each tier runs with the same pool, cooldown and fronting behavior it
     /// has in the default ladder; the first tier that produces a connection
     /// wins.  A tier that is not configured — or not reachable, like `ws` for
-    /// a DC without a `--dc-ip` target — is skipped with a log line, so the
-    /// user can see the pin referring to nothing.  When every listed tier
+    /// a DC without a `--dc-ip` target — is skipped with a debug line: a pin
+    /// plus `--dc-ip` for only some DCs is an ordinary setup, and a warning
+    /// per connection would only repeat what the banner's `Target DC IPs`
+    /// already says (#160).  When every listed tier
     /// fails, the connection is dropped: pinning is opt-in, so tiers the user
     /// left out are not quietly re-added as fallbacks.
+    ///
+    /// A cooled `--dc-ip` address follows the default ladder's two-step rule
+    /// here as well: the `ws` rung steps over it while a later rung can still
+    /// connect, and comes back for it once every rung has failed — see the
+    /// ip-cooling block of `select_upstream`, which the default ladder uses.
     ///
     /// The one departure from the default cooldown behavior is on the last
     /// tier that can still connect: the Worker and upstream-MTProto rungs
@@ -771,24 +732,42 @@ impl Route<'_> {
         tiers: &[UpstreamTier],
         target_ip: Option<&str>,
     ) -> Option<Upstream> {
+        // A pinned ladder *replaces* the default one, so it has to carry the
+        // same two rules about a cooled `--dc-ip` address that `select_upstream`
+        // applies: step over it (otherwise every cold-pool client waits out
+        // `--ws-connect-timeout`, twice — once per `kws` record), and come back
+        // for it when every other pinned rung has failed.
+        let mut cooled_ws = None;
         for (index, tier) in tiers.iter().enumerate() {
             let last_resort = !self.tier_attemptable_after(tiers, index + 1, target_ip);
             match tier {
                 UpstreamTier::Ws => {
                     let Some(target_ip) = target_ip else {
-                        warn!(
+                        debug!(
                             "[{}] DC{}{} pinned ws tier has no --dc-ip target, skipping",
                             self.label, self.dc, self.media
                         );
                         continue;
                     };
+                    // Only worth skipping while a later rung can still connect;
+                    // as the last rung this address is the client's only way
+                    // out, and the doomed attempt beats dropping the client.
+                    if !last_resort && IP_FAIL.active(target_ip) {
+                        let reason = "IP in cooldown";
+                        info!(
+                            "[{}] DC{}{} {} → skipping direct WS to {}",
+                            self.label, self.dc, self.media, reason, target_ip
+                        );
+                        cooled_ws = Some(target_ip);
+                        continue;
+                    }
                     if let Some(upstream) = self.direct_ws_tier(target_ip).await {
                         return Some(upstream);
                     }
                 }
                 UpstreamTier::Cfworker => {
                     let Some(dst) = self.runtime.fallback_ip(self.dc).or(target_ip) else {
-                        warn!(
+                        debug!(
                             "[{}] DC{}{} pinned cfworker tier has no destination IP, skipping",
                             self.label, self.dc, self.media
                         );
@@ -802,11 +781,8 @@ impl Route<'_> {
                     }
                 }
                 UpstreamTier::Cfproxy => {
-                    if let Some(ws) = self.cf_proxy("pinned").await {
-                        return Some(Upstream::Ws {
-                            ws,
-                            framing: WsFraming::Packets,
-                        });
+                    if let Some(upstream) = self.cf_proxy_tier("pinned").await {
+                        return Some(upstream);
                     }
                 }
                 UpstreamTier::Mtproto => {
@@ -816,7 +792,7 @@ impl Route<'_> {
                 }
                 UpstreamTier::Tcp => {
                     let Some(dst) = self.runtime.fallback_ip(self.dc).or(target_ip) else {
-                        warn!(
+                        debug!(
                             "[{}] DC{}{} pinned tcp tier has no fallback IP, skipping",
                             self.label, self.dc, self.media
                         );
@@ -824,6 +800,21 @@ impl Route<'_> {
                     };
                     return Some(self.tcp_fallback(dst, "pinned"));
                 }
+            }
+        }
+
+        // Stepped over, not written off: a direct connect is the only thing
+        // that clears the cooldown, so something has to keep asking.  Every
+        // pinned rung has now failed, which makes this the last chance — the
+        // raw TCP rung the default ladder would leave the client on is not
+        // reached from here, a pin dials exactly what it lists.
+        if let Some(target_ip) = cooled_ws {
+            info!(
+                "[{}] DC{}{} every pinned fallback failed → re-probing {}",
+                self.label, self.dc, self.media, target_ip
+            );
+            if let Some(upstream) = self.direct_ws_tier(target_ip).await {
+                return Some(upstream);
             }
         }
 
@@ -885,10 +876,7 @@ impl Route<'_> {
             });
         }
 
-        self.cf_proxy(reason).await.map(|ws| Upstream::Ws {
-            ws,
-            framing: WsFraming::Packets,
-        })
+        self.cf_proxy_tier(reason).await
     }
 
     /// Describe the connection the pool should re-open, off the one that just
@@ -905,6 +893,12 @@ impl Route<'_> {
     /// balancing — roughly every other connection is a pool hit — so the spare
     /// is opened through the next domain in the rotation instead.
     ///
+    /// `domain` is what the pool dials as-is: the Worker's own hostname, or
+    /// for the proxy tier the expanded `kws{N}` record.  The rotation holds
+    /// bare `--cf-domain` zones, so a proxy-tier pick from it has to be
+    /// expanded the same way the inline walk does — dialled bare, it hit the
+    /// zone apex, which has no record, and every balanced spare failed (#161).
+    ///
     /// `dst` is only meaningful for [`CfTier::Worker`] — the DC IP its tunnel
     /// opens onto.
     fn cf_target(
@@ -915,13 +909,15 @@ impl Route<'_> {
         rotation: &[String],
         counter: &AtomicUsize,
     ) -> CfTarget {
-        let domain = if self.config.cf_balance {
-            domain_order(rotation, balance_offset(rotation, true, counter))
-                .next()
-                .unwrap_or(domain)
-                .to_string()
-        } else {
-            domain.to_string()
+        let next = self
+            .config
+            .cf_balance
+            .then(|| domain_order(rotation, balance_offset(rotation, true, counter)).next())
+            .flatten();
+        let domain = match (next, tier) {
+            (Some(zone), CfTier::Proxy) => cf_record(self.dc, zone),
+            (Some(worker), CfTier::Worker) => worker.to_string(),
+            (None, _) => domain.to_string(),
         };
 
         CfTarget {
@@ -1048,6 +1044,55 @@ impl Route<'_> {
         None
     }
 
+    async fn cf_proxy_tier(&self, reason: &str) -> Option<Upstream> {
+        if self.is_media
+            && !self.config.no_h2
+            && !self.config.cf_disable_tls
+            && self.runtime.fallback_ip(self.dc).is_some()
+        {
+            let first = balance_offset(
+                &self.config.cf_domains,
+                self.config.cf_balance,
+                &CF_BALANCE_COUNTER,
+            );
+            let attempt = async {
+                for zone in domain_order(&self.config.cf_domains, first) {
+                    let host = cf_record(self.dc, zone);
+                    match self
+                        .runtime
+                        .h2
+                        .open(
+                            &host,
+                            self.runtime,
+                            self.config.skip_tls_verify,
+                            self.timeouts.cf_connect,
+                        )
+                        .await
+                    {
+                        Ok(lane) => {
+                            info!(
+                                "[{}] DC{} media → CF HTTP/2 ({})",
+                                self.label, self.dc, host
+                            );
+                            return Some(Upstream::H2(lane));
+                        }
+                        Err(error) => debug!("CF HTTP/2 {}: {}", host, error),
+                    }
+                }
+                None
+            };
+            if let Ok(Some(upstream)) =
+                tokio::time::timeout(self.timeouts.cf_connect, attempt).await
+            {
+                return Some(upstream);
+            }
+        }
+        self.cf_proxy(reason).await.map(|ws| Upstream::Ws {
+            ws,
+            framing: WsFraming::Packets,
+        })
+    }
+
     /// Try the configured Cloudflare proxy domains in `--cf-balance` order.
     ///
     /// Deliberately has no per-DC cooldown, matching upstream's
@@ -1128,51 +1173,66 @@ impl Route<'_> {
 
     /// Try each configured upstream MTProto proxy in order.
     ///
-    /// `force` dials through the failure cooldown — see [`Self::cf_worker`].
+    /// A pinned last resort retries cooling proxies once every ready proxy has failed.
     async fn upstream_proxies(&self, reason: &str, force: bool) -> Option<UpstreamConnection> {
+        let mut cooling = Vec::new();
         for upstream in &self.config.mtproto_proxies {
             let key = upstream_key(&upstream.host, upstream.port);
-            if !force && UPSTREAM_FAIL.active(key.as_str()) {
-                debug!("[{}] upstream {} in cooldown, skipping", self.label, key);
+            if UPSTREAM_FAIL.active(key.as_str()) {
+                if force {
+                    cooling.push((upstream, key));
+                } else {
+                    debug!("[{}] upstream {} in cooldown, skipping", self.label, key);
+                }
                 continue;
             }
-
-            let conn = connect_mtproto_upstream(
-                upstream,
-                self.dc_idx,
-                self.proto,
-                self.timeouts.upstream_connect,
-                self.runtime.outbound(),
-            )
-            .await;
-
-            match conn {
-                Some(conn) => {
-                    UPSTREAM_FAIL.clear(key.as_str());
-                    info!(
-                        "[{}] DC{}{} {} → upstream {} MTProto {}",
-                        self.label,
-                        self.dc,
-                        self.media,
-                        reason,
-                        if conn.faketls { "FakeTLS" } else { "plain" },
-                        key
-                    );
-                    return Some(conn);
-                }
-                None => {
-                    UPSTREAM_FAIL.set(key.clone(), self.timeouts.upstream_fail_cooldown);
-                    warn!(
-                        "[{}] upstream {} failed, cooldown {}s",
-                        self.label,
-                        key,
-                        self.timeouts.upstream_fail_cooldown.as_secs()
-                    );
-                }
+            if let Some(conn) = self.dial_upstream_proxy(upstream, key, reason).await {
+                return Some(conn);
             }
         }
-
+        for (upstream, key) in cooling {
+            if let Some(conn) = self.dial_upstream_proxy(upstream, key, reason).await {
+                return Some(conn);
+            }
+        }
         None
+    }
+
+    async fn dial_upstream_proxy(
+        &self,
+        upstream: &MtProtoProxy,
+        key: String,
+        reason: &str,
+    ) -> Option<UpstreamConnection> {
+        let conn = connect_mtproto_upstream(
+            upstream,
+            self.dc_idx,
+            self.proto,
+            self.timeouts.upstream_connect,
+            self.runtime.outbound(),
+        )
+        .await;
+        if let Some(conn) = &conn {
+            UPSTREAM_FAIL.clear(key.as_str());
+            info!(
+                "[{}] DC{}{} {} → upstream {} MTProto {}",
+                self.label,
+                self.dc,
+                self.media,
+                reason,
+                if conn.faketls { "FakeTLS" } else { "plain" },
+                key
+            );
+        } else {
+            warn!(
+                "[{}] upstream {} failed, cooldown {}s",
+                self.label,
+                key,
+                self.timeouts.upstream_fail_cooldown.as_secs()
+            );
+            UPSTREAM_FAIL.set(key, self.timeouts.upstream_fail_cooldown);
+        }
+        conn
     }
 
     /// Open a fresh direct WebSocket to `target_ip`, always fronted when
@@ -1275,7 +1335,8 @@ impl Route<'_> {
         }
     }
 
-    /// Back off from a target IP whose TCP connect timed out.
+    /// Back off from a target IP whose TCP connect timed out, leaving an
+    /// [`IpProbe`] to decide when it comes back.
     ///
     /// Recorded even with no fallback tier configured, where nothing will skip
     /// the address: the pool reads the same cooldown to stop pre-connecting
@@ -1283,7 +1344,16 @@ impl Route<'_> {
     /// where the skipping decision — the part that does need a fallback — is
     /// made.
     fn cool_down_ip(&self, target_ip: &str) {
-        IP_FAIL.set(target_ip.to_string(), self.timeouts.ip_fail_cooldown);
+        IpProbe {
+            runtime: Arc::clone(self.runtime),
+            ip: target_ip.to_string(),
+            dc: self.dc,
+            is_media: self.is_media,
+            skip_tls_verify: self.config.skip_tls_verify,
+            connect_timeout: self.timeouts.ws_connect,
+            cooldown: self.timeouts.ip_fail_cooldown,
+        }
+        .arm();
         info!(
             "[{}] DC{}{} TCP to {} timed out, cooldown {}s",
             self.label,
@@ -1330,7 +1400,7 @@ struct WsBridgeParams {
     ws: TgWsStream,
     framing: WsFraming,
     relay_init: [u8; 64],
-    ciphers: ConnectionCiphers,
+    ciphers: BridgeCiphers,
     proto: ProtoTag,
     dc: u32,
     is_media: bool,
@@ -1348,7 +1418,7 @@ async fn bridge_ws(reader: ClientReader, writer: ClientWriter, params: WsBridgeP
         is_media,
     } = params;
 
-    let ConnectionCiphers {
+    let BridgeCiphers {
         mut clt_dec,
         mut clt_enc,
         mut tg_enc,
@@ -1540,7 +1610,10 @@ async fn connect_mtproto_upstream(
     }
 
     // Drain the server's fake TLS handshake response.
-    if !drain_faketls_server_hello(&mut reader).await {
+    if !matches!(
+        tokio::time::timeout(timeout, drain_faketls_server_hello(&mut reader)).await,
+        Ok(true)
+    ) {
         warn!(
             "[upstream] {}:{} FakeTLS server handshake failed",
             host, port
@@ -1548,8 +1621,7 @@ async fn connect_mtproto_upstream(
         return None;
     }
 
-    // Send the 64-byte MTProto init as the first Application Data record.
-    if let Err(e) = write_tls_appdata(&mut writer, &handshake).await {
+    if let Err(e) = write_tls_client_init(&mut writer, &handshake).await {
         warn!(
             "[upstream] {}:{} FakeTLS send MTProto init error: {}",
             host, port, e
@@ -1583,7 +1655,7 @@ struct RelayParams {
     label: SocketAddr,
     rem_reader: TcpReader,
     rem_writer: TcpWriter,
-    ciphers: ConnectionCiphers,
+    ciphers: BridgeCiphers,
     faketls: bool,
     dc: u32,
     is_media: bool,
@@ -1600,7 +1672,7 @@ async fn bridge_relay(reader: ClientReader, writer: ClientWriter, params: RelayP
         is_media,
     } = params;
 
-    let ConnectionCiphers {
+    let BridgeCiphers {
         mut clt_dec,
         mut clt_enc,
         mut tg_enc,
@@ -1706,7 +1778,7 @@ struct TcpBridgeParams<'a> {
     label: SocketAddr,
     dst: &'a str,
     relay_init: &'a [u8; 64],
-    ciphers: ConnectionCiphers,
+    ciphers: BridgeCiphers,
     dc: u32,
     is_media: bool,
     connect_timeout: Duration,
@@ -1729,24 +1801,10 @@ async fn bridge_tcp(
         runtime,
     } = params;
 
-    // Fast-drop while this DC address is in its TCP cooldown: a SYN-blocked IP
-    // answers nothing, and re-paying the connect timeout on every client is the
-    // storm. Expiry re-probes it, so recovery is automatic.
-    if TCP_FALLBACK_FAIL.active(dst) {
-        warn!("[{}] TCP fallback {} in cooldown — dropping fast", label, dst);
-        return;
-    }
-
     let remote = match runtime.outbound().connect(dst, 443, connect_timeout).await {
-        Ok(s) => {
-            TCP_FALLBACK_FAIL.clear(dst);
-            s
-        }
+        Ok(s) => s,
         Err(e) => {
             warn!("[{}] TCP fallback connect failed: {}", label, e);
-            if e.timed_out {
-                TCP_FALLBACK_FAIL.set(dst.to_string(), TCP_FALLBACK_COOLDOWN);
-            }
             return;
         }
     };
@@ -1760,7 +1818,7 @@ async fn bridge_tcp(
         return;
     }
 
-    let ConnectionCiphers {
+    let BridgeCiphers {
         mut clt_dec,
         mut clt_enc,
         mut tg_enc,
@@ -1834,20 +1892,21 @@ async fn bridge_tcp(
 /// Joining both directions instead left zombie connections behind that
 /// exhausted the file-descriptor limit.
 ///
-async fn join_bridge<D>(mut upload: JoinHandle<()>, download: D) -> ClosedBy
+async fn join_bridge<D>(upload: JoinHandle<()>, download: D) -> ClosedBy
 where
     D: Future<Output = ()>,
 {
+    let mut upload = AbortOnDrop(upload);
     tokio::pin!(download);
 
     tokio::select! {
-        _ = &mut upload => {
+        _ = &mut upload.0 => {
             // The upload direction only ends when the client stops sending.
             ClosedBy::Client
         }
         _ = &mut download => {
-            upload.abort();
-            let _ = upload.await;
+            upload.0.abort();
+            let _ = (&mut upload.0).await;
             ClosedBy::Upstream
         }
     }
@@ -1919,27 +1978,6 @@ fn log_session_closed(
         human_bytes(bytes_down),
         start.elapsed().as_secs_f32()
     );
-}
-
-async fn read_inbound_handshake(
-    label: SocketAddr,
-    reader: &mut TcpReader,
-    writer: &mut TcpWriter,
-    secrets: &[Vec<u8>],
-    faketls_domain: Option<&str>,
-) -> Option<([u8; 64], PendingData)> {
-    if let Some(domain) = faketls_domain {
-        return accept_inbound_faketls(label, reader, writer, secrets, domain).await;
-    }
-
-    let mut handshake_buf = [0u8; 64];
-    match reader.read_exact(&mut handshake_buf).await {
-        Ok(_) => Some((handshake_buf, PendingData::default())),
-        Err(e) => {
-            debug!("[{}] read handshake: {}", label, e);
-            None
-        }
-    }
 }
 
 pub fn split_mtproto_init_and_pending(data: &[u8]) -> Option<([u8; 64], Vec<u8>)> {

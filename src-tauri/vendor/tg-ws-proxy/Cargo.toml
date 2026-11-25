@@ -1,6 +1,6 @@
 [package]
 name = "tg-ws-proxy-rs"
-version = "2.5.4"
+version = "2.7.2"
 edition = "2024"
 description = "Telegram MTProto WebSocket Bridge Proxy — Rust port of Flowseal/tg-ws-proxy"
 license = "MIT"
@@ -11,7 +11,14 @@ documentation = "https://docs.rs/tg-ws-proxy-rs"
 keywords = ["telegram", "mtproto", "websocket", "proxy", "rust"]
 categories = ["network-programming", "command-line-utilities"]
 
+
 [dependencies]
+# Multiplexed Cloudflare media requests.
+h2 = "0.4"
+http = "1"
+bytes = "1"
+socket2 = { version = "0.6", features = ["all"] }
+
 # Async runtime
 # Only the features actually reached from src/ and tests/. `full` additionally
 # pulls in fs/process/signal; LTO strips the unused code either way (~16 KB), so

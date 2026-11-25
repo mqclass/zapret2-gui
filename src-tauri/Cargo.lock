@@ -1705,6 +1705,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "h2"
+version = "0.4.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b634322c4924093fe6a6e05ecbe5717cd3c6014934455f4ae8e5cf14ba3264a8"
+dependencies = [
+ "atomic-waker",
+ "bytes",
+ "fnv",
+ "futures-core",
+ "futures-sink",
+ "http",
+ "indexmap 2.14.2",
+ "slab",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4553,16 +4572,19 @@ dependencies = [
 
 [[package]]
 name = "tg-ws-proxy-rs"
-version = "2.5.4"
+version = "2.7.2"
 dependencies = [
  "aes",
  "async-http-proxy",
+ "bytes",
  "cipher",
  "clap",
  "ctr",
  "futures-util",
+ "h2",
  "hex",
  "hmac",
+ "http",
  "httparse",
  "ipnet",
  "percent-encoding",
@@ -4570,6 +4592,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "sha2",
+ "socket2",
  "tokio",
  "tokio-rustls",
  "tokio-socks",
@@ -4751,6 +4774,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "libc",
  "pin-project-lite",
  "tokio",
 ]
