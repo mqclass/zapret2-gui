@@ -37,9 +37,9 @@ $RequiredFiles = @("winws2.exe", "winws.exe", "WinDivert.dll", "WinDivert64.sys"
 # ==============================================================================
 $UpstreamPins = @{
     "zapret2" = @{
-        Label  = "bol-van/zapret2 v1.0.7"
-        Url    = "https://github.com/bol-van/zapret2/releases/download/v1.0.7/zapret2-v1.0.7.zip"
-        Sha256 = "35e14e4e1f345b870c3b87269fa45353efd597241a25304d38375c46b9fd2967"
+        Label  = "bol-van/zapret2 v1.0.8"
+        Url    = "https://github.com/bol-van/zapret2/releases/download/v1.0.8/zapret2-v1.0.8.zip"
+        Sha256 = "f2b84934a72536ec0ab4fdf71881a7d596ba67aef3f241dc8c9bc6260e534dd2"
     }
     "flowseal" = @{
         Label  = "Flowseal/zapret-discord-youtube 1.10.4"
@@ -112,8 +112,8 @@ $NeedsZapret2 = (-not (Test-Path (Join-Path $BinDir "winws2.exe"))) -or
 if ($NeedsZapret2) {
     $Pin = $UpstreamPins["zapret2"]
     Write-Host ("==> Downloading {0} from GitHub..." -f $Pin.Label) -ForegroundColor Cyan
-    $Z2Zip = Join-Path $env:TEMP "zapret2-v1.0.7.zip"
-    $Z2Dir = Join-Path $env:TEMP "zapret2-v1.0.7-extracted"
+    $Z2Zip = Join-Path $env:TEMP "zapret2-v1.0.8.zip"
+    $Z2Dir = Join-Path $env:TEMP "zapret2-v1.0.8-extracted"
 
     Invoke-WebRequest -Uri $Pin.Url -OutFile $Z2Zip
     Test-PinnedHash -Path $Z2Zip -ExpectedSha256 $Pin.Sha256 -Label $Pin.Label
