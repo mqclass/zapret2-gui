@@ -111,6 +111,19 @@ fn domain_covered_by(entry: &str, set: &std::collections::HashSet<String>) -> bo
     }
 }
 
+/// True when an engine stderr line reports the FWP_E_IN_USE variant of the
+/// WinDivert open-filter failure: the driver loaded, but registering its
+/// WFP callouts was refused because the objects are referenced elsewhere.
+/// The engine formats the Win32 error in English
+/// ("The object is referenced by other objects so cannot be deleted"), so
+/// the match is on that stable text. A running game's anti-cheat is the
+/// known blocker; unlike a stale driver, a recovery restart cannot help.
+fn is_windivert_in_use_line(lowered: &str) -> bool {
+    lowered.contains("windivert")
+        && lowered.contains("error opening filter")
+        && lowered.contains("referenced by other objects")
+}
+
 /// True when `entry` is an IP literal (IPv4 or IPv6), not a domain.
 /// The engine's `--hostlist-auto` learner records whatever identifier it
 /// saw on a failed connection — for SNI-less or raw-IP flows (QUIC probes,
@@ -383,6 +396,12 @@ pub struct Supervisor {
     /// Set by the stderr reader when the child reports a WinDivert open-filter
     /// failure; reset on every start attempt. Read by the monitor task.
     windivert_open_error: Arc<AtomicBool>,
+    /// Set by the stderr reader when the open-filter failure is
+    /// FWP_E_IN_USE (the driver registration is blocked, e.g. by a running
+    /// game's anti-cheat); reset on every start attempt. The monitor task
+    /// skips the recovery restart for this mode: retrying cannot help while
+    /// the blocker stays active.
+    windivert_in_use_error: Arc<AtomicBool>,
     /// Whether the one-shot WinDivert recovery restart already ran for the
     /// current user-initiated start. Re-armed by user starts only, after the
     /// early-return checks in start_inner; never by the recovery restart
@@ -435,6 +454,7 @@ impl Supervisor {
             app_split_launch: Arc::new(RwLock::new(AppSplitLaunchState::default())),
             split_tunnel_launch: Arc::new(RwLock::new(None)),
             windivert_open_error: Arc::new(AtomicBool::new(false)),
+            windivert_in_use_error: Arc::new(AtomicBool::new(false)),
             windivert_recovery_done: Arc::new(AtomicBool::new(false)),
             last_start_params: Arc::new(RwLock::new((None, None))),
             generation: Arc::new(RwLock::new(0)),
@@ -815,6 +835,8 @@ impl Supervisor {
         // WinDivert signature, and remember the params for a possible
         // recovery restart.
         self.windivert_open_error
+            .store(false, Ordering::SeqCst);
+        self.windivert_in_use_error
             .store(false, Ordering::SeqCst);
         *self.last_engine_error.write() = None;
         *self.last_start_params.write() = (strategy_id.clone(), custom_args.clone());
@@ -1373,6 +1395,7 @@ impl Supervisor {
         let log_tx_stderr = self.log_tx.clone();
         let file_logger_stderr = self.file_logger.clone();
         let windivert_open_error = self.windivert_open_error.clone();
+        let windivert_in_use_error = self.windivert_in_use_error.clone();
         if let Some(stderr_stream) = stderr {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_stream).lines();
@@ -1381,7 +1404,13 @@ impl Supervisor {
                     // opened (held by another bypass tool, or its service
                     // registration is broken). The monitor task pairs this
                     // flag with the exit code to tell the two modes apart.
+                    // The FWP_E_IN_USE variant (registration blocked, e.g.
+                    // by a game's anti-cheat) is stored first, so a monitor
+                    // that sees the open-error flag also sees this one.
                     let lowered = line.to_lowercase();
+                    if is_windivert_in_use_line(&lowered) {
+                        windivert_in_use_error.store(true, Ordering::SeqCst);
+                    }
                     if lowered.contains("windivert")
                         && lowered.contains("error opening filter")
                     {
@@ -1467,6 +1496,10 @@ impl Supervisor {
                 // exit code tells the two failure modes apart.
                 // - Exit 10: the driver is held by another bypass tool (or
                 //   left stale); one recovery restart may shake it loose.
+                //   The FWP_E_IN_USE variant (stderr carries the
+                //   "referenced by other objects" text) is different: the
+                //   driver loaded, but a running game's anti-cheat blocks
+                //   its WFP registration, and retrying cannot help.
                 // - Any other code (177 today: the driver SERVICE cannot
                 //   start at all — disabled, or its binary path points at a
                 //   deleted folder): restarting changes nothing, the
@@ -1519,7 +1552,22 @@ impl Supervisor {
                     );
                 }
                 if windivert_signature && status.code() == Some(10) && !superseded {
-                    if !supervisor_clone
+                    if supervisor_clone
+                        .windivert_in_use_error
+                        .load(Ordering::SeqCst)
+                    {
+                        // FWP_E_IN_USE: the driver loaded, but registering
+                        // its WFP callouts was refused - the known blocker
+                        // is a running game's anti-cheat. A recovery
+                        // restart cannot help while it stays active, so
+                        // surface the honest banner at once.
+                        *supervisor_clone.last_engine_error.write() =
+                            Some("windivert_in_use".to_string());
+                        supervisor_clone.log(
+                            "error",
+                            "WinDivert filter open failed (exit code 10): the driver registration is blocked (FWP_E_IN_USE), likely by a running game's anti-cheat.",
+                        );
+                    } else if !supervisor_clone
                         .windivert_recovery_done
                         .swap(true, Ordering::SeqCst)
                     {
@@ -3301,6 +3349,27 @@ impl Supervisor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_windivert_in_use_line_classification() {
+        // The exact engine line for FWP_E_IN_USE (FormatMessageA, English).
+        assert!(is_windivert_in_use_line(
+            "windivert: error opening filter: the object is referenced by other objects so cannot be deleted."
+        ));
+        // Other open-filter failures are not the in-use variant.
+        assert!(!is_windivert_in_use_line(
+            "windivert: error opening filter: access is denied."
+        ));
+        assert!(!is_windivert_in_use_line(
+            "windivert: error opening filter: the system cannot find the file specified."
+        ));
+        // Unrelated lines never match.
+        assert!(!is_windivert_in_use_line("windivert initialized. capture is started."));
+        assert!(!is_windivert_in_use_line("referenced by other objects"));
+        assert!(!is_windivert_in_use_line(
+            "error opening filter: the object is referenced by other objects so cannot be deleted."
+        ));
+    }
 
     #[test]
     fn test_strict_split_tunnel_must_preserve_wf_filters() {

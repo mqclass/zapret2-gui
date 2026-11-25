@@ -187,6 +187,10 @@ const RULES: Rule[] = [
     render: (_m, { t }) => t.diagTab.logHuman.windivertConflictRetry,
   },
   {
+    match: /^WinDivert filter open failed \(exit code 10\): the driver registration is blocked/,
+    render: (_m, { t }) => t.diagTab.logHuman.windivertInUseFailed,
+  },
+  {
     match: /^WinDivert filter open failed \(exit code 10\):/,
     render: (_m, { t }) => t.diagTab.logHuman.windivertFilterFailed,
   },

@@ -282,6 +282,26 @@ export const DashboardView: React.FC<DashboardViewProps> = React.memo(
               </div>
             </div>
           )}
+        {/* WinDivert in use: the engine died with exit code 10 and the
+            FWP_E_IN_USE signature - a running game's anti-cheat blocks
+            the driver registration. No recovery restart was attempted;
+            shown until the next successful start clears it. */}
+        {status.last_engine_error === "windivert_in_use" &&
+          status.state !== "running" && (
+            <div className="rounded-panel border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200 backdrop-blur-md">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+                <div className="text-xs">
+                  <div className="font-semibold text-amber-100">
+                    {t.dashboard.windivertInUseTitle}
+                  </div>
+                  <div className="mt-0.5 leading-relaxed">
+                    {t.dashboard.windivertInUseBody}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         {/* WinDivert driver broken: the engine died with exit code 177
             because the driver service is disabled or points at a deleted
             folder. One-click repair; the result line comes from the backend

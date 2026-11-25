@@ -124,6 +124,7 @@ export interface Translations {
       launchRetry: string;
       windivertConflictRetry: string;
       windivertFilterFailed: string;
+      windivertInUseFailed: string;
       recoveryFailed: string;
       autoHostlistCleanupFailed: string;
       binariesNotFound: string;
@@ -781,6 +782,8 @@ export interface Translations {
     pleaseWait: string;
     windivertConflictTitle: string;
     windivertConflictBody: string;
+    windivertInUseTitle: string;
+    windivertInUseBody: string;
     windivertDriverTitle: string;
     windivertDriverFixedTitle: string;
     windivertDriverBody: string;
