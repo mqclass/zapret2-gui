@@ -13,14 +13,16 @@ use serde::{Deserialize, Serialize};
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::{
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_MARKED_FOR_DELETE,
+};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::Services::{
     CloseServiceHandle, ControlService, OpenSCManagerW, OpenServiceW, QueryServiceStatus,
     SC_MANAGER_CONNECT, SERVICE_CONTROL_STOP, SERVICE_QUERY_STATUS, SERVICE_RUNNING,
-    SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STOP,
+    SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STOP, SERVICE_STOPPED, SERVICE_STOP_PENDING,
 };
 use windows::Win32::System::Threading::{
     OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
@@ -127,22 +129,43 @@ pub fn scan_conflicts_excluding(active_pid: Option<u32>) -> Vec<ConflictItem> {
     conflicts
 }
 
-/// Checks if a Windows service is currently running using native in-process Win32 API.
-/// Never spawns external command prompt processes or flashes console windows.
-pub fn is_service_running(svc_name: &str) -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceState {
+    Stopped,
+    StartPending,
+    StopPending,
+    Running,
+    NotFound,
+    AccessDenied,
+    Unknown,
+}
+
+fn service_error_state(code: i32) -> ServiceState {
+    let code = (code as u32) & 0xFFFF;
+    if code == ERROR_SERVICE_DOES_NOT_EXIST.0 || code == ERROR_SERVICE_MARKED_FOR_DELETE.0 {
+        ServiceState::NotFound
+    } else if code == ERROR_ACCESS_DENIED.0 {
+        ServiceState::AccessDenied
+    } else {
+        ServiceState::Unknown
+    }
+}
+
+/// Reads the SCM state without treating permission errors or STOP_PENDING as stopped.
+pub fn service_state(svc_name: &str) -> ServiceState {
     let svc_utf16: Vec<u16> = svc_name.encode_utf16().chain(std::iter::once(0)).collect();
 
     unsafe {
         let scm = match OpenSCManagerW(None, None, SC_MANAGER_CONNECT) {
             Ok(handle) => handle,
-            Err(_) => return false,
+            Err(e) => return service_error_state(e.code().0),
         };
 
         let service = match OpenServiceW(scm, PCWSTR(svc_utf16.as_ptr()), SERVICE_QUERY_STATUS) {
             Ok(handle) => handle,
-            Err(_) => {
+            Err(e) => {
                 let _ = CloseServiceHandle(scm);
-                return false;
+                return service_error_state(e.code().0);
             }
         };
 
@@ -152,12 +175,26 @@ pub fn is_service_running(svc_name: &str) -> bool {
         let _ = CloseServiceHandle(service);
         let _ = CloseServiceHandle(scm);
 
-        if res.is_ok() {
-            status.dwCurrentState == SERVICE_RUNNING || status.dwCurrentState == SERVICE_START_PENDING
-        } else {
-            false
+        if let Err(e) = res {
+            return service_error_state(e.code().0);
+        }
+
+        match status.dwCurrentState {
+            SERVICE_STOPPED => ServiceState::Stopped,
+            SERVICE_START_PENDING => ServiceState::StartPending,
+            SERVICE_STOP_PENDING => ServiceState::StopPending,
+            SERVICE_RUNNING => ServiceState::Running,
+            _ => ServiceState::Unknown,
         }
     }
+}
+
+/// Checks if a Windows service is active, including a stop already in progress.
+pub fn is_service_running(svc_name: &str) -> bool {
+    matches!(
+        service_state(svc_name),
+        ServiceState::Running | ServiceState::StartPending | ServiceState::StopPending
+    )
 }
 
 /// Gracefully stops a running Windows service using native Win32 Service API.
@@ -283,4 +320,26 @@ pub fn resolve_all_conflicts_excluding(active_pid: Option<u32>) -> Result<usize,
         .output();
 
     Ok(resolved_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn service_errors_unwrap_hresult_and_accept_deleted_services() {
+        assert_eq!(
+            service_error_state(0x80070424_u32 as i32),
+            ServiceState::NotFound
+        );
+        assert_eq!(
+            service_error_state(0x80070430_u32 as i32),
+            ServiceState::NotFound
+        );
+        assert_eq!(
+            service_error_state(0x80070005_u32 as i32),
+            ServiceState::AccessDenied
+        );
+        assert_eq!(service_error_state(0x80070001_u32 as i32), ServiceState::Unknown);
+    }
 }

@@ -25,8 +25,8 @@ import { QRCodeSVG } from "qrcode.react";
 interface TelegramViewProps {
   /** Redesign stage 4: "simple" is one compact card (status + connect);
       "full" is the pre-redesign view, shown in expert mode. */
-  variant?: "simple" | "full";
-  logs: LogEntry[];
+  variant?: "simple" | "full" | "dashboard";
+  logs?: LogEntry[];
   /** Switch the shell to expert mode (simple card's "settings" action). */
   onShowExpert?: () => void;
 }
@@ -54,7 +54,7 @@ const formatUptime = (secs: number, h: string, m: string, s: string) => {
   return `${sec}${s}`;
 };
 
-export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ variant = "full", logs, onShowExpert }) => {
+export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ variant = "full", logs = [], onShowExpert }) => {
   const { t } = useI18n();
   const [status, setStatus] = useState<TgProxyStatus | null>(null);
   const [busy, setBusy] = useState<BusyKind>("idle");
@@ -363,6 +363,68 @@ export const TelegramView: React.FC<TelegramViewProps> = React.memo(({ variant =
         )}
     </>
   );
+
+  if (variant === "dashboard") {
+    return (
+      <div className="t-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-9 w-9 min-w-[36px] max-w-[36px] aspect-square shrink-0 items-center justify-center rounded-panel bg-accent-wash text-accent border border-accent-line">
+            <Send className="h-4 w-4 shrink-0" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-xs font-semibold text-ink truncate">{t.telegram.title}</h3>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <span
+                className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase shrink-0 ${pillClass}`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    isRunning
+                      ? "bg-accent"
+                      : isTransitioning
+                      ? "bg-ink3 animate-pulse"
+                      : isError
+                      ? "bg-ink2"
+                      : "bg-ink5"
+                  }`}
+                />
+                {stateLabel}
+              </span>
+              {isRunning && (status?.uptime_secs ?? 0) > 0 && (
+                <span className="text-[11px] font-mono text-ink4">
+                  {formatUptime(
+                    status?.uptime_secs ?? 0,
+                    t.telegram.uptimeH,
+                    t.telegram.uptimeM,
+                    t.telegram.uptimeS
+                  )}
+                </span>
+              )}
+            </div>
+            {(error || status?.last_error) && (
+              <p className="text-[11px] text-rose-300 truncate mt-1" title={error ?? status?.last_error ?? ""}>
+                {error ?? status?.last_error}
+              </p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={handleToggle}
+          disabled={!status || busy !== "idle"}
+          className={`t-btn shrink-0 ${isRunning ? "t-btn-danger" : "t-btn-primary"}`}
+        >
+          {busy === "toggle" ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : isRunning ? (
+            <Square className="h-4 w-4" />
+          ) : (
+            <Play className="h-4 w-4" />
+          )}
+          {isRunning ? t.telegram.disable : t.telegram.enable}
+        </button>
+      </div>
+    );
+  }
 
   // Redesign stage 4, simple view: one compact card — bridge status
   // and the connect action — plus the functional banners above.

@@ -16,10 +16,9 @@ interface HeroOrbProps {
 /**
  * Sun disc — the primary control (theme/sun variant).
  *
- * The orb is a sun: off = night (dark disc, faint warm rim, quiet
- * breathing), connecting = dawn (spinning gold ring), on = sunrise
- * (radiant golden disc, warm glow). The icon sits dark on gold when
- * the sun is up.
+ * The orb is a sun: off = night (dark disc, faint warm rim, static),
+ * connecting = dawn (spinning gold ring), on = sunrise (radiant golden
+ * disc, warm glow). The icon sits dark on gold when the sun is up.
  *
  * Spring physics on press (stiffness 380, damping 28).
  */
@@ -54,7 +53,7 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
     const disc =
       state === "connected"
         ? "border-orange-200/50 bg-[radial-gradient(circle_at_50%_38%,#fde68a_0%,#fbbf24_35%,#f97316_65%,#e2342a_100%)] shadow-[0_0_44px_rgba(249,115,22,0.45),0_0_90px_rgba(226,52,42,0.18),inset_0_1px_0_rgba(255,255,255,0.35)]"
-        : "border-orange-200/[0.14] bg-white/[0.03] backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors duration-500 group-hover:border-orange-200/[0.25]";
+        : "border-orange-200/[0.14] bg-white/[0.03] shadow-[0_8px_40px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors duration-500 group-hover:border-orange-200/[0.25]";
 
     const iconClass = compact ? "h-9 w-9" : "h-11 w-11";
     const icon =
@@ -83,9 +82,7 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
         >
           {/* halo */}
           <span
-            className={`absolute inset-0 rounded-full blur-2xl transition-colors duration-700 ${halo} ${
-              state === "idle" ? "orb-breathe" : ""
-            }`}
+            className={`absolute inset-0 rounded-full blur-2xl transition-colors duration-700 ${halo}`}
           />
           {/* shockwave on connect */}
           {state === "connected" && shockKey > 0 && (
@@ -133,8 +130,6 @@ export const HeroOrb: React.FC<HeroOrbProps> = React.memo(
           )}
           {/* rotating ring while connecting */}
           {state === "connecting" && <span className="orb-ring" />}
-          {/* slow aurora ring while idle — quiet sign of life */}
-          {state === "idle" && <span className="orb-ring-idle" />}
           {/* sun disc */}
           <span className={`absolute inset-0 rounded-full border ${disc}`}>
             {/* icon — crossfades between states. Both the exiting and the

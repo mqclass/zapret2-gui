@@ -711,7 +711,7 @@ impl Supervisor {
                         // under the lock, and every spawn stores its child
                         // under this same lock, so exclude=None is safe.
                         let _ = kill_stray_winws2_processes(None);
-                        cleanup_windivert_driver().await;
+                        let _ = cleanup_windivert_driver().await;
                         if *worker.generation.read() != generation {
                             continue;
                         }
@@ -1328,7 +1328,7 @@ impl Supervisor {
                     &format!("Direct launch encountered contention ({}), executing driver cleanup retry...", first_err),
                 );
                 let _ = kill_stray_winws2_processes(None);
-                cleanup_windivert_driver().await;
+                let _ = cleanup_windivert_driver().await;
 
                 match spawn_process(
                     &target_exe,
@@ -1620,7 +1620,7 @@ impl Supervisor {
                 // opening the driver).
                 if !recovery_requested && !superseded {
                     tokio::spawn(async {
-                        cleanup_windivert_driver().await;
+                        let _ = cleanup_windivert_driver().await;
                     });
                 }
 
@@ -1662,15 +1662,33 @@ impl Supervisor {
         self.log("info", "Initiating shutdown of bypass engine...");
 
         let maybe_child = self.active_child.lock().take();
-        if let Some(mut child) = maybe_child {
-            if let Some(pid_val) = pid {
+        let mut child_to_restore = None;
+        let stop_result = if let Some(mut child) = maybe_child {
+            let result = if let Some(pid_val) = pid {
                 self.log("info", &format!("Executing shutdown protocol on PID {}", pid_val));
-                let _ = stop_winws2_gracefully(&mut child, &self.job_object).await;
+                stop_winws2_gracefully(&mut child, &self.job_object).await
+            } else {
+                Ok(())
+            };
+            if result.is_err() {
+                child_to_restore = Some(child);
             }
+            result
+        } else {
+            Ok(())
+        };
+        if let Some(child) = child_to_restore {
+            *self.active_child.lock() = Some(child);
+        }
+        if let Err(e) = stop_result {
+            self.log("error", &format!("Engine shutdown failed: {e}"));
+            *self.state.write() = SupervisorState::Error;
+            self.emit_state_change(SupervisorState::Error);
+            return Err(e);
         }
 
-        // Clean WinDivert driver service registrations to guarantee clean kernel state
-        cleanup_windivert_driver().await;
+        // Clean WinDivert only after the engine process has exited.
+        let _ = cleanup_windivert_driver().await;
 
         // Linux: remove our nftables table so no queue rules outlive
         // the stopped engine. The rules carry the bypass verdict, so a

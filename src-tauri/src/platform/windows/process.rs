@@ -19,22 +19,23 @@ use thiserror::Error;
 use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::time::timeout;
 
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::Threading::{
-    GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW, TerminateProcess,
-    PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject,
+    PROCESS_ACCESS_RIGHTS, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 use windows::core::PWSTR;
 
-use crate::platform::conflicts::stop_service_native;
+use crate::platform::conflicts::{service_state, stop_service_native, ServiceState};
 use crate::platform::job_object::{JobObject, JobObjectError};
 
 /// Creation flags for spawning detached Windows background process groups
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const SYNCHRONIZE: PROCESS_ACCESS_RIGHTS = PROCESS_ACCESS_RIGHTS(0x00100000);
 
 /// Errors arising during binary discovery, process lifecycle, or WinDivert manipulation.
 #[allow(dead_code)]
@@ -545,52 +546,104 @@ pub async fn stop_winws2_gracefully(
     child: &mut Child,
     job: &JobObject,
 ) -> Result<(), ProcessError> {
-    let _ = child.kill().await;
-    // Give the process a moment to exit so WinDivert handles are released
-    // before the Job Object teardown below.
-    let _ = timeout(Duration::from_secs(5), child.wait()).await;
-    let _ = job.terminate(1);
+    child.kill().await.map_err(ProcessError::Io)?;
+    // The driver must not be stopped until the engine has actually exited and
+    // released its WinDivert handles.
+    match timeout(Duration::from_secs(5), child.wait()).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => return Err(ProcessError::Io(e)),
+        Err(_) => {
+            let _ = job.terminate(1);
+            return Err(ProcessError::Io(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "winws did not exit within 5 seconds",
+            )));
+        }
+    }
+    job.terminate(1)?;
     Ok(())
 }
 
-/// Purges stuck WinDivert driver services natively and quietly.
-///
-/// Verifies the teardown actually took: after the Service Control Manager
-/// stop we re-query the service state and, if it is still reported as
-/// running/pending, retry once through `net stop` / `sc stop` before giving
-/// up. A one-shot best-effort stop that silently failed is exactly the
-/// "engine says stopped, but WFP driver still holds the filter" state that
-/// outlives reboots and makes a disabled bypass keep intercepting traffic.
-pub async fn cleanup_windivert_driver() {
+/// Stops every WinDivert service variant and confirms the final SCM state.
+pub async fn cleanup_windivert_driver() -> Result<(), String> {
     // "Monkey" is the hidden driver's service name: a stale Monkey
     // registration from a previous mode must be stopped the same way,
     // or it keeps the device object and the stock driver cannot load.
     let service_names = ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"];
+    let mut errors = Vec::new();
 
-    for name in &service_names {
-        stop_service_native(name);
-        let _ = Command::new(crate::platform::system32("sc.exe"))
-            .args(["stop", name])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .await;
-        // Retry once: the first attempt can race a START_PENDING transition.
-        if crate::platform::conflicts::is_service_running(name) {
-            let _ = Command::new(crate::platform::system32("net.exe"))
-                .args(["stop", name, "/y"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-                .await;
-            let _ = Command::new(crate::platform::system32("sc.exe"))
-                .args(["stop", name])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-                .await;
-            // Bounded wait so the SCM stop request can take effect before we
-            // move on; a service still running after this point is given up
-            // on, as documented above.
-            let _ = tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    for name in service_names {
+        if let Err(e) = stop_windivert_service(name).await {
+            errors.push(format!("{name}: {e}"));
         }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+async fn run_service_command(exe: &str, args: &[&str]) {
+    let mut cmd = Command::new(crate::platform::system32(exe));
+    cmd.args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .kill_on_drop(true);
+    let _ = timeout(Duration::from_secs(2), cmd.output()).await;
+}
+
+async fn wait_for_service_stop(name: &str, deadline: std::time::Instant) -> ServiceState {
+    loop {
+        let state = service_state(name);
+        if matches!(
+            state,
+            ServiceState::Stopped
+                | ServiceState::NotFound
+                | ServiceState::AccessDenied
+                | ServiceState::Unknown
+        ) || std::time::Instant::now() >= deadline
+        {
+            return state;
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+}
+
+async fn stop_windivert_service(name: &str) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
+    let first_wait_deadline = (std::time::Instant::now() + Duration::from_secs(4)).min(deadline);
+
+    match service_state(name) {
+        ServiceState::Stopped | ServiceState::NotFound => return Ok(()),
+        ServiceState::AccessDenied => return Err("access denied while querying SCM".into()),
+        ServiceState::StopPending => {}
+        ServiceState::Running | ServiceState::StartPending => {
+            if !stop_service_native(name) {
+                run_service_command("sc.exe", &["stop", name]).await;
+            }
+        }
+        ServiceState::Unknown => return Err("could not query SCM state".into()),
+    }
+
+    let mut state = wait_for_service_stop(name, first_wait_deadline).await;
+    if matches!(
+        state,
+        ServiceState::Running | ServiceState::StartPending | ServiceState::StopPending
+    ) && std::time::Instant::now() < deadline
+    {
+        run_service_command("net.exe", &["stop", name, "/y"]).await;
+        state = wait_for_service_stop(name, deadline).await;
+    }
+
+    match state {
+        ServiceState::Stopped | ServiceState::NotFound => Ok(()),
+        ServiceState::AccessDenied => Err("access denied while stopping service".into()),
+        ServiceState::StopPending => Err("service is still STOP_PENDING".into()),
+        ServiceState::Running | ServiceState::StartPending => {
+            Err("service is still running after stop retries".into())
+        }
+        ServiceState::Unknown => Err("could not verify final SCM state".into()),
     }
 }
 
@@ -619,6 +672,151 @@ pub fn process_image_matches(handle: HANDLE, expected_exe_name: &str) -> bool {
             .file_name()
             .and_then(|n| n.to_str())
             .map_or(false, |n| n.eq_ignore_ascii_case(expected_exe_name))
+    }
+}
+
+fn process_image_path(handle: HANDLE) -> Option<PathBuf> {
+    let mut buf = [0u16; 1024];
+    let mut size = buf.len() as u32;
+    unsafe {
+        QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_FORMAT(0),
+            PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        )
+        .ok()?;
+    }
+    Some(PathBuf::from(String::from_utf16_lossy(&buf[..size as usize])))
+}
+
+fn process_matches_paths(handle: HANDLE, expected: &[String]) -> bool {
+    process_image_path(handle)
+        .and_then(|p| fs::canonicalize(p).ok())
+        .map(|p| p.to_string_lossy().to_lowercase())
+        .is_some_and(|p| expected.contains(&p))
+}
+
+fn process_id_exists(pid: u32) -> bool {
+    unsafe {
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return false;
+        };
+        let mut entry = PROCESSENTRY32W::default();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = false;
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                if entry.th32ProcessID == pid {
+                    found = true;
+                    break;
+                }
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snapshot);
+        found
+    }
+}
+
+/// Terminates only processes whose canonical image path belongs to this install,
+/// then waits on the same process handles so WinDivert handles are released.
+pub fn terminate_processes_at_paths(
+    paths: &[PathBuf],
+    wait_timeout: Duration,
+) -> Result<usize, String> {
+    let expected: Vec<String> = paths
+        .iter()
+        .filter_map(|p| fs::canonicalize(p).ok())
+        .map(|p| p.to_string_lossy().to_lowercase())
+        .collect();
+    if expected.is_empty() {
+        return Ok(0);
+    }
+
+    let expected_names: Vec<String> = paths
+        .iter()
+        .filter_map(|p| p.file_name())
+        .filter_map(|n| n.to_str())
+        .map(|n| n.to_lowercase())
+        .collect();
+    let mut terminated = 0usize;
+    let mut errors = Vec::new();
+    let wait_ms = wait_timeout.as_millis().min(u32::MAX as u128) as u32;
+
+    unsafe {
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return Err("could not enumerate processes".into());
+        };
+
+        let mut entry = PROCESSENTRY32W::default();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                let len = entry
+                    .szExeFile
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(entry.szExeFile.len());
+                let exe_name = String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase();
+                let pid = entry.th32ProcessID;
+
+                if pid != std::process::id() && expected_names.contains(&exe_name) {
+                    match OpenProcess(
+                        PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
+                        false,
+                        pid,
+                    ) {
+                        Ok(handle) => {
+                            if process_matches_paths(handle, &expected) {
+                                if TerminateProcess(handle, 1).is_ok() {
+                                    match WaitForSingleObject(handle, wait_ms) {
+                                        WAIT_OBJECT_0 => terminated += 1,
+                                        WAIT_TIMEOUT => {
+                                            errors.push(format!("PID {pid} did not exit in time"));
+                                        }
+                                        _ => errors.push(format!("could not wait for PID {pid}")),
+                                    }
+                                } else {
+                                    errors.push(format!("could not terminate PID {pid}"));
+                                }
+                            }
+                            let _ = CloseHandle(handle);
+                        }
+                        Err(e) => {
+                            let owned_and_alive = OpenProcess(
+                                PROCESS_QUERY_LIMITED_INFORMATION,
+                                false,
+                                pid,
+                            )
+                            .map(|handle| {
+                                let matches = process_matches_paths(handle, &expected);
+                                let _ = CloseHandle(handle);
+                                matches
+                            })
+                            .unwrap_or(false)
+                                && process_id_exists(pid);
+                            if owned_and_alive {
+                                errors.push(format!("could not open PID {pid}: {}", e));
+                            }
+                        }
+                    }
+                }
+
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snapshot);
+    }
+
+    if errors.is_empty() {
+        Ok(terminated)
+    } else {
+        Err(errors.join("; "))
     }
 }
 

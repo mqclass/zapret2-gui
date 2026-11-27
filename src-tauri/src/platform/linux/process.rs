@@ -570,7 +570,9 @@ pub async fn stop_winws2_gracefully(
 /// death and failed starts — see `platform::nftables`), so this
 /// best-effort pre-retry reset hook has no Linux state to clean and
 /// stays an explicit no-op.
-pub async fn cleanup_windivert_driver() {}
+pub async fn cleanup_windivert_driver() -> Result<(), String> {
+    Ok(())
+}
 
 /// Verifies through `/proc/<pid>/exe` that the process image file name
 /// still matches the expected executable name.
@@ -591,6 +593,59 @@ pub fn process_image_matches(pid: u32, expected_exe_name: &str) -> bool {
         .unwrap_or_default()
         .trim_end_matches(" (deleted)");
     name == expected_exe_name
+}
+
+/// Terminates only processes from this install and waits for their `/proc` entry
+/// to disappear before the caller tears down packet-filtering state.
+pub fn terminate_processes_at_paths(
+    paths: &[PathBuf],
+    wait_timeout: Duration,
+) -> Result<usize, String> {
+    let expected: Vec<PathBuf> = paths
+        .iter()
+        .filter_map(|p| fs::canonicalize(p).ok())
+        .collect();
+    let mut terminated = 0usize;
+    let mut errors = Vec::new();
+    let entries = match fs::read_dir("/proc") {
+        Ok(entries) => entries,
+        Err(e) => return Err(e.to_string()),
+    };
+
+    for entry in entries.flatten() {
+        let Some(pid) = entry.file_name().to_string_lossy().parse::<u32>().ok() else {
+            continue;
+        };
+        if pid <= 1 || pid == std::process::id() {
+            continue;
+        }
+        let Ok(exe) = fs::read_link(entry.path().join("exe")) else {
+            continue;
+        };
+        if !expected.contains(&exe) {
+            continue;
+        }
+        if unsafe { libc::kill(pid as i32, libc::SIGKILL) } != 0 {
+            errors.push(format!("PID {pid}: {}", io::Error::last_os_error()));
+            continue;
+        }
+
+        let deadline = std::time::Instant::now() + wait_timeout;
+        while entry.path().join("exe").exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if entry.path().join("exe").exists() {
+            errors.push(format!("PID {pid} did not exit in time"));
+        } else {
+            terminated += 1;
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(terminated)
+    } else {
+        Err(errors.join("; "))
+    }
 }
 
 /// Discovers and terminates any orphaned `nfqws2`/`nfqws` engine processes,

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
 
 use commands::AppState;
 use commands::CachedBinaries;
@@ -90,6 +91,7 @@ async fn main() {
             }
         })
         .manage(AppState {
+            exit_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             backend: Arc::new(parking_lot::RwLock::new(
                 crate::svc_client::SupervisorBackend::Local(supervisor_clone),
             )),
@@ -170,14 +172,21 @@ async fn main() {
                 let backend = app_state.backend.clone();
                 let tgproxy_backend = app_state.tgproxy.clone();
                 let restored = app_state.classifier_restored.clone();
+                let exit_started = app_state.exit_started.clone();
                 let handle_clone = handle.clone();
                 tauri::async_runtime::spawn(async move {
+                    if exit_started.load(std::sync::atomic::Ordering::SeqCst) {
+                        return;
+                    }
                     match crate::svc_client::attach_to_running_svc(
                         std::time::Duration::from_secs(10),
                     )
                     .await
                     {
                         Ok(Some(client)) => {
+                            if exit_started.load(std::sync::atomic::Ordering::SeqCst) {
+                                return;
+                            }
                             *backend.write() =
                                 crate::svc_client::SupervisorBackend::Remote(client.clone());
                             // The bridge follows into the svc; stop any
@@ -265,6 +274,13 @@ async fn main() {
                 .clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                if handle
+                    .state::<crate::commands::AppState>()
+                    .exit_started
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    return;
+                }
                 let enabled = crate::platform::settings::load_settings().tgproxy_enabled;
                 if enabled {
                     // Drop the parking_lot guard before .await: the guard is
@@ -291,6 +307,13 @@ async fn main() {
                 tauri::async_runtime::spawn(async move {
                     // Small delay to allow Windows network adapters to finish DHCP/gateway connection
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    if app_auto
+                        .state::<crate::commands::AppState>()
+                        .exit_started
+                        .load(std::sync::atomic::Ordering::SeqCst)
+                    {
+                        return;
+                    }
 
                     // Migrate to the detached svc when its binary is present.
                     // Bind the clone first: parking_lot guard is not Send.
@@ -322,6 +345,13 @@ async fn main() {
                         } else if bridge_was_running {
                             old_tgproxy.restart_local().await;
                         }
+                    }
+                    if app_auto
+                        .state::<crate::commands::AppState>()
+                        .exit_started
+                        .load(std::sync::atomic::Ordering::SeqCst)
+                    {
+                        return;
                     }
                     let b = backend_auto.read().clone();
                     if let Err(e) = b.start(None, None).await {
@@ -419,7 +449,18 @@ async fn main() {
                                 // components, then the svc (which owns the engine +
                                 // bridge once attached) stops both and terminates
                                 // itself. The X button only hides to tray.
-                                commands::graceful_exit(&h).await;
+                                if let Err(e) = commands::graceful_exit(&h).await {
+                                    eprintln!("Quit teardown failed: {e}");
+                                    if let Some(window) = h.get_webview_window("main") {
+                                        let _ = window.show();
+                                    }
+                                    h.dialog()
+                                        .message(format!(
+                                            "Движок или драйвер не удалось остановить полностью.\n\n{e}"
+                                        ))
+                                        .title("Не удалось завершить программу")
+                                        .show(|_| {});
+                                }
                             });
                         }
                         _ => {}
